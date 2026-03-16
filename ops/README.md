@@ -40,3 +40,6 @@ Observability
 - Klíčové metriky: `write.webhook.verify_fail`, `write.webhook.replay`,
   `write.webhook.retry_queue`, `write.webhook.retry_overdue`,
   `write.psp.<provider>.breaker_open`, `write.psp.<provider>.breaker_blocked`.
+- Protect scrape: if exposing `/metrics` via sidecar, put behind basic auth or mTLS
+  (`scrape_configs` example: `basic_auth` username/password) to avoid leaking
+  operational signals.

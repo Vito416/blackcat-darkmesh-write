@@ -21,4 +21,24 @@ local cmd = {
 
 local resp = process.route(cmd)
 assert_ok(resp)
+
+-- PSP replay fixture: shipping webhook duplicate should trigger REPLAY on second pass
+local ship = {
+  requestId = "smoke-ship-" .. tostring(os.time()),
+  action = "ProviderShippingWebhook",
+  payload = { provider = "demo", eventId = "evt-smoke", shipmentId = "ship-123", orderId = "order-1", status = "shipped" },
+  gatewayId = "smoke-gw",
+  nonce = "smoke-nonce-" .. tostring(math.random(1, 1e6)),
+  ts = os.time(),
+}
+local first = process.route(ship)
+if first.status ~= "OK" and first.code ~= "REPLAY" then
+  io.stderr:write("Smoke shipping webhook failed: " .. (first.message or "nil") .. "\n")
+  os.exit(1)
+end
+local second = process.route(ship)
+if second.status ~= "ERROR" or second.code ~= "REPLAY" then
+  io.stderr:write("Replay window not enforced\n")
+  os.exit(1)
+end
 print("ingest_smoke: OK")
