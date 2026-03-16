@@ -5,12 +5,14 @@ local Metrics = {}
 local LOG_PATH = os.getenv "METRICS_LOG" or "metrics/metrics.log"
 local ENABLED = os.getenv "METRICS_ENABLED" ~= "0"
 local PROM_PATH = os.getenv "METRICS_PROM_PATH"
+local NDJSON_PATH = os.getenv "METRICS_NDJSON_PATH"
 local FLUSH_EVERY = tonumber(os.getenv "METRICS_FLUSH_EVERY" or "0")
 local FLUSH_INTERVAL = tonumber(os.getenv "METRICS_FLUSH_INTERVAL_SEC" or "0")
 
 local counters, gauges = {}, {}
 local since_flush, last_flush, started = 0, os.time(), false
 local timer_ok, timer = pcall(require, "ao.shared.timer")
+local flush_ndjson
 
 local function ensure_dir(path)
   local dir = path:match "(.+)/[^/]+$"
@@ -65,6 +67,22 @@ function Metrics.flush_prom()
   end
   for k, v in pairs(gauges) do
     f:write(string.format("%s %s\n", k:gsub("[^%w_]", "_"), tostring(v)))
+  end
+  f:close()
+  flush_ndjson()
+end
+
+flush_ndjson = function()
+  if not NDJSON_PATH then return end
+  ensure_dir(NDJSON_PATH)
+  local f = io.open(NDJSON_PATH, "w")
+  if not f then return end
+  local ts = os.date "!%Y-%m-%dT%H:%M:%SZ"
+  for k, v in pairs(counters) do
+    f:write(string.format('{"ts":"%s","type":"counter","name":"%s","value":%s}\n', ts, k, v))
+  end
+  for k, v in pairs(gauges) do
+    f:write(string.format('{"ts":"%s","type":"gauge","name":"%s","value":%s}\n', ts, k, v))
   end
   f:close()
 end
