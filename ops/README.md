@@ -24,6 +24,8 @@ Key files
 Guard rails
 - Enforce signatures + nonce/timestamp replay window (`WRITE_REQUIRE_SIGNATURE`,
   `WRITE_REQUIRE_NONCE`).
+- Webhook hardening: replay window, signature verify (Stripe/PayPal), retry with
+  backoff, DLQ, metrics (`write.webhook.*`, `write.psp.*`).
 - Persist idempotent outcomes and WAL/outbox on durable storage; monitor sizes
   (`WRITE_WAL_MAX_BYTES`, queue metrics).
 - Emit HMAC on outbox events (`OUTBOX_HMAC_SECRET`); AO should verify before
@@ -31,3 +33,10 @@ Guard rails
 - WeaveDB/Arweave is immutable: do **not** persist PII or erasable data here.
   Only emit pseudonymous references; sensitive payloads must stay in the
   per-site worker/inbox with delete-on-download/TTL semantics.
+
+Observability
+- Prom scrape via `METRICS_PROM_PATH`; NDJSON export via `METRICS_NDJSON_PATH`;
+  log stream to `METRICS_LOG`.
+- Klíčové metriky: `write.webhook.verify_fail`, `write.webhook.replay`,
+  `write.webhook.retry_queue`, `write.webhook.retry_overdue`,
+  `write.psp.<provider>.breaker_open`, `write.psp.<provider>.breaker_blocked`.
