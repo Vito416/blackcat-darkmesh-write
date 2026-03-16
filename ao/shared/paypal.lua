@@ -3,10 +3,13 @@
 
 local crypto = require("ao.shared.crypto")
 local ok_json, cjson = pcall(require, "cjson.safe")
+local os_time = os.time
 
 local PayPal = {}
 
 local token_cache = nil
+local verify_cache = {}
+local VERIFY_TTL = tonumber(os.getenv("PAYPAL_VERIFY_CACHE_TTL") or "300")
 
 local function api_token()
   local now = os.time()
@@ -146,6 +149,11 @@ function PayPal.verify_webhook_remote(body, headers)
   if not (ok_json and body and headers) then return false, "missing" end
   local webhook_id = os.getenv("PAYPAL_WEBHOOK_ID")
   if not webhook_id then return false, "no_webhook_id" end
+  local tx_id = headers["PayPal-Transmission-Id"]
+  local now = os_time()
+  if tx_id and verify_cache[tx_id] and verify_cache[tx_id].expires_at > now then
+    return verify_cache[tx_id].ok, verify_cache[tx_id].err
+  end
   local token = api_token()
   if not token then return false, "no_token" end
   local payload = {
@@ -171,8 +179,10 @@ function PayPal.verify_webhook_remote(body, headers)
   fh:close()
   local resp = cjson.decode(resp_body)
   if resp and resp.verification_status == "SUCCESS" then
+    if tx_id then verify_cache[tx_id] = { ok = true, err = nil, expires_at = now + VERIFY_TTL } end
     return true
   end
+  if tx_id then verify_cache[tx_id] = { ok = false, err = "verification_failed", expires_at = now + VERIFY_TTL } end
   return false, "verification_failed"
 end
 
