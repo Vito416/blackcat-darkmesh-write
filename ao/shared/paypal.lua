@@ -6,7 +6,13 @@ local ok_json, cjson = pcall(require, "cjson.safe")
 
 local PayPal = {}
 
+local token_cache = nil
+
 local function api_token()
+  local now = os.time()
+  if token_cache and token_cache.expires_at and now < token_cache.expires_at and token_cache.token then
+    return token_cache.token
+  end
   local cid = os.getenv("PAYPAL_CLIENT_ID")
   local secret = os.getenv("PAYPAL_CLIENT_SECRET")
   if not (cid and secret) then return nil end
@@ -18,7 +24,15 @@ local function api_token()
   fh:close()
   if not ok_json then return nil end
   local decoded = cjson.decode(body)
-  return decoded and decoded.access_token
+  if decoded and decoded.access_token then
+    local ttl = tonumber(decoded.expires_in or 3000)
+    token_cache = {
+      token = decoded.access_token,
+      expires_at = now + math.max(60, ttl - 60),
+    }
+    return decoded.access_token
+  end
+  return nil
 end
 
 local function api_base()
