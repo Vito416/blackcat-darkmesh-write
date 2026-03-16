@@ -152,6 +152,7 @@ local function breaker_allows(provider)
   end
   local br = state.psp_breakers[provider or "default"]
   if br and br.open_until and os.time() < br.open_until then
+    counter("write.psp." .. provider .. ".breaker_blocked", 1)
     return false, "psp_circuit_open"
   end
   return true
@@ -169,6 +170,7 @@ local function breaker_note(provider, success)
     if br.count >= PSP_BREAKER_THRESHOLD then
       br.open_until = os.time() + PSP_BREAKER_COOLDOWN
       gauge("write.psp." .. provider .. ".breaker_open", 1)
+      counter("write.psp." .. provider .. ".breaker_open", 1)
     end
   end
   state.psp_breakers[provider] = br
@@ -185,6 +187,7 @@ local function mark_webhook_seen(key, ts)
   ts = ts or os.time()
   local prev = state.webhook_seen[key]
   if prev and (ts - prev) <= WEBHOOK_REPLAY_WINDOW then
+    counter("write.webhook.replay", 1)
     return false
   end
   state.webhook_seen[key] = ts
@@ -2067,7 +2070,10 @@ function handlers.ProviderWebhook(cmd)
     if secret and cmd.payload.raw and cmd.payload.raw.body then
       local sig = cmd.payload.raw.headers and cmd.payload.raw.headers["Stripe-Signature"]
       local ok_sig = stripe_ok and stripe.verify_webhook(cmd.payload.raw.body, sig, secret, tonumber(os.getenv("STRIPE_WEBHOOK_TOLERANCE") or "300"))
-      if not ok_sig then return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid") end
+      if not ok_sig then
+        webhook_counter("stripe", "verify_fail")
+        return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid")
+      end
     end
     local status_map = {
       ["payment_intent.succeeded"] = "captured",
@@ -2123,6 +2129,9 @@ function handlers.ProviderWebhook(cmd)
           local remote_ok = select(1, paypal.verify_webhook_remote(cmd.payload.raw.body, headers))
           ok_sig = remote_ok or ok_sig
         end
+      end
+      if not ok_sig then
+        webhook_counter("paypal", "verify_fail")
       end
       if strict and not ok_sig then return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid") end
     end
@@ -2268,6 +2277,11 @@ function handlers.RunWebhookRetries(cmd)
   state.webhook_retry = remaining
   persist.save("write_state", state)
   gauge("write.webhook.retry_queue", #state.webhook_retry)
+  local overdue = 0
+  for _, job in ipairs(state.webhook_retry) do
+    if job.nextAttempt and job.nextAttempt <= now then overdue = overdue + 1 end
+  end
+  gauge("write.webhook.retry_overdue", overdue)
   return ok(cmd.requestId, { retry_size = #state.webhook_retry })
 end
 
