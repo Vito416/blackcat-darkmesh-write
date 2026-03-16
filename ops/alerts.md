@@ -54,6 +54,33 @@
     summary: "Webhook retries accumulating"
     description: "Provider webhooks are failing repeatedly. Check retry queue and PSP status."
 
+- alert: WriteWebhookVerifyFail
+  expr: increase(write_webhook_paypal_verify_fail_total[5m]) > 3 or increase(write_webhook_stripe_verify_fail_total[5m]) > 3
+  for: 2m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Webhook signature verification failing"
+    description: "Repeated signature verify failures; check secrets/certs and replay attempts."
+
+- alert: WriteWebhookReplay
+  expr: increase(write_webhook_replay_total[5m]) > 3
+  for: 2m
+  labels:
+    severity: info
+  annotations:
+    summary: "Webhook replay detected"
+    description: "Webhook replay window hit; investigate duplicate deliveries."
+
+- alert: WriteWebhookRetryOverdue
+  expr: write_webhook_retry_overdue > 0
+  for: 2m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Webhook retries overdue"
+    description: "Queued retries are past due. Check PSP connectivity and retry parameters."
+
 ## Prometheus scrape example
 ```
 scrape_configs:
