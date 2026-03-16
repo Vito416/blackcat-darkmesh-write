@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Write actions (minimal)",
+  "type": "object",
+  "properties": {
+    "Action": {
+      "type": "string",
+      "enum": [
+        "SaveDraftPage",
+        "PublishPageVersion",
+        "UpsertRoute",
+        "UpsertProduct",
+        "UpsertProfile",
+        "AssignRole",
+        "GrantEntitlement",
+        "LinkDomain",
+        "RotateKey",
+        "CreateReceipt",
+        "IssueLoginToken",
+        "ConfirmLoginToken",
+        "DestroySession",
+        "FlagGateway",
+        "CreateOrder",
+        "UpdatePaymentStatus"
+      ]
+    }
+  },
+  "required": ["Action"],
+  "additionalProperties": true
+}

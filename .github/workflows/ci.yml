@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  verify:
+    name: Static checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Lua 5.4
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4 luarocks
+
+      - name: Install rocks from lockfile
+        run: |
+          if [ -f ops/rocks.lock ]; then
+            luarocks install --local --only-deps ops/rocks.lock || true
+            echo "$HOME/.luarocks/bin" >> $GITHUB_PATH
+          else
+            echo "ops/rocks.lock missing" >&2
+            exit 1
+          fi
+
+      - name: Install luacheck/stylua
+        run: |
+          if command -v luarocks >/dev/null 2>&1; then
+            luarocks install --local luacheck || true
+            luarocks install --local stylua || true
+            echo "$HOME/.luarocks/bin" >> $GITHUB_PATH
+          else
+            echo "luarocks not installed; failing luacheck/stylua install" && exit 1
+          fi
+
+      - name: Install gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64.tar.gz -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+
+      - name: Preflight (schemas + Lua syntax + fixtures)
+        env:
+          RUN_BATCH: 1
+          RUN_DEPS_CHECK: 1
+          WRITE_REQUIRE_SIGNATURE: 1  # ensure crypto deps present in CI
+        run: scripts/verify/preflight.sh
+
+      - name: Arweave hash verify (enforced on release)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/main')
+        env:
+          ARWEAVE_VERIFY_FILE: ${{ env.ARWEAVE_VERIFY_FILE }}
+          ARWEAVE_VERIFY_TX: ${{ env.ARWEAVE_VERIFY_TX }}
+        run: |
+          if [ -z "${ARWEAVE_VERIFY_FILE:-}" ] || [ -z "${ARWEAVE_VERIFY_TX:-}" ]; then
+            echo "ARWEAVE_VERIFY_* not set; failing release hash check" && exit 1
+          fi
+          scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
+
+      - name: Arweave hash verify (optional)
+        if: env.ARWEAVE_VERIFY_FILE != '' && env.ARWEAVE_VERIFY_TX != ''
+        env:
+          ARWEAVE_VERIFY_FILE: ${{ env.ARWEAVE_VERIFY_FILE }}
+          ARWEAVE_VERIFY_TX: ${{ env.ARWEAVE_VERIFY_TX }}
+        run: scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
+
+      - name: Luacheck
+        run: |
+          if command -v luacheck >/dev/null 2>&1; then
+            luacheck ao scripts
+          else
+            echo "luacheck missing" && exit 1
+          fi
+
+      - name: Stylua
+        run: |
+          if command -v stylua >/dev/null 2>&1; then
+            stylua --check ao scripts
+          else
+            echo "stylua missing" && exit 1
+          fi
+
+      - name: Secret scan (gitleaks)
+        run: gitleaks detect --no-git -v
+
+      - name: Checksum alert (wal/queue)
+        run: scripts/verify/checksum_alert.sh
