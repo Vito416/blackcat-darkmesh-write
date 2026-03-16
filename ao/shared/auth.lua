@@ -100,11 +100,11 @@ function Auth.verify_detached(_message, _sig)
   return true
 end
 
-function Auth.require_nonce_and_timestamp(_msg)
+function Auth.require_nonce_and_timestamp(msg)
   if not REQUIRE_TS then
-    return Auth.require_nonce(_msg)
+    return Auth.require_nonce(msg)
   end
-  local ts = _msg.ts or _msg.timestamp or _msg["X-Timestamp"]
+  local ts = msg.ts or msg.timestamp or msg["X-Timestamp"]
   if not ts then
     return false, "missing_timestamp"
   end
@@ -116,7 +116,7 @@ function Auth.require_nonce_and_timestamp(_msg)
   if math.abs(now - ts) > TS_DRIFT then
     return false, "timestamp_skew"
   end
-  local ok, err = Auth.require_nonce(_msg)
+  local ok, err = Auth.require_nonce(msg)
   if not ok then return ok, err end
   return true
 end

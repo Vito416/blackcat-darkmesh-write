@@ -10,7 +10,7 @@ local PayPal = {}
 local token_cache = nil
 local verify_cache = {}
 local VERIFY_TTL = tonumber(os.getenv("PAYPAL_VERIFY_CACHE_TTL") or "300")
-local CERT_CACHE = {}
+local CERT_CACHE = {} -- track cert URLs seen (placeholder for future reuse)
 local CERT_TTL = tonumber(os.getenv("PAYPAL_CERT_CACHE_TTL") or "21600") -- 6h
 
 local function api_token()
