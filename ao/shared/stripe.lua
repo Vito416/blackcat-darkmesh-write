@@ -3,8 +3,12 @@
 
 local crypto = require("ao.shared.crypto")
 local ok_json, cjson = pcall(require, "cjson.safe")
+local os_time = os.time
 
 local Stripe = {}
+
+local VERIFY_CACHE = {}
+local VERIFY_TTL = tonumber(os.getenv("STRIPE_VERIFY_CACHE_TTL") or "300")
 
 local function api_request(method, path, form)
   local key = os.getenv("STRIPE_API_KEY")
@@ -143,16 +147,23 @@ end
 -- Verify Stripe webhook signature (t=timestamp,v1=signature)
 function Stripe.verify_webhook(body, sig_header, secret, tolerance_sec)
   if not (body and sig_header and secret) then return false end
+  local cache_key = sig_header
+  local now = os_time()
+  if cache_key and VERIFY_CACHE[cache_key] and VERIFY_CACHE[cache_key].expires_at > now then
+    return VERIFY_CACHE[cache_key].ok
+  end
   local parts = parse_sig_header(sig_header)
   if not (parts.t and parts.v1) then return false end
   local signed_payload = parts.t .. "." .. body
   local expected = crypto.hmac_sha256_hex(signed_payload, secret)
   if not expected then return false end
   if expected ~= parts.v1 then return false end
-  local now = os.time()
   local ts = tonumber(parts.t)
   local tol = tolerance_sec or tonumber(os.getenv("STRIPE_WEBHOOK_TOLERANCE") or "300")
   if ts and math.abs(now - ts) > tol then return false end
+  if cache_key then
+    VERIFY_CACHE[cache_key] = { ok = true, expires_at = now + VERIFY_TTL }
+  end
   return true
 end
 
