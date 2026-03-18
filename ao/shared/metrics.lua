@@ -55,6 +55,13 @@ function Metrics.gauge(name, value)
   if os.getenv("METRICS_DISABLED") == "1" then return end
   gauges[name] = value
   log { name = name, value = value }
+  since_flush = since_flush + 1
+  if FLUSH_EVERY > 0 and since_flush >= FLUSH_EVERY then
+    Metrics.flush_prom()
+    since_flush = 0
+  elseif FLUSH_EVERY == 0 then
+    Metrics.flush_prom()
+  end
 end
 
 function Metrics.flush_prom()

@@ -18,6 +18,15 @@
     summary: "Outbox queue backlog is high"
     description: "Pending events exceed 100. Inspect AO bridge connectivity or retry settings."
 
+- alert: WriteOutboxDLQNonEmpty
+  expr: write_outbox_dlq_size > 0
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Outbox DLQ has messages"
+    description: "Outbox deliveries are failing permanently and collecting in the DLQ. Check bridge connectivity, payload schema, or downstream AO health."
+
 - alert: WriteWalSizeHigh
   expr: write_wal_bytes > 5242880
   for: 5m

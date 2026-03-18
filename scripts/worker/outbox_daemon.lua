@@ -3,12 +3,17 @@
 
 local bridge = require("ao.shared.bridge")
 local storage = require("ao.shared.storage")
+local metrics_ok, metrics = pcall(require, "ao.shared.metrics")
 local ok_luv, uv = pcall(require, "luv")
 
 local OUTBOX_PATH = os.getenv("WRITE_OUTBOX_PATH")
 local retry_limit = tonumber(os.getenv("OUTBOX_RETRY_LIMIT") or os.getenv("RETRY_LIMIT") or "5")
 local backoff_ms = tonumber(os.getenv("OUTBOX_BACKOFF_MS") or "500")
 local prom = os.getenv("PROM_FORMAT") == "1"
+
+local function gauge(name, value)
+  if metrics_ok and metrics.gauge then metrics.gauge(name, value) end
+end
 
 if OUTBOX_PATH then storage.load(OUTBOX_PATH) end
 
@@ -45,6 +50,7 @@ local function flush_queue()
   end
   storage.put("outbox_queue", keep)
   if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
+  gauge("write.outbox.queue_size", #keep)
 
   -- retry DLQ too
   local dlq = storage.get("outbox_dlq") or {}
@@ -58,6 +64,7 @@ local function flush_queue()
   end
   storage.put("outbox_dlq", dlq_keep)
   if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
+  gauge("write.outbox.dlq_size", #dlq_keep)
 
   if prom then
     print(string.format("outbox_sent %d\noutbox_queue_pending %d\noutbox_dlq_size %d", sent, #keep, #dlq_keep))
