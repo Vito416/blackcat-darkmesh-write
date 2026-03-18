@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: [main, develop]
 
+permissions: { contents: read }
+
 jobs:
   verify:
     name: Static checks
@@ -13,6 +15,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install Lua 5.4
         run: |
@@ -111,7 +115,7 @@ jobs:
 
       - name: Publish → outbox HMAC smoke
         env:
-          OUTBOX_HMAC_SECRET: 0123456789abcdef0123456789abcdef
+          OUTBOX_HMAC_SECRET: ${{ secrets.OUTBOX_HMAC_SECRET_TEST || secrets.OUTBOX_HMAC_SECRET || 'ci-placeholder' }}
         run: lua5.4 scripts/verify/publish_outbox_mock_ao.lua
 
       - name: Bundle export (if export file present)
