@@ -101,6 +101,9 @@ jobs:
       - name: Publish flow smoke
         run: lua5.4 scripts/verify/publish_flow.lua
 
+      - name: Idempotency/replay smoke
+        run: lua5.4 scripts/verify/idempotency_replay.lua
+
       - name: Publish → outbox HMAC smoke
         env:
           OUTBOX_HMAC_SECRET: 0123456789abcdef0123456789abcdef
