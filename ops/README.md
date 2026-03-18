@@ -39,7 +39,9 @@ Observability
   log stream to `METRICS_LOG`.
 - Klíčové metriky: `write.webhook.verify_fail`, `write.webhook.replay`,
   `write.webhook.retry_queue`, `write.webhook.retry_overdue`,
-  `write.psp.<provider>.breaker_open`, `write.psp.<provider>.breaker_blocked`.
+  `write.webhook.retry_lag_seconds`, `write.wal.apply_duration_seconds`,
+  `write.idempotency.collisions_total`, `write.psp.<provider>.breaker_open`,
+  `write.psp.<provider>.breaker_blocked`.
 - HMAC/outbox: `write.outbox.queue_size`, `write.outbox.hmac_missing` (if export emits), monitor WAL size `write_wal_bytes`.
 - Protect scrape: if exposing `/metrics` via sidecar, put behind basic auth or mTLS
   (`scrape_configs` example: `basic_auth` username/password) to avoid leaking

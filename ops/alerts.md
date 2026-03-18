@@ -177,6 +177,33 @@
     summary: "Webhook retries overdue"
     description: "Queued retries are past due. Check PSP connectivity and retry parameters."
 
+- alert: WriteWebhookRetryLagHigh
+  expr: write_webhook_retry_lag_seconds > 60
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Webhook retry lag > 60s"
+    description: "Webhook retries are waiting more than a minute past their scheduled run; investigate worker scheduling and provider health."
+
+- alert: WriteWalApplySlow
+  expr: avg_over_time(write_wal_apply_duration_seconds[5m]) > 0.5
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "WAL apply taking >500ms on average"
+    description: "Write handler + WAL append is slow. Check disk IO, signature verification, and payload size."
+
+- alert: WriteIdempotencyCollisions
+  expr: increase(write_idempotency_collisions_total[10m]) > 5
+  for: 5m
+  labels:
+    severity: info
+  annotations:
+    summary: "Idempotency collisions climbing"
+    description: "Repeated Request-Ids are being replayed. Confirm clients reuse ids only for retries and check gateways for duplicate submits."
+
 ## Prometheus scrape example
 ```
 scrape_configs:

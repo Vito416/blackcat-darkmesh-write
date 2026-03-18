@@ -2333,6 +2333,14 @@ function handlers.RunWebhookRetries(cmd)
   for _, job in ipairs(state.webhook_retry) do
     if job.nextAttempt and job.nextAttempt <= now then overdue = overdue + 1 end
   end
+  local max_lag = 0
+  for _, job in ipairs(state.webhook_retry) do
+    if job.nextAttempt then
+      local lag = now - job.nextAttempt
+      if lag > max_lag then max_lag = lag end
+    end
+  end
+  gauge("write.webhook.retry_lag_seconds", math.max(0, max_lag))
   gauge("write.webhook.retry_overdue", overdue)
   return ok(cmd.requestId, { retry_size = #state.webhook_retry })
 end
@@ -2341,7 +2349,10 @@ end
 function M.route(command)
   -- idempotency first: if we have it, return stored response.
   local stored = idem.lookup(command.requestId or command["Request-Id"])
-  if stored then return stored end
+  if stored then
+    counter("write.idempotency.collisions", 1)
+    return stored
+  end
 
   local ok_jwt, jwt_err = auth.consume_jwt(command)
   if not ok_jwt then
@@ -2414,7 +2425,12 @@ function M.route(command)
     return err(command.requestId, "UNKNOWN_ACTION", "Handler not found")
   end
 
+  local apply_started = os.clock()
   local response = handler(command)
+  if apply_started then
+    local apply_duration = os.clock() - apply_started
+    gauge("write.wal.apply_duration_seconds", apply_duration)
+  end
   idem.record(command.requestId, response)
   audit.append({
     action = command.action,

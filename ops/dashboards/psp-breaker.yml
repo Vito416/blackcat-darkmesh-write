@@ -30,9 +30,9 @@ dashboard:
       type: timeseries
       datasource: Prometheus
       targets:
-        - expr: rate(write_psp_stripe_breaker_blocked[5m])
+        - expr: rate(write_psp_stripe_breaker_blocked_total[5m])
           legendFormat: stripe blocked/s
-        - expr: rate(write_psp_paypal_breaker_blocked[5m])
+        - expr: rate(write_psp_paypal_breaker_blocked_total[5m])
           legendFormat: paypal blocked/s
     - title: "Webhook retries (Stripe/PayPal)"
       type: timeseries
@@ -60,17 +60,41 @@ dashboard:
       type: stat
       datasource: Prometheus
       targets:
-        - expr: write.webhook.retry_queue
+        - expr: write_webhook_retry_queue
           legendFormat: retry_queue
     - title: "DLQ size"
       type: stat
       datasource: Prometheus
       targets:
-        - expr: write.webhook.dlq_size
+        - expr: write_webhook_dlq_size
           legendFormat: dlq_size
     - title: "WAL size (bytes)"
       type: stat
       datasource: Prometheus
       targets:
-        - expr: write.wal.bytes
+        - expr: write_wal_bytes
           legendFormat: wal_bytes
+    - title: "Webhook retry lag (sec)"
+      type: timeseries
+      datasource: Prometheus
+      fieldConfig:
+        defaults: { unit: s }
+      targets:
+        - expr: write_webhook_retry_lag_seconds
+          legendFormat: lag (s)
+    - title: "WAL apply duration"
+      type: timeseries
+      datasource: Prometheus
+      fieldConfig:
+        defaults: { unit: s }
+      targets:
+        - expr: avg_over_time(write_wal_apply_duration_seconds[5m])
+          legendFormat: avg 5m
+        - expr: max_over_time(write_wal_apply_duration_seconds[5m])
+          legendFormat: max 5m
+    - title: "Idempotency collisions (5m)"
+      type: stat
+      datasource: Prometheus
+      targets:
+        - expr: increase(write_idempotency_collisions_total[5m])
+          legendFormat: collisions_5m
