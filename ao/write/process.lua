@@ -34,6 +34,16 @@ local function counter(name, delta)
 end
 
 local function enqueue_event(ev)
+  -- attach HMAC for downstream AO
+  if OUTBOX_HMAC_SECRET and OUTBOX_HMAC_SECRET ~= "" then
+    local ok_crypto, crypto = pcall(require, "ao.shared.crypto")
+    if ok_crypto and crypto.hmac_sha256_hex then
+      local payload = (ev["Site-Id"] or ev.siteId or ev.tenant or "") ..
+        "|" .. (ev["Page-Id"] or ev["Order-Id"] or ev.key or ev["Key"] or ev.resourceId or "") ..
+        "|" .. (ev.Version or ev["Manifest-Tx"] or ev.Amount or ev.Total or ev.ts or ev.timestamp or "")
+      ev.Hmac = crypto.hmac_sha256_hex(payload, OUTBOX_HMAC_SECRET)
+    end
+  end
   local q = storage.get("outbox_queue") or {}
   table.insert(q, { event = ev, status = "pending", attempts = 0, nextAttempt = os.time() })
   storage.put("outbox_queue", q)
@@ -61,6 +71,15 @@ local WEBHOOK_RETRY_MAX = tonumber(os.getenv("WRITE_WEBHOOK_RETRY_MAX") or "5")
 local WEBHOOK_RETRY_BASE = tonumber(os.getenv("WRITE_WEBHOOK_RETRY_BASE_SECONDS") or "30")
 
 local M = {}
+
+local role_policy = {
+  PublishPageVersion = { "admin", "editor" },
+  UpsertRoute = { "admin", "editor" },
+  CreateWebhook = { "admin", "ops" },
+  RunWebhookRetries = { "ops", "admin" },
+  ProviderWebhook = { "ops", "admin" },
+  ProviderShippingWebhook = { "ops", "admin" },
+}
 
 local function sha256_str(str)
   local tmp = os.tmpname()
@@ -2312,9 +2331,14 @@ function M.route(command)
     end
   end
 
-  local ok_nonce, nonce_err = auth.require_nonce(command)
+  local ok_nonce, nonce_err = auth.require_nonce_and_timestamp(command)
   if not ok_nonce then
     return err(command.requestId, "UNAUTHORIZED", nonce_err or "nonce failed")
+  end
+
+  local ok_rl, rl_err = auth.rate_limit_check(command)
+  if not ok_rl then
+    return err(command.requestId, "RATE_LIMITED", rl_err or "rate_limited")
   end
 
   _G.current_caller_id = command.callerId or command["Caller-Id"] or command.gatewayId or command["Gateway-Id"]
@@ -2338,7 +2362,7 @@ function M.route(command)
   if not ok_caller then
     return err(command.requestId, "FORBIDDEN", caller_err or "caller denied")
   end
-  local ok_role, role_err = auth.check_role_for_action(command)
+  local ok_role, role_err = auth.check_role_for_action(command, role_policy)
   if not ok_role then
     return err(command.requestId, "FORBIDDEN", role_err or "role denied")
   end

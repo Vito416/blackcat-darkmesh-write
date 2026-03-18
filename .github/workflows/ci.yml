@@ -86,8 +86,31 @@ jobs:
             echo "stylua missing" && exit 1
           fi
 
+      - name: Ingest smoke
+        run: lua5.4 scripts/verify/ingest_smoke.lua
+
+      - name: Bundle export (if export file present)
+        env:
+          WRITE_OUTBOX_EXPORT_PATH: ${{ env.WRITE_OUTBOX_EXPORT_PATH }}
+        run: |
+          mkdir -p artifacts
+          EXPORT=${WRITE_OUTBOX_EXPORT_PATH:-dev/write-export.ndjson}
+          if [ -f "${EXPORT}" ]; then
+            WRITE_OUTBOX_EXPORT_PATH="$EXPORT" lua5.4 scripts/export/bundle_export.lua > artifacts/write-bundle.json
+          else
+            echo "WRITE_OUTBOX_EXPORT_PATH not found, skipping bundle export"
+          fi
+
       - name: Secret scan (gitleaks)
         run: gitleaks detect --no-git -v
 
       - name: Checksum alert (wal/queue)
         run: scripts/verify/checksum_alert.sh
+
+      - name: Upload bundle artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: write-bundle
+          path: artifacts/write-bundle.json
+          if-no-files-found: ignore

@@ -163,6 +163,25 @@ function Auth.compute_hash(value)
 end
 
 function Auth.verify_outbox_hmac(_msg)
+  local secret = os.getenv "OUTBOX_HMAC_SECRET"
+  if not secret or secret == "" then
+    return true
+  end
+  local provided = _msg.hmac or _msg.Hmac or _msg.hMAC
+  if not provided then
+    return false, "missing_outbox_hmac"
+  end
+  local crypto_ok, crypto = pcall(require, "ao.shared.crypto")
+  if not crypto_ok or not crypto.hmac_sha256_hex then
+    return false, "crypto_missing"
+  end
+  local payload = (_msg["Site-Id"] or _msg.siteId or _msg.tenant or "") ..
+    "|" .. (_msg["Page-Id"] or _msg["Order-Id"] or _msg.key or _msg["Key"] or _msg.resourceId or "") ..
+    "|" .. (_msg.Version or _msg["Manifest-Tx"] or _msg.Amount or _msg.Total or _msg.ts or _msg.timestamp or "")
+  local expected = crypto.hmac_sha256_hex(payload, secret)
+  if not expected or expected:lower() ~= tostring(provided):lower() then
+    return false, "outbox_hmac_mismatch"
+  end
   return true
 end
 
@@ -179,6 +198,11 @@ function Auth.check_caller_scope(_msg)
 end
 
 function Auth.check_role_for_action(msg, policy)
+  -- default: require a role to be present
+  local role = msg["Actor-Role"] or msg.actorRole or msg.role
+  if not role or role == "" then
+    return false, "missing_role"
+  end
   return Auth.require_role_for_action(msg, policy)
 end
 
