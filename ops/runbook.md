@@ -36,6 +36,9 @@ secrets live upstream (gateway/web).
 - Forwarder/worker: `ops/outbox-daemon.service` can drive
   `scripts/bridge/forward_outbox_http.lua` (configure `AO_ENDPOINT`,
   `AO_API_KEY`, `AO_QUEUE_PATH`, `AO_QUEUE_LOG_PATH`).
+- Rotation: if `write.wal.bytes` > threshold (see alert), archive/move WAL and
+  restart forwarder. Prefer logrotate-style: copytruncate the WAL file after
+  pausing forwarder, keep immutable bundle export as audit trail.
 
 ## Incident response
 - Duplicate/replay complaints: inspect `WRITE_IDEM_PATH` (if enabled) and WAL;

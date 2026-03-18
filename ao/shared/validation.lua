@@ -353,6 +353,9 @@ local validators = {
     if not p or not p.provider or not p.shipmentId then
       return false, { "missing:provider,shipmentId" }
     end
+    if p.status and type(p.status) ~= "string" then
+      return false, { "invalid:status" }
+    end
     if p.items then
       if type(p.items) ~= "table" then
         return false, { "invalid:items" }
@@ -362,6 +365,24 @@ local validators = {
           return false, { "invalid:items:sku/qty" }
         end
       end
+    end
+    return true
+  end,
+  UpsertShipmentStatus = function(p)
+    if not p or not p.shipmentId or not p.status then
+      return false, { "missing:shipmentId,status" }
+    end
+    return true
+  end,
+  CreatePaymentIntent = function(p)
+    if not p or not p.orderId or not p.amount or not p.currency then
+      return false, { "missing:orderId,amount,currency" }
+    end
+    return true
+  end,
+  ConfirmPayment = function(p)
+    if not p or not p.paymentId or not p.provider then
+      return false, { "missing:paymentId,provider" }
     end
     return true
   end,

@@ -60,3 +60,15 @@ dashboard:
       targets:
         - expr: write.webhook.retry_queue
           legendFormat: retry_queue
+    - title: "DLQ size"
+      type: stat
+      datasource: Prometheus
+      targets:
+        - expr: write.webhook.dlq_size
+          legendFormat: dlq_size
+    - title: "WAL size (bytes)"
+      type: stat
+      datasource: Prometheus
+      targets:
+        - expr: write.wal.bytes
+          legendFormat: wal_bytes
