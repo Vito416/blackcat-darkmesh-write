@@ -55,3 +55,28 @@ secrets live upstream (gateway/web).
 - Lua rocks pinned in `ops/rocks.lock`; update via `luarocks` + lock refresh and
   commit the lockfile. If you add npm/pip deps, pin them and store the lock in
   `ops/`.
+
+## Restore / backup SOP
+- WAL/outbox live at `WRITE_WAL_PATH` / `WRITE_OUTBOX_PATH`; keep copies on durable
+  storage (rsync/s3) plus optional immutable export `WRITE_OUTBOX_EXPORT_PATH`.
+- Restore flow:
+  1) Stop forwarder/daemon (`systemctl stop outbox-daemon`).
+  2) Copy last good WAL/outbox snapshot back to the configured paths (preserve perms).
+  3) Run `scripts/verify/checksum_daemon.sh` once to recompute hashes; ensure
+     `scripts/verify/checksum_alert.sh` passes.
+  4) Start forwarder and monitor metrics `write.outbox.queue_size`,
+     `write.webhook.retry_queue`, `write.wal.bytes`.
+- If WAL is huge/corrupt: archive it, start with empty file, but keep the
+  immutable export for audit.
+
+## HMAC/JWT rotation
+- OUTBOX HMAC: set `OUTBOX_HMAC_SECRET=new`, deploy, then rotate AO verifier to
+  accept the new HMAC. After confirming, remove the old secret. Keep alerts on
+  `write.webhook.verify_fail` to catch drift.
+- JWT/nonce: keep `WRITE_REQUIRE_SIGNATURE=1`, `WRITE_REQUIRE_NONCE=1`.
+  Rotate `WRITE_JWT_HS_SECRET` by:
+  1) Add new secret to vault and env.
+  2) Deploy write with new secret.
+  3) Run `scripts/verify/action_validation.lua` and a smoke publish to ensure tokens are issued.
+- After rotation, run `scripts/verify/checksum_alert.sh` to confirm checksum
+  matches current WAL/outbox files.
