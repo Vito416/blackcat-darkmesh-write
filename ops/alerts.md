@@ -45,6 +45,15 @@
     summary: "PSP circuit breaker open"
     description: "PSP failures reached threshold for one or more providers. Requests are being short-circuited. Inspect provider-specific gauges write_psp_<provider>_breaker_open."
 
+- alert: WritePSPProviderBreaker
+  expr: (write_webhook_stripe_retry_overdue > 0) or (write_webhook_paypal_retry_overdue > 0)
+  for: 2m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Provider-specific breaker/retry issues"
+    description: "Stripe/PayPal retries overdue; check write_psp_<provider>_breaker_open and provider health."
+
 - alert: WriteWebhookProviderFailure
   expr: increase(write_webhook_paypal_retry_total[5m]) > 5 or increase(write_webhook_stripe_retry_total[5m]) > 5
   for: 2m

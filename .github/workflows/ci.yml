@@ -95,6 +95,9 @@ jobs:
       - name: Action validation
         run: lua5.4 scripts/verify/action_validation.lua
 
+      - name: Action validation (shipping/returns)
+        run: lua5.4 scripts/verify/action_validation_shipping.lua
+
       - name: Bundle export (if export file present)
         env:
           WRITE_OUTBOX_EXPORT_PATH: ${{ env.WRITE_OUTBOX_EXPORT_PATH }}

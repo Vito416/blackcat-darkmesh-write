@@ -287,6 +287,18 @@ local validators = {
     end
     return true
   end,
+  CreateShipment = function(p)
+    if not p or not p.orderId or not p.shipmentId or not p.status then
+      return false, { "missing:orderId,shipmentId,status" }
+    end
+    return true
+  end,
+  UpsertReturnStatus = function(p)
+    if not p or not p.returnId or not p.status then
+      return false, { "missing:returnId,status" }
+    end
+    return true
+  end,
 }
 
 function Validation.validate_action(action, payload)
