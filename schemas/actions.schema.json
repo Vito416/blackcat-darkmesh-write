@@ -149,6 +149,7 @@
       "properties": {
         "provider": { "type": "string" },
         "shipmentId": { "type": "string" },
+        "status": { "type": "string" },
         "items": {
           "type": "array",
           "items": {
@@ -169,7 +170,9 @@
         "status": { "type": "string" },
         "tracking": { "type": "string" },
         "carrier": { "type": "string" },
-        "orderId": { "type": "string" }
+        "orderId": { "type": "string" },
+        "trackingUrl": { "type": "string" },
+        "eta": { "type": "string" }
       },
       "required": ["shipmentId", "status"],
       "additionalProperties": true

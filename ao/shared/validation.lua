@@ -372,6 +372,12 @@ local validators = {
     if not p or not p.shipmentId or not p.status then
       return false, { "missing:shipmentId,status" }
     end
+    if p.trackingUrl and type(p.trackingUrl) ~= "string" then
+      return false, { "invalid:trackingUrl" }
+    end
+    if p.eta and type(p.eta) ~= "string" then
+      return false, { "invalid:eta" }
+    end
     return true
   end,
   CreatePaymentIntent = function(p)
