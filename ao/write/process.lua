@@ -34,14 +34,17 @@ local function counter(name, delta)
 end
 
 local function enqueue_event(ev)
-  -- attach HMAC for downstream AO
+  -- attach HMAC for downstream AO (prefer nested event if present)
   if OUTBOX_HMAC_SECRET and OUTBOX_HMAC_SECRET ~= "" then
-    local ok_crypto, crypto = pcall(require, "ao.shared.crypto")
-    if ok_crypto and crypto.hmac_sha256_hex then
-      local payload = (ev["Site-Id"] or ev.siteId or ev.tenant or "") ..
-        "|" .. (ev["Page-Id"] or ev["Order-Id"] or ev.key or ev["Key"] or ev.resourceId or "") ..
-        "|" .. (ev.Version or ev["Manifest-Tx"] or ev.Amount or ev.Total or ev.ts or ev.timestamp or "")
-      ev.Hmac = crypto.hmac_sha256_hex(payload, OUTBOX_HMAC_SECRET)
+    local target = ev.event or ev
+    if not (target.Hmac or target.hmac) then
+      local hmac, herr = auth.compute_outbox_hmac(target, OUTBOX_HMAC_SECRET)
+      if hmac then
+        target.Hmac = hmac
+        target.hmac = target.hmac or hmac
+      else
+        return err(ev.requestId, "SERVER_ERROR", herr or "outbox_hmac_failed")
+      end
     end
   end
   local q = storage.get("outbox_queue") or {}
@@ -91,6 +94,15 @@ local function sha256_str(str)
   if p then p:close() end
   os.remove(tmp)
   return out:match("^(%w+)")
+end
+
+local function attach_outbox_hmac(ev)
+  if not OUTBOX_HMAC_SECRET or OUTBOX_HMAC_SECRET == "" then return true end
+  local hmac, herr = auth.compute_outbox_hmac(ev, OUTBOX_HMAC_SECRET)
+  if not hmac then return false, herr end
+  ev.hmac = ev.hmac or hmac
+  ev.Hmac = ev.Hmac or hmac
+  return true
 end
 
 -- simple in-memory state; AO runtime would persist
@@ -204,11 +216,18 @@ local function breaker_note(provider, success)
 end
 
 local function mark_webhook_seen(key, ts)
-  ts = ts or os.time()
+  local now = os.time()
+  ts = tonumber(ts) or now
+  if ts > now + WEBHOOK_REPLAY_WINDOW then
+    ts = now
+  end
   local prev = state.webhook_seen[key]
-  if prev and (ts - prev) <= WEBHOOK_REPLAY_WINDOW then
-    counter("write.webhook.replay", 1)
-    return false
+  if prev then
+    if prev > now then prev = now end -- clamp any poisoned future value
+    if (ts - prev) <= WEBHOOK_REPLAY_WINDOW then
+      counter("write.webhook.replay", 1)
+      return false
+    end
   end
   state.webhook_seen[key] = ts
   return true
@@ -424,10 +443,8 @@ function handlers.PublishPageVersion(cmd)
     manifestTx = cmd.payload.manifestTx,
     requestId = cmd.requestId,
   }
-  if OUTBOX_HMAC_SECRET then
-    local msg = (cmd.payload.siteId or "") .. "|" .. (cmd.payload.pageId or "") .. "|" .. (cmd.payload.versionId or "")
-    ev.hmac = crypto.hmac_sha256_hex(msg, OUTBOX_HMAC_SECRET)
-  end
+  local ok_hmac, hmac_err = attach_outbox_hmac(ev)
+  if not ok_hmac then return err(cmd.requestId, "SERVER_ERROR", hmac_err or "outbox_hmac_failed") end
   enqueue_event(ev)
   table.insert(outbox, ev) -- keep in-memory outbox for tests/introspection
   local key = content_key(cmd.payload.siteId, cmd.payload.pageId)
@@ -1066,10 +1083,8 @@ function handlers.IssueRefund(cmd)
     vatRate = cmd.payload.vatRate,
     requestId = cmd.requestId,
   }
-  if OUTBOX_HMAC_SECRET then
-    local msg = (cmd.payload.orderId or "") .. "|" .. tostring(cmd.payload.amount or "") .. "|" .. (cmd.payload.currency or "")
-    ev.hmac = crypto.hmac_sha256_hex(msg, OUTBOX_HMAC_SECRET)
-  end
+  local ok_hmac, hmac_err = attach_outbox_hmac(ev)
+  if not ok_hmac then return err(cmd.requestId, "SERVER_ERROR", hmac_err or "outbox_hmac_failed") end
   enqueue_event(ev)
   return ok(cmd.requestId, { orderId = cmd.payload.orderId, amount = cmd.payload.amount, currency = cmd.payload.currency, vatRate = cmd.payload.vatRate })
 end
@@ -1652,10 +1667,8 @@ function handlers.CreatePaymentIntent(cmd)
     gatewayUrl = gatewayUrl,
     requestId = cmd.requestId,
   }
-  if OUTBOX_HMAC_SECRET then
-    local msg = table.concat({ pid, cmd.payload.orderId, tostring(cmd.payload.amount or ""), cmd.payload.currency or "" }, "|")
-    ev.hmac = crypto.hmac_sha256_hex(msg, OUTBOX_HMAC_SECRET)
-  end
+  local ok_hmac, hmac_err = attach_outbox_hmac(ev)
+  if not ok_hmac then return err(cmd.requestId, "SERVER_ERROR", hmac_err or "outbox_hmac_failed") end
   enqueue_event(ev)
   breaker_note(provider, status ~= "error")
   return ok(cmd.requestId, { paymentId = pid, provider = provider, status = status, providerPaymentId = providerPaymentId, gatewayUrl = gatewayUrl })
@@ -2261,9 +2274,8 @@ function handlers.ProviderShippingWebhook(cmd)
     labelUrl = sh.labelUrl,
     eta = sh.eta,
   }
-  if OUTBOX_HMAC_SECRET then
-    ev.hmac = crypto.hmac_sha256_hex((sh.orderId or "") .. "|" .. (sh.status or "") .. "|" .. (sh.tracking or ""), OUTBOX_HMAC_SECRET)
-  end
+  local ok_hmac, hmac_err = attach_outbox_hmac(ev)
+  if not ok_hmac then return err(cmd.requestId, "SERVER_ERROR", hmac_err or "outbox_hmac_failed") end
   enqueue_event({
     requestId = cmd.requestId,
     event = ev,
@@ -2431,16 +2443,6 @@ function M.route(command)
     local apply_duration = os.clock() - apply_started
     gauge("write.wal.apply_duration_seconds", apply_duration)
   end
-  idem.record(command.requestId, response)
-  audit.append({
-    action = command.action,
-    requestId = command.requestId,
-    status = response.status,
-    actor = command.actor,
-    tenant = command.tenant,
-    caller = command.caller,
-    callerId = command.callerId or command["Caller-Id"],
-  })
   local wal_entry
   do
     local ok, cjson = pcall(require, "cjson")
@@ -2457,20 +2459,37 @@ function M.route(command)
       }
       if WAL_PATH then
         local f = io.open(WAL_PATH, "a")
-        if f then
-          f:write(cjson.encode(wal_entry))
-          f:write("\n")
-          f:close()
-          local stat = io.popen(string.format("stat -c%s %q 2>/dev/null", WAL_PATH))
-          if stat then
-            local size = tonumber(stat:read("*a"))
-            stat:close()
-            if size then gauge("write.wal.bytes", size) end
-          end
+        if not f then
+          return err(command.requestId, "SERVER_ERROR", "wal_write_failed")
+        end
+        local ok_write = f:write(cjson.encode(wal_entry), "\n")
+        f:flush()
+        f:close()
+        if not ok_write then
+          return err(command.requestId, "SERVER_ERROR", "wal_write_failed")
+        end
+        local stat = io.popen(string.format("stat -c%s %q 2>/dev/null", WAL_PATH))
+        if stat then
+          local size = tonumber(stat:read("*a"))
+          stat:close()
+          if size then gauge("write.wal.bytes", size) end
         end
       end
     end
   end
+  local ok_idem, idem_err = idem.record(command.requestId, response)
+  if not ok_idem then
+    return err(command.requestId, "SERVER_ERROR", idem_err or "idempotency_persist_failed")
+  end
+  audit.append({
+    action = command.action,
+    requestId = command.requestId,
+    status = response.status,
+    actor = command.actor,
+    tenant = command.tenant,
+    caller = command.caller,
+    callerId = command.callerId or command["Caller-Id"],
+  })
   -- Append WAL entry to PII-scrubbed WeaveDB export for immutable audit
   if wal_entry then
     export.write({

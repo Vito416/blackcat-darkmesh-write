@@ -4,17 +4,43 @@
 local Auth = {}
 local os_time = os.time
 
-local NONCE_TTL = tonumber(os.getenv "AUTH_NONCE_TTL_SECONDS" or "300")
-local NONCE_MAX = tonumber(os.getenv "AUTH_NONCE_MAX_ENTRIES" or "2048")
-local REQUIRE_NONCE = os.getenv "AUTH_REQUIRE_NONCE" ~= "0" -- default ON
-local REQUIRE_TS = os.getenv "AUTH_REQUIRE_TIMESTAMP" ~= "0"
-local TS_DRIFT = tonumber(os.getenv "AUTH_MAX_CLOCK_SKEW" or "300")
-local RL_WINDOW = tonumber(os.getenv "AUTH_RATE_LIMIT_WINDOW_SECONDS" or "60")
-local RL_MAX = tonumber(os.getenv "AUTH_RATE_LIMIT_MAX_REQUESTS" or "200")
-local RL_CALLER_MAX = tonumber(os.getenv "AUTH_RATE_LIMIT_MAX_PER_CALLER" or "120")
+-- Allow WRITE_* aliases for ops/env parity
+local function getenv_multi(...)
+  for _, key in ipairs({...}) do
+    local val = os.getenv(key)
+    if val ~= nil then return val end
+  end
+  return nil
+end
+
+local NONCE_TTL = tonumber(getenv_multi("AUTH_NONCE_TTL_SECONDS", "WRITE_NONCE_TTL_SECONDS") or "300")
+local NONCE_MAX = tonumber(getenv_multi("AUTH_NONCE_MAX_ENTRIES", "WRITE_NONCE_MAX") or "2048")
+local REQUIRE_NONCE = getenv_multi("AUTH_REQUIRE_NONCE", "WRITE_REQUIRE_NONCE") ~= "0" -- default ON
+local REQUIRE_TS = getenv_multi("AUTH_REQUIRE_TIMESTAMP", "WRITE_REQUIRE_TIMESTAMP") ~= "0"
+local TS_DRIFT = tonumber(getenv_multi("AUTH_MAX_CLOCK_SKEW", "WRITE_MAX_CLOCK_SKEW") or "300")
+local RL_WINDOW = tonumber(getenv_multi("AUTH_RATE_LIMIT_WINDOW_SECONDS", "WRITE_RL_WINDOW_SECONDS") or "60")
+local RL_MAX = tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_REQUESTS", "WRITE_RL_MAX_REQUESTS") or "200")
+local RL_CALLER_MAX = tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_PER_CALLER", "WRITE_RL_CALLER_MAX") or "120")
+
+local REQUIRE_SIGNATURE = getenv_multi("WRITE_REQUIRE_SIGNATURE", "AUTH_REQUIRE_SIGNATURE") == "1"
+local SIG_TYPE = getenv_multi("WRITE_SIG_TYPE", "AUTH_SIG_TYPE") or "ed25519"
+local SIG_PUBLIC = getenv_multi("WRITE_SIG_PUBLIC", "AUTH_SIG_PUBLIC")
+local SIG_SECRET = getenv_multi("WRITE_SIG_SECRET", "AUTH_SIG_SECRET")
+local REQUIRE_JWT = getenv_multi("WRITE_REQUIRE_JWT", "AUTH_REQUIRE_JWT") == "1"
+local JWT_SECRET = getenv_multi("WRITE_JWT_HS_SECRET", "AUTH_JWT_HS_SECRET")
+
+local crypto_ok, crypto = pcall(require, "ao.shared.crypto")
+local jwt_ok, jwt = pcall(require, "ao.shared.jwt")
 
 local nonce_store = {}
 local rate_store = {}
+
+local function parse_iso8601(ts)
+  if type(ts) ~= "string" then return nil end
+  local y, m, d, H, M, S = ts:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)Z$")
+  if not y then return nil end
+  return os_time({ year = y, month = m, day = d, hour = H, min = M, sec = S, isdst = false })
+end
 
 -- Accept all for now; upstream caller controls trust.
 function Auth.enforce(_msg)
@@ -58,9 +84,29 @@ function Auth.require_role_for_action(msg, policy)
   return Auth.require_role(msg, roles)
 end
 
--- No-op JWT consumer (accept everything)
-function Auth.consume_jwt(_msg)
-  return true
+local function verify_jwt(msg)
+  if not REQUIRE_JWT then
+    return true
+  end
+  if not JWT_SECRET or JWT_SECRET == "" then
+    return false, "jwt_secret_missing"
+  end
+  if not jwt_ok or not jwt.verify_hs256 then
+    return false, "jwt_deps_missing"
+  end
+  local token = msg.jwt or msg.JWT or msg.token
+  if not token then
+    return false, "missing_jwt"
+  end
+  local ok, payload_or_err = jwt.verify_hs256(token, JWT_SECRET)
+  if not ok then
+    return false, payload_or_err or "jwt_invalid"
+  end
+  return true, payload_or_err
+end
+
+function Auth.consume_jwt(msg)
+  return verify_jwt(msg)
 end
 
 local function trim_nonce()
@@ -92,12 +138,84 @@ function Auth.require_nonce(msg)
   return true
 end
 
-function Auth.verify_signature(_msg)
-  return true
+local function pick(...)
+  for i = 1, select("#", ...) do
+    local v = select(i, ...)
+    if v and v ~= "" then return v end
+  end
+  return ""
 end
 
-function Auth.verify_detached(_message, _sig)
-  return true
+local function outbox_hmac_payload(msg)
+  local parts = {
+    pick(msg["Site-Id"], msg.siteId, msg.tenant, msg.tenantId, msg.gatewayId),
+    pick(msg["Page-Id"], msg.pageId, msg["Order-Id"], msg.orderId, msg.paymentId, msg["Payment-Id"], msg.key, msg["Key"], msg.resourceId, msg.shipmentId),
+    pick(msg.Version, msg.version, msg.versionId, msg["Manifest-Tx"], msg.manifestTx),
+    pick(msg.Amount, msg.amount, msg.Total, msg.totalAmount),
+    pick(msg.currency, msg.Currency),
+    pick(msg.ts, msg.timestamp),
+  }
+  return table.concat(parts, "|")
+end
+
+function Auth.compute_outbox_hmac(msg, secret)
+  secret = secret or os.getenv("OUTBOX_HMAC_SECRET")
+  if not secret or secret == "" then return nil, "missing_outbox_hmac_secret" end
+  if not crypto_ok or not crypto.hmac_sha256_hex then return nil, "crypto_missing" end
+  return crypto.hmac_sha256_hex(outbox_hmac_payload(msg), secret)
+end
+
+local function canonical_detached_message(msg)
+  return (msg.action or msg.Action or "") .. "|" .. (msg.tenant or msg.Tenant or msg["Tenant-Id"] or "") .. "|" .. (msg.requestId or msg["Request-Id"] or "")
+end
+
+local function verify_sig(msg)
+  if not REQUIRE_SIGNATURE then
+    return true
+  end
+  local sig = msg.signature
+  local sig_ref = msg.signatureRef or msg["Signature-Ref"]
+  if not sig_ref or sig_ref == "" then
+    return false, "missing_signature_ref"
+  end
+  if not sig or sig == "" then
+    return false, "missing_signature"
+  end
+  if not crypto_ok then
+    return false, "crypto_missing"
+  end
+  local payload = canonical_detached_message(msg)
+  if SIG_TYPE == "hmac" then
+    if not SIG_SECRET or SIG_SECRET == "" then return false, "missing_sig_secret" end
+    return crypto.verify_hmac_sha256(payload, SIG_SECRET, sig)
+  elseif SIG_TYPE == "ecdsa" then
+    if not SIG_PUBLIC then return false, "missing_sig_public" end
+    return crypto.verify_ecdsa_sha256(payload, sig, SIG_PUBLIC)
+  else -- default ed25519
+    if not SIG_PUBLIC then return false, "missing_sig_public" end
+    return crypto.verify_ed25519(payload, sig, SIG_PUBLIC)
+  end
+end
+
+function Auth.verify_signature(msg)
+  return verify_sig(msg)
+end
+
+function Auth.verify_detached(message, sig)
+  if not REQUIRE_SIGNATURE then
+    return true
+  end
+  if not crypto_ok then return false, "crypto_missing" end
+  if SIG_TYPE == "hmac" then
+    if not SIG_SECRET then return false, "missing_sig_secret" end
+    return crypto.verify_hmac_sha256(message, SIG_SECRET, sig)
+  elseif SIG_TYPE == "ecdsa" then
+    if not SIG_PUBLIC then return false, "missing_sig_public" end
+    return crypto.verify_ecdsa_sha256(message, sig, SIG_PUBLIC)
+  else
+    if not SIG_PUBLIC then return false, "missing_sig_public" end
+    return crypto.verify_ed25519(message, sig, SIG_PUBLIC)
+  end
 end
 
 function Auth.require_nonce_and_timestamp(msg)
@@ -108,7 +226,7 @@ function Auth.require_nonce_and_timestamp(msg)
   if not ts then
     return false, "missing_timestamp"
   end
-  ts = tonumber(ts)
+  ts = tonumber(ts) or parse_iso8601(ts)
   if not ts then
     return false, "invalid_timestamp"
   end
@@ -162,24 +280,20 @@ function Auth.compute_hash(value)
   return tostring(value)
 end
 
-function Auth.verify_outbox_hmac(_msg)
+function Auth.verify_outbox_hmac(msg)
   local secret = os.getenv "OUTBOX_HMAC_SECRET"
   if not secret or secret == "" then
     return true
   end
-  local provided = _msg.hmac or _msg.Hmac or _msg.hMAC
+  local provided = msg.hmac or msg.Hmac or msg.hMAC
   if not provided then
     return false, "missing_outbox_hmac"
   end
-  local crypto_ok, crypto = pcall(require, "ao.shared.crypto")
-  if not crypto_ok or not crypto.hmac_sha256_hex then
-    return false, "crypto_missing"
+  local expected, err = Auth.compute_outbox_hmac(msg, secret)
+  if not expected then
+    return false, err or "outbox_hmac_missing"
   end
-  local payload = (_msg["Site-Id"] or _msg.siteId or _msg.tenant or "") ..
-    "|" .. (_msg["Page-Id"] or _msg["Order-Id"] or _msg.key or _msg["Key"] or _msg.resourceId or "") ..
-    "|" .. (_msg.Version or _msg["Manifest-Tx"] or _msg.Amount or _msg.Total or _msg.ts or _msg.timestamp or "")
-  local expected = crypto.hmac_sha256_hex(payload, secret)
-  if not expected or expected:lower() ~= tostring(provided):lower() then
+  if expected:lower() ~= tostring(provided):lower() then
     return false, "outbox_hmac_mismatch"
   end
   return true

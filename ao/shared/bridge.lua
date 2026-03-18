@@ -3,6 +3,7 @@
 local Bridge = {}
 
 local cjson_ok, cjson = pcall(require, "cjson")
+local auth_ok, auth = pcall(require, "ao.shared.auth")
 local endpoint = os.getenv("AO_ENDPOINT")
 local api_key = os.getenv("AO_API_KEY")
 local resolver_id = os.getenv("AO_RESOLVER_ID")
@@ -12,6 +13,7 @@ local dry_run = bridge_mode == "mock"
 local retries = tonumber(os.getenv("AO_BRIDGE_RETRIES") or "3")
 local backoff_ms = tonumber(os.getenv("AO_BRIDGE_BACKOFF_MS") or "200")
 local flags_cache = {}
+local outbox_hmac_secret = os.getenv("OUTBOX_HMAC_SECRET")
 
 local function shell_escape(s)
   return string.format("'%s'", s:gsub("'", "'\"'\"'"))
@@ -103,6 +105,12 @@ end
 function Bridge.forward_event(ev)
   if bridge_mode == "off" then return true end
   if not cjson_ok then return false, "cjson_missing" end
+  if outbox_hmac_secret and outbox_hmac_secret ~= "" and auth_ok and auth.verify_outbox_hmac then
+    local ok_hmac, err = auth.verify_outbox_hmac(ev)
+    if not ok_hmac then
+      return false, err or "outbox_hmac_invalid"
+    end
+  end
   local ok_flag, flag_err = check_resolver()
   if not ok_flag then return false, flag_err end
   if resolver_id then ev.resolverId = resolver_id end
