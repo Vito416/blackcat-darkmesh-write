@@ -98,6 +98,9 @@ jobs:
       - name: Action validation (shipping/returns)
         run: lua5.4 scripts/verify/action_validation_shipping.lua
 
+      - name: Publish flow smoke
+        run: lua5.4 scripts/verify/publish_flow.lua
+
       - name: Bundle export (if export file present)
         env:
           WRITE_OUTBOX_EXPORT_PATH: ${{ env.WRITE_OUTBOX_EXPORT_PATH }}

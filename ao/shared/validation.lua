@@ -299,6 +299,12 @@ local validators = {
     end
     return true
   end,
+  CreateOrder = function(p)
+    if not p or not p.orderId or not p.siteId or not p.total or not p.currency then
+      return false, { "missing:orderId,siteId,total,currency" }
+    end
+    return true
+  end,
 }
 
 function Validation.validate_action(action, payload)
