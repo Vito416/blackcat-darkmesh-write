@@ -43,3 +43,6 @@ Observability
 - Protect scrape: if exposing `/metrics` via sidecar, put behind basic auth or mTLS
   (`scrape_configs` example: `basic_auth` username/password) to avoid leaking
   operational signals.
+- Grafana: sample dashboard `ops/dashboards/psp-breaker.yml` covers breaker open/
+  blocked, webhook retries/verify_fail (Stripe/PayPal), and retry queue depth.
+  Import via file provisioner or UI as needed.

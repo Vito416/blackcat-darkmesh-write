@@ -323,8 +323,27 @@ local validators = {
     return true
   end,
   CreateOrder = function(p)
-    if not p or not p.orderId or not p.siteId or not p.total or not p.currency then
-      return false, { "missing:orderId,siteId,total,currency" }
+    if not p then return false, { "missing:payload" } end
+    -- permit cart-driven flow (cartId required) or direct order payload (items + totals)
+    local missing = {}
+    if not p.orderId then table.insert(missing, "orderId") end
+    if not p.siteId then table.insert(missing, "siteId") end
+    if not p.cartId and not p.items then table.insert(missing, "cartId|items") end
+    if not p.currency then table.insert(missing, "currency") end
+    if #missing > 0 then return false, { "missing:" .. table.concat(missing, ",") } end
+    if p.items then
+      if type(p.items) ~= "table" or #p.items == 0 then
+        return false, { "invalid:items" }
+      end
+      for _, it in ipairs(p.items) do
+        if not it.sku or not it.qty then
+          return false, { "invalid:items:sku/qty" }
+        end
+      end
+    end
+    if p.address then
+      if p.address.country and #p.address.country < 2 then return false, { "invalid:address:country" } end
+      if p.address.taxId and type(p.address.taxId) ~= "string" then return false, { "invalid:taxId" } end
     end
     return true
   end,

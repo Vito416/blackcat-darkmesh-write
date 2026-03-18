@@ -1,0 +1,58 @@
+# Minimal Grafana dashboard snippet (YAML) for PSP breaker/retry signals
+# Import via grafana-dashboard provisioner or UI "Import from JSON/YAML".
+apiVersion: 1
+providers:
+  - name: "write-psp"
+    orgId: 1
+    folder: "Blackcat Mesh / Write"
+    type: file
+    options:
+      path: /etc/grafana/dashboards/write-psp-breaker.json
+
+dashboard:
+  title: "Write PSP Health"
+  tags: ["blackcat", "write", "psp"]
+  timezone: browser
+  panels:
+    - title: "PSP breaker open (by provider)"
+      type: timeseries
+      datasource: Prometheus
+      fieldConfig:
+        defaults: { unit: none }
+      targets:
+        - expr: write_psp_stripe_breaker_open
+          legendFormat: stripe
+        - expr: write_psp_paypal_breaker_open
+          legendFormat: paypal
+        - expr: write_psp_gopay_breaker_open
+          legendFormat: gopay
+    - title: "PSP breaker blocked"
+      type: timeseries
+      datasource: Prometheus
+      targets:
+        - expr: rate(write_psp_stripe_breaker_blocked[5m])
+          legendFormat: stripe blocked/s
+        - expr: rate(write_psp_paypal_breaker_blocked[5m])
+          legendFormat: paypal blocked/s
+    - title: "Webhook retries (Stripe/PayPal)"
+      type: timeseries
+      datasource: Prometheus
+      targets:
+        - expr: rate(write_webhook_stripe_retry_total[5m])
+          legendFormat: stripe retry/s
+        - expr: rate(write_webhook_paypal_retry_total[5m])
+          legendFormat: paypal retry/s
+    - title: "Webhook verify failures"
+      type: timeseries
+      datasource: Prometheus
+      targets:
+        - expr: rate(write_webhook_stripe_verify_fail_total[5m])
+          legendFormat: stripe verify fail/s
+        - expr: rate(write_webhook_paypal_verify_fail_total[5m])
+          legendFormat: paypal verify fail/s
+    - title: "Retry queue depth"
+      type: stat
+      datasource: Prometheus
+      targets:
+        - expr: write.webhook.retry_queue
+          legendFormat: retry_queue
