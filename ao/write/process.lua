@@ -79,6 +79,7 @@ local role_policy = {
   RunWebhookRetries = { "ops", "admin" },
   ProviderWebhook = { "ops", "admin" },
   ProviderShippingWebhook = { "ops", "admin" },
+  CreateShipment = { "admin", "ops" },
 }
 
 local function sha256_str(str)
@@ -1915,6 +1916,29 @@ function handlers.UpsertShipmentStatus(cmd)
   end
   local ev = {
     type = "ShipmentUpdated",
+    shipmentId = cmd.payload.shipmentId,
+    orderId = cmd.payload.orderId,
+    status = cmd.payload.status,
+    tracking = cmd.payload.tracking,
+    carrier = cmd.payload.carrier,
+    requestId = cmd.requestId,
+  }
+  enqueue_event(ev)
+  return ok(cmd.requestId, { shipmentId = cmd.payload.shipmentId, status = cmd.payload.status })
+end
+
+function handlers.CreateShipment(cmd)
+  state.shipments[cmd.payload.shipmentId] = {
+    status = cmd.payload.status,
+    tracking = cmd.payload.tracking,
+    carrier = cmd.payload.carrier,
+    orderId = cmd.payload.orderId,
+    eta = cmd.payload.eta,
+    items = cmd.payload.items,
+    createdAt = cmd.timestamp,
+  }
+  local ev = {
+    type = "ShipmentCreated",
     shipmentId = cmd.payload.shipmentId,
     orderId = cmd.payload.orderId,
     status = cmd.payload.status,

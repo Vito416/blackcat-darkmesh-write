@@ -93,6 +93,26 @@
     summary: "Webhook retries accumulating"
     description: "Provider webhooks are failing repeatedly. Check retry queue and PSP status."
 
+- alert: WriteWebhookStripeRetryHot
+  expr: increase(write_webhook_stripe_retry_total[5m]) > 10
+  for: 2m
+  labels:
+    severity: warning
+    provider: stripe
+  annotations:
+    summary: "Stripe webhook retries spiking"
+    description: "Stripe retry volume high; investigate Stripe API failures."
+
+- alert: WriteWebhookPayPalRetryHot
+  expr: increase(write_webhook_paypal_retry_total[5m]) > 10
+  for: 2m
+  labels:
+    severity: warning
+    provider: paypal
+  annotations:
+    summary: "PayPal webhook retries spiking"
+    description: "PayPal retry volume high; check PayPal webhooks and signatures."
+
 - alert: WriteWebhookVerifyFail
   expr: increase(write_webhook_paypal_verify_fail_total[5m]) > 3 or increase(write_webhook_stripe_verify_fail_total[5m]) > 3
   for: 2m

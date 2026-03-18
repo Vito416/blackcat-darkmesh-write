@@ -273,8 +273,15 @@ local validators = {
     if p.reason and type(p.reason) ~= "string" then
       return false, { "invalid:reason" }
     end
-    if p.items and type(p.items) ~= "table" then
-      return false, { "invalid:items" }
+    if p.items then
+      if type(p.items) ~= "table" then
+        return false, { "invalid:items" }
+      end
+      for _, it in ipairs(p.items) do
+        if not it.sku or not it.qty then
+          return false, { "invalid:items:sku/qty" }
+        end
+      end
     end
     return true
   end,
@@ -297,8 +304,15 @@ local validators = {
     if not p or not p.orderId or not p.shipmentId or not p.status then
       return false, { "missing:orderId,shipmentId,status" }
     end
-    if p.items and type(p.items) ~= "table" then
-      return false, { "invalid:items" }
+    if p.items then
+      if type(p.items) ~= "table" then
+        return false, { "invalid:items" }
+      end
+      for _, it in ipairs(p.items) do
+        if not it.sku or not it.qty then
+          return false, { "invalid:items:sku/qty" }
+        end
+      end
     end
     return true
   end,
@@ -318,8 +332,15 @@ local validators = {
     if not p or not p.provider or not p.shipmentId then
       return false, { "missing:provider,shipmentId" }
     end
-    if p.items and type(p.items) ~= "table" then
-      return false, { "invalid:items" }
+    if p.items then
+      if type(p.items) ~= "table" then
+        return false, { "invalid:items" }
+      end
+      for _, it in ipairs(p.items) do
+        if not it.sku or not it.qty then
+          return false, { "invalid:items:sku/qty" }
+        end
+      end
     end
     return true
   end,
