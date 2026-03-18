@@ -150,6 +150,15 @@
     summary: "Webhook signature verification failing"
     description: "Repeated signature verify failures; check secrets/certs and replay attempts."
 
+- alert: WriteWebhookHmacMissing
+  expr: increase(write_webhook_hmac_missing_total[5m]) > 0
+  for: 2m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Webhook HMAC missing"
+    description: "Incoming provider webhook lacked expected HMAC. Check gateway→write secret wiring."
+
 - alert: WriteWebhookReplay
   expr: increase(write_webhook_replay_total[5m]) > 3
   for: 2m

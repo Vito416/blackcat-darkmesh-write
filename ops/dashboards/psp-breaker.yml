@@ -54,6 +54,8 @@ dashboard:
           legendFormat: paypal verify fail/s
         - expr: rate(write_webhook_gopay_verify_fail_total[5m])
           legendFormat: gopay verify fail/s
+        - expr: rate(write_webhook_hmac_missing_total[5m])
+          legendFormat: hmac missing/s
     - title: "Retry queue depth"
       type: stat
       datasource: Prometheus
