@@ -207,9 +207,7 @@ end
 
 function Schema.validate_action(action, payload)
   local action_schema = ACTIONS.properties and ACTIONS.properties[action]
-  if not action_schema then
-    return false, { "action not supported" }
-  end
+  if not action_schema then return true end
   return validate(payload or {}, action_schema)
 end
 

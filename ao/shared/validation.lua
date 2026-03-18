@@ -3,6 +3,8 @@
 -- should be handled by the upstream bridge or a dedicated validator.
 
 local Validation = {}
+local ok_json, cjson = pcall(require, "cjson.safe")
+local ok_schema, schema = pcall(require, "ao.shared.schema")
 
 Validation.required_tags = {
   "Action",
@@ -367,10 +369,19 @@ local validators = {
 
 function Validation.validate_action(action, payload)
   local fn = validators[action]
-  if not fn then
-    return true
+  local ok, errs
+  if fn then
+    ok, errs = fn(payload)
+    if not ok then return ok, errs end
   end
-  return fn(payload)
+  if ok_schema then
+    local ok_s, s_errs = schema.validate_action(action, payload)
+    if not ok_s then return ok_s, s_errs end
+  end
+  if not fn and not ok_schema then
+    return false, { "unsupported_action" }
+  end
+  return true
 end
 
 -- Optional payload size guard; falls back to estimate when length not provided.

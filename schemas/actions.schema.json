@@ -21,8 +21,109 @@
         "DestroySession",
         "FlagGateway",
         "CreateOrder",
+        "RefundPayment",
+        "CreateShipment",
+        "UpsertReturnStatus",
         "UpdatePaymentStatus"
       ]
+    },
+    "CreateOrder": {
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string", "minLength": 1 },
+        "siteId": { "type": "string", "minLength": 1 },
+        "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+        "cartId": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "sku": { "type": "string" },
+              "qty": { "type": "number" },
+              "price": { "type": "number" },
+              "title": { "type": "string" }
+            },
+            "required": ["sku", "qty"],
+            "additionalProperties": true
+          },
+          "minItems": 1
+        },
+        "total": { "type": "number" },
+        "address": {
+          "type": "object",
+          "properties": {
+            "country": { "type": "string", "minLength": 2 },
+            "region": { "type": "string" },
+            "city": { "type": "string" },
+            "postal": { "type": "string" },
+            "line1": { "type": "string" },
+            "taxId": { "type": "string" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "required": ["orderId", "siteId", "currency"],
+      "additionalProperties": true
+    },
+    "RefundPayment": {
+      "type": "object",
+      "properties": {
+        "paymentId": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+        "reason": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "sku": { "type": "string" },
+              "qty": { "type": "number" }
+            },
+            "required": ["sku", "qty"],
+            "additionalProperties": true
+          },
+          "minItems": 1
+        }
+      },
+      "required": ["paymentId", "amount", "currency"],
+      "additionalProperties": true
+    },
+    "CreateShipment": {
+      "type": "object",
+      "properties": {
+        "shipmentId": { "type": "string" },
+        "orderId": { "type": "string" },
+        "status": { "type": "string" },
+        "carrier": { "type": "string" },
+        "tracking": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "sku": { "type": "string" },
+              "qty": { "type": "number" }
+            },
+            "required": ["sku", "qty"],
+            "additionalProperties": true
+          }
+        }
+      },
+      "required": ["shipmentId", "orderId", "status"],
+      "additionalProperties": true
+    },
+    "UpsertReturnStatus": {
+      "type": "object",
+      "properties": {
+        "returnId": { "type": "string" },
+        "status": { "type": "string" },
+        "reason": { "type": "string" },
+        "orderId": { "type": "string" }
+      },
+      "required": ["returnId", "status"],
+      "additionalProperties": true
     }
   },
   "required": ["Action"],
