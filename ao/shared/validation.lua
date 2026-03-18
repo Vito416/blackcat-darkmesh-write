@@ -208,8 +208,33 @@ function Validation.validate_envelope(cmd)
 end
 
 -- Per-action payload validation stub (can be extended with schemas).
-function Validation.validate_action(_action, _payload)
-  return true
+local validators = {
+  PublishPageVersion = function(p)
+    local missing = {}
+    for _, f in ipairs { "siteId", "pageId", "versionId", "manifestTx" } do
+      if not p or p[f] == nil then
+        table.insert(missing, f)
+      end
+    end
+    if #missing > 0 then
+      return false, { "missing:" .. table.concat(missing, ",") }
+    end
+    return true
+  end,
+  ProviderWebhook = function(p)
+    if not p or not p.provider or not p.eventType then
+      return false, { "missing:provider,eventType" }
+    end
+    return true
+  end,
+}
+
+function Validation.validate_action(action, payload)
+  local fn = validators[action]
+  if not fn then
+    return true
+  end
+  return fn(payload)
 end
 
 -- Optional payload size guard; falls back to estimate when length not provided.
