@@ -248,6 +248,39 @@ local validators = {
     end
     return true
   end,
+  CreatePaymentIntent = function(p)
+    local missing = {}
+    for _, f in ipairs { "orderId", "amount", "currency" } do
+      if not p or p[f] == nil then
+        table.insert(missing, f)
+      end
+    end
+    if #missing > 0 then
+      return false, { "missing:" .. table.concat(missing, ",") }
+    end
+    return true
+  end,
+  CapturePayment = function(p)
+    if not p or not p.paymentId or not p.amount then
+      return false, { "missing:paymentId,amount" }
+    end
+    return true
+  end,
+  RefundPayment = function(p)
+    if not p or not p.paymentId or not p.amount then
+      return false, { "missing:paymentId,amount" }
+    end
+    return true
+  end,
+  ProviderWebhook = function(p)
+    if not p or not p.provider or not p.eventType then
+      return false, { "missing:provider,eventType" }
+    end
+    if not p.paymentId and not p.orderId and not p.shipmentId then
+      return false, { "missing:paymentId|orderId|shipmentId" }
+    end
+    return true
+  end,
   SubmitForm = function(p)
     if not p or not p.formId or not p.submission then
       return false, { "missing:formId,submission" }

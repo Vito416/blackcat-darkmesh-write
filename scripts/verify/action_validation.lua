@@ -37,4 +37,35 @@ local good_route = write.route({
   payload = { siteId = 's1', path = '/p', target = 'page:p1' },
 })
 assert(good_route.status == 'OK', 'route validation should pass')
+
+local bad_pay = write.route({
+  Action = 'CreatePaymentIntent',
+  ['Request-Id'] = 'v5',
+  ['Actor-Role'] = 'admin',
+  nonce = 'n5',
+  ts = os.time(),
+  payload = { orderId = 'o1' },
+})
+assert(expect_error(bad_pay), 'missing amount/currency should error')
+
+local ok_pay = write.route({
+  Action = 'CreatePaymentIntent',
+  ['Request-Id'] = 'v6',
+  ['Actor-Role'] = 'admin',
+  nonce = 'n6',
+  ts = os.time(),
+  payload = { orderId = 'o1', amount = 1000, currency = 'USD' },
+})
+assert(ok_pay.status == 'OK', 'payment intent should pass')
+
+local bad_provider = write.route({
+  Action = 'ProviderWebhook',
+  ['Request-Id'] = 'v7',
+  ['Actor-Role'] = 'ops',
+  nonce = 'n7',
+  ts = os.time(),
+  payload = { provider = 'stripe', eventType = 'payment', orderId = nil },
+})
+assert(expect_error(bad_provider), 'provider webhook needs target ids')
+
 print('action_validation: ok')
