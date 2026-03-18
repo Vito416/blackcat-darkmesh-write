@@ -223,6 +223,7 @@ local function enqueue_webhook_retry(handler_name, cmd, attempt)
   if attempt > WEBHOOK_RETRY_MAX then
     table.insert(state.dlq, { handler = handler_name, cmd = cmd, reason = "max_attempts" })
     counter("write.webhook.dlq", 1)
+    gauge("write.webhook.dlq_size", #state.dlq)
     return
   end
   state.webhook_retry = state.webhook_retry or {}
@@ -2444,6 +2445,12 @@ function M.route(command)
           f:write(cjson.encode(wal_entry))
           f:write("\n")
           f:close()
+          local stat = io.popen(string.format("stat -c%s %q 2>/dev/null", WAL_PATH))
+          if stat then
+            local size = tonumber(stat:read("*a"))
+            stat:close()
+            if size then gauge("write.wal.bytes", size) end
+          end
         end
       end
     end

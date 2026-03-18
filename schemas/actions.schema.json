@@ -25,6 +25,10 @@
         "CreateShipment",
         "UpsertReturnStatus",
         "GoPayWebhook",
+        "ProviderShippingWebhook",
+        "UpsertShipmentStatus",
+        "CreatePaymentIntent",
+        "ConfirmPayment",
         "UpdatePaymentStatus"
       ]
     },
@@ -138,6 +142,57 @@
         "orderId": { "type": "string" }
       },
       "required": ["returnId", "status"],
+      "additionalProperties": true
+    },
+    "ProviderShippingWebhook": {
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string" },
+        "shipmentId": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": { "sku": { "type": "string" }, "qty": { "type": "number" } },
+            "required": ["sku", "qty"],
+            "additionalProperties": true
+          }
+        }
+      },
+      "required": ["provider", "shipmentId"],
+      "additionalProperties": true
+    },
+    "UpsertShipmentStatus": {
+      "type": "object",
+      "properties": {
+        "shipmentId": { "type": "string" },
+        "status": { "type": "string" },
+        "tracking": { "type": "string" },
+        "carrier": { "type": "string" },
+        "orderId": { "type": "string" }
+      },
+      "required": ["shipmentId", "status"],
+      "additionalProperties": true
+    },
+    "CreatePaymentIntent": {
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+        "provider": { "type": "string" }
+      },
+      "required": ["orderId", "amount", "currency"],
+      "additionalProperties": true
+    },
+    "ConfirmPayment": {
+      "type": "object",
+      "properties": {
+        "paymentId": { "type": "string" },
+        "provider": { "type": "string" },
+        "returnUrl": { "type": "string" }
+      },
+      "required": ["paymentId", "provider"],
       "additionalProperties": true
     }
   },

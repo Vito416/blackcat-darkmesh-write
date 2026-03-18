@@ -123,6 +123,24 @@
     summary: "GoPay webhook retries spiking"
     description: "GoPay retry volume high; check GoPay gateway and signatures."
 
+- alert: WriteDLQNonEmpty
+  expr: write_webhook_dlq_size > 0
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Write webhook DLQ is non-empty"
+    description: "Items stuck in write webhook DLQ; inspect retry/dead-letter queue."
+
+- alert: WriteWALGrowing
+  expr: write_wal_bytes > 52428800  # 50MB
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Write WAL exceeds 50MB"
+    description: "Check WAL rotation/archiving; risk of disk growth."
+
 - alert: WriteWebhookVerifyFail
   expr: increase(write_webhook_paypal_verify_fail_total[5m]) > 3 or increase(write_webhook_stripe_verify_fail_total[5m]) > 3
   for: 2m
