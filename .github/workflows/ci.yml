@@ -104,6 +104,11 @@ jobs:
       - name: Idempotency/replay smoke
         run: lua5.4 scripts/verify/idempotency_replay.lua
 
+      - name: Conflict + replay/idempotency (end-to-end)
+        run: |
+          lua5.4 scripts/verify/conflicts.lua
+          lua5.4 tests/security/hmac_replay.lua
+
       - name: Publish → outbox HMAC smoke
         env:
           OUTBOX_HMAC_SECRET: 0123456789abcdef0123456789abcdef
