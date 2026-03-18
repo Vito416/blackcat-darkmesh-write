@@ -113,6 +113,16 @@
     summary: "PayPal webhook retries spiking"
     description: "PayPal retry volume high; check PayPal webhooks and signatures."
 
+- alert: WriteWebhookGoPayRetryHot
+  expr: increase(write_webhook_gopay_retry_total[5m]) > 10
+  for: 2m
+  labels:
+    severity: warning
+    provider: gopay
+  annotations:
+    summary: "GoPay webhook retries spiking"
+    description: "GoPay retry volume high; check GoPay gateway and signatures."
+
 - alert: WriteWebhookVerifyFail
   expr: increase(write_webhook_paypal_verify_fail_total[5m]) > 3 or increase(write_webhook_stripe_verify_fail_total[5m]) > 3
   for: 2m

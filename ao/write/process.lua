@@ -2042,6 +2042,14 @@ function handlers.ProviderWebhook(cmd)
       local ok_sig = gopay_ok and gopay.verify_signature and gopay.verify_signature(cmd.payload.raw.body, sig, secret)
       if not ok_sig then return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid") end
     end
+    -- validate JSON schema (if provided) and extract payment id
+    if ok_schema then
+      local ok_pay, perr = schema.validate_action("GoPayWebhook", cmd.payload)
+      if not ok_pay then
+        webhook_counter("gopay", "verify_fail")
+        return err(cmd.requestId, "INVALID_INPUT", "payload_invalid", perr)
+      end
+    end
     if os.getenv("GOPAY_WEBHOOK_BASIC") == "1" and cmd.payload.raw and cmd.payload.raw.headers then
       local auth = cmd.payload.raw.headers["Authorization"]
       local decoded = gopay_ok and gopay.verify_basic and gopay.verify_basic(auth)

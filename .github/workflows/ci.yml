@@ -101,6 +101,11 @@ jobs:
       - name: Publish flow smoke
         run: lua5.4 scripts/verify/publish_flow.lua
 
+      - name: Publish → outbox HMAC smoke
+        env:
+          OUTBOX_HMAC_SECRET: 0123456789abcdef0123456789abcdef
+        run: lua5.4 scripts/verify/publish_outbox_mock_ao.lua
+
       - name: Bundle export (if export file present)
         env:
           WRITE_OUTBOX_EXPORT_PATH: ${{ env.WRITE_OUTBOX_EXPORT_PATH }}

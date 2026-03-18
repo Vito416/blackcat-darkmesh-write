@@ -42,6 +42,8 @@ dashboard:
           legendFormat: stripe retry/s
         - expr: rate(write_webhook_paypal_retry_total[5m])
           legendFormat: paypal retry/s
+        - expr: rate(write_webhook_gopay_retry_total[5m])
+          legendFormat: gopay retry/s
     - title: "Webhook verify failures"
       type: timeseries
       datasource: Prometheus
@@ -50,6 +52,8 @@ dashboard:
           legendFormat: stripe verify fail/s
         - expr: rate(write_webhook_paypal_verify_fail_total[5m])
           legendFormat: paypal verify fail/s
+        - expr: rate(write_webhook_gopay_verify_fail_total[5m])
+          legendFormat: gopay verify fail/s
     - title: "Retry queue depth"
       type: stat
       datasource: Prometheus
