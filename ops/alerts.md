@@ -54,6 +54,36 @@
     summary: "Provider-specific breaker/retry issues"
     description: "Stripe/PayPal retries overdue; check write_psp_<provider>_breaker_open and provider health."
 
+- alert: WritePSPBreakerStripe
+  expr: write_psp_stripe_breaker_open > 0
+  for: 1m
+  labels:
+    severity: warning
+    provider: stripe
+  annotations:
+    summary: "Stripe breaker open"
+    description: "Stripe PSP circuit is open (threshold reached). Investigate Stripe API health and error rate."
+
+- alert: WritePSPBreakerPayPal
+  expr: write_psp_paypal_breaker_open > 0
+  for: 1m
+  labels:
+    severity: warning
+    provider: paypal
+  annotations:
+    summary: "PayPal breaker open"
+    description: "PayPal PSP circuit is open (threshold reached). Investigate PayPal API health and retries."
+
+- alert: WritePSPBreakerGoPay
+  expr: write_psp_gopay_breaker_open > 0
+  for: 1m
+  labels:
+    severity: warning
+    provider: gopay
+  annotations:
+    summary: "GoPay breaker open"
+    description: "GoPay PSP circuit is open (threshold reached). Check GoPay connectivity and error logs."
+
 - alert: WriteWebhookProviderFailure
   expr: increase(write_webhook_paypal_retry_total[5m]) > 5 or increase(write_webhook_stripe_retry_total[5m]) > 5
   for: 2m
