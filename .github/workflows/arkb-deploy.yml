@@ -1,0 +1,75 @@
+name: Arweave Deploy (arkb)
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_path:
+        description: "Path to the file or directory to upload"
+        required: true
+        default: dev/write-export.ndjson
+      content_type:
+        description: "Content-Type tag (e.g., application/json)"
+        required: true
+        default: application/json
+      max_fee_winston:
+        description: "Maximum fee in winston (optional)"
+        required: false
+      gateway:
+        description: "Arweave gateway (optional, default https://arweave.net)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Prepare wallet
+        run: |
+          if [ -z "${{ secrets.ARKB_WALLET_JSON_B64 }}" ]; then
+            echo "ARKB_WALLET_JSON_B64 secret is required" >&2
+            exit 1
+          fi
+          echo "${{ secrets.ARKB_WALLET_JSON_B64 }}" | base64 -d > wallet.json
+          chmod 600 wallet.json
+
+      - name: Install arkb
+        run: npm install -g arkb@1.7.1
+
+      - name: Compute local hash
+        id: hash
+        run: |
+          set -e
+          if [ ! -e "${{ inputs.artifact_path }}" ]; then
+            echo "artifact not found: ${{ inputs.artifact_path }}" >&2
+            exit 1
+          fi
+          sha256sum "${{ inputs.artifact_path }}" | tee artifact.sha256
+          echo "hash=$(cut -d' ' -f1 artifact.sha256)" >> $GITHUB_OUTPUT
+
+      - name: Deploy with arkb
+        id: deploy
+        run: |
+          set -e
+          ARKB_ARGS=(deploy "${{ inputs.artifact_path }}" --wallet wallet.json --tag "Content-Type:${{ inputs.content_type }}" --tag "App-Name:blackcat-write" --tag "App-Version:$(jq -r .version package.json)" --tag "Env:production")
+          if [ -n "${{ inputs.max_fee_winston }}" ]; then
+            ARKB_ARGS+=(--max-fee "${{ inputs.max_fee_winston }}")
+          fi
+          if [ -n "${{ inputs.gateway }}" ]; then
+            ARKB_ARGS+=(--gateway "${{ inputs.gateway }}")
+          fi
+          TXID=$(arkb "${ARKB_ARGS[@]}" | awk '/Transaction ID/ {print $NF}' | tail -n1)
+          if [ -z "$TXID" ]; then
+            echo "Failed to parse TXID" >&2; exit 1; fi
+          echo "txid=$TXID" >> $GITHUB_OUTPUT
+
+      - name: Show summary
+        run: |
+          echo "TXID: ${{ steps.deploy.outputs.txid }}" >> $GITHUB_STEP_SUMMARY
+          echo "SHA256: ${{ steps.hash.outputs.hash }}" >> $GITHUB_STEP_SUMMARY
+          echo "Path: ${{ inputs.artifact_path }}" >> $GITHUB_STEP_SUMMARY
+
