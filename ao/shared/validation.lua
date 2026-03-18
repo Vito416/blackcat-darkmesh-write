@@ -227,6 +227,33 @@ local validators = {
     end
     return true
   end,
+  UpsertRoute = function(p)
+    local missing = {}
+    for _, f in ipairs { "siteId", "path", "target" } do
+      if not p or p[f] == nil then
+        table.insert(missing, f)
+      end
+    end
+    if #missing > 0 then
+      return false, { "missing:" .. table.concat(missing, ",") }
+    end
+    return true
+  end,
+  CreateWebhook = function(p)
+    if not p or not p.siteId or not p.url then
+      return false, { "missing:siteId,url" }
+    end
+    if p.events and type(p.events) ~= "table" then
+      return false, { "invalid:events" }
+    end
+    return true
+  end,
+  SubmitForm = function(p)
+    if not p or not p.formId or not p.submission then
+      return false, { "missing:formId,submission" }
+    end
+    return true
+  end,
 }
 
 function Validation.validate_action(action, payload)
