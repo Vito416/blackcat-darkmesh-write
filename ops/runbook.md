@@ -39,6 +39,8 @@ secrets live upstream (gateway/web).
 - Rotation: if `write.wal.bytes` > threshold (see alert), archive/move WAL and
   restart forwarder. Prefer logrotate-style: copytruncate the WAL file after
   pausing forwarder, keep immutable bundle export as audit trail.
+  - Example logrotate: `ops/logrotate/write-wal.conf` (adjust path to
+    your `WRITE_WAL_PATH`).
 
 ## Incident response
 - Duplicate/replay complaints: inspect `WRITE_IDEM_PATH` (if enabled) and WAL;

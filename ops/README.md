@@ -44,5 +44,5 @@ Observability
   (`scrape_configs` example: `basic_auth` username/password) to avoid leaking
   operational signals.
 - Grafana: sample dashboard `ops/dashboards/psp-breaker.yml` covers breaker open/
-  blocked, webhook retries/verify_fail (Stripe/PayPal), and retry queue depth.
-  Import via file provisioner or UI as needed.
+  blocked, webhook retries/verify_fail (Stripe/PayPal/GoPay), retry queue depth,
+  DLQ size, and WAL bytes. Import via file provisioner or UI as needed.
