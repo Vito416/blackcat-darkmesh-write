@@ -89,6 +89,9 @@ jobs:
       - name: Ingest smoke
         run: lua5.4 scripts/verify/ingest_smoke.lua
 
+      - name: Envelope guard
+        run: lua5.4 scripts/verify/envelope_guard.lua
+
       - name: Bundle export (if export file present)
         env:
           WRITE_OUTBOX_EXPORT_PATH: ${{ env.WRITE_OUTBOX_EXPORT_PATH }}
