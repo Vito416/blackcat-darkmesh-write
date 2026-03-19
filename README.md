@@ -112,6 +112,11 @@ scripts/cli/       # local helpers (run command)
   - `write_auth_nonce_replay_total`
   - `write_auth_rate_limited_total`
   - `write_outbox_hmac_missing_total`, `write_outbox_hmac_mismatch_total`
+- Sample alerts (PromQL):
+  - `increase(write_auth_rate_limited_total[5m]) > 50`
+  - `increase(write_auth_jwt_invalid_total[5m]) > 5 or increase(write_auth_jwt_expired_total[5m]) > 20`
+  - `increase(write_auth_nonce_replay_total[5m]) > 0`
+  - `increase(write_outbox_hmac_mismatch_total[5m]) > 0 or increase(write_outbox_hmac_missing_total[5m]) > 5`
 - Add alerts on rising trends; log/Prom output controlled by `METRICS_*` envs in `ao/shared/metrics.lua`.
 
 ## Bridge (stub)
