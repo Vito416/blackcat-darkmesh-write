@@ -491,7 +491,9 @@ local function caller_identity(msg)
   if msg._jwt_sub and msg._jwt_sub ~= "" then return "jwt:" .. tostring(msg._jwt_sub) end
   local sig_ref = msg.signatureRef or msg["Signature-Ref"]
   if sig_ref and sig_ref ~= "" then return "sig:" .. tostring(sig_ref) end
-  if Auth.resolve_actor(msg) then return "actor:" .. tostring(Auth.resolve_actor(msg)) end
+  if (not REQUIRE_SIGNATURE and not REQUIRE_JWT) and Auth.resolve_actor(msg) then
+    return "actor:" .. tostring(Auth.resolve_actor(msg))
+  end
   if Auth.gateway_id(msg) then return "gw:" .. tostring(Auth.gateway_id(msg)) end
   if msg.ip or msg.IP then return "ip:" .. tostring(msg.ip or msg.IP) end
   return "anon"
@@ -504,7 +506,7 @@ function Auth.rate_limit_check(msg)
   local caller = caller_identity(msg)
   local key = string.format("tenant:%s:caller:%s", tenant, caller)
   local ok_caller, err_caller = bump_rate(key, RL_WINDOW, RL_CALLER_MAX)
-  if not ok_caller then m_counter("write_auth_rate_limited_total", 1) end
+  if not ok_caller then metrics_counter("write_auth_rate_limited_total", 1) end
   if not ok_caller then return ok_caller, err_caller end
   return true
 end
