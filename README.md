@@ -132,14 +132,13 @@ scripts/cli/       # local helpers (run command)
 - All comments and docs remain in English.
 
 ## License
-Blackcat Darkmesh Write is licensed under `BFNL-1.0` (see `LICENSE`). Contribution and relicensing rules are governed by the companion documents in `blackcat-darkmesh-ao/docs/`.
-
-
-## Licensing
-
-This repository is an official component of the Blackcat Covered System. It is licensed under `BFNL-1.0`, and repository separation inside `BLACKCAT_MESH_NEXUS` exists for maintenance, safety, auditability, delivery, and architectural clarity. It does not by itself create a separate unavoidable founder-fee or steward/development-fee event for the same ordinary covered deployment.
+Blackcat Darkmesh Write is licensed under `BFNL-1.0` (see `LICENSE`). Contribution and relicensing rules are governed by the companion documents in `blackcat-darkmesh-ao/docs/`. This repository is an official component of the Blackcat Covered System; repository separation inside `BLACKCAT_MESH_NEXUS` is for maintenance/safety/auditability and nevyvolává samostatnou fee událost pro stejný běžný deployment.
 
 Canonical licensing bundle:
 - BFNL 1.0: https://github.com/Vito416/blackcat-darkmesh-ao/blob/main/docs/BFNL-1.0.md
 - Founder Fee Policy: https://github.com/Vito416/blackcat-darkmesh-ao/blob/main/docs/FEE_POLICY.md
 - Covered-System Notice: https://github.com/Vito416/blackcat-darkmesh-ao/blob/main/docs/LICENSING_SYSTEM_NOTICE.md
+
+## CI notes
+- CI will gain a schema/manifest consistency check (WeaveDB manifest vs. JSON schemas); keep generated manifests in sync when modifying schemas.
+- Future PSP/order fixtures will be added to ingest/batch smokes once the PSP abstraction and order state machine land.
