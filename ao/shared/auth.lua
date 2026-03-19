@@ -34,6 +34,10 @@ local NONCE_STORE_PATH = getenv_multi("WRITE_NONCE_STORE_PATH", "AUTH_NONCE_STOR
 local crypto_ok, crypto = pcall(require, "ao.shared.crypto")
 local jwt_ok, jwt = pcall(require, "ao.shared.jwt")
 local cjson_ok, cjson = pcall(require, "cjson")
+local metrics_ok, metrics = pcall(require, "ao.shared.metrics")
+local function m_counter(name, value)
+  if metrics_ok and metrics and metrics.counter then metrics.counter(name, value or 1) end
+end
 
 local nonce_store = {}
 local rate_store = {}
@@ -211,11 +215,20 @@ function Auth.consume_jwt(msg)
   return ok, claims
 end
 
-local function trim_nonce()
+local function trim_nonce(now)
   local count = 0
   for _ in pairs(nonce_store) do count = count + 1 end
+  -- purge expired entries first
+  if now then
+    for key, ts in pairs(nonce_store) do
+      if (now - ts) > NONCE_TTL then
+        nonce_store[key] = nil
+        count = count - 1
+      end
+    end
+  end
   if count <= NONCE_MAX then return end
-  -- drop oldest half
+  -- drop oldest half of remaining
   local items = {}
   for n, ts in pairs(nonce_store) do table.insert(items, {n, ts}) end
   table.sort(items, function(a,b) return a[2] < b[2] end)
@@ -239,7 +252,7 @@ function Auth.require_nonce(msg)
     return false, "replay_nonce"
   end
   nonce_store[key] = now
-  trim_nonce()
+  trim_nonce(now)
   persist_nonce_store()
   return true
 end
@@ -271,12 +284,59 @@ function Auth.compute_outbox_hmac(msg, secret)
   return crypto.hmac_sha256_hex(outbox_hmac_payload(msg), secret)
 end
 
+local function is_array(tbl)
+  local count = 0
+  for k in pairs(tbl) do
+    if type(k) ~= "number" then return false end
+    count = count + 1
+  end
+  for i = 1, count do
+    if tbl[i] == nil then return false end
+  end
+  return true
+end
+
+local function canonical_json(value)
+  -- Deterministic JSON encoder (sorted keys for objects, preserve array order).
+  local t = type(value)
+  if t == "table" then
+    if is_array(value) then
+      local parts = {}
+      for i = 1, #value do
+        parts[#parts + 1] = canonical_json(value[i])
+      end
+      return "[" .. table.concat(parts, ",") .. "]"
+    else
+      local keys = {}
+      for k in pairs(value) do keys[#keys + 1] = k end
+      table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+      local parts = {}
+      for _, k in ipairs(keys) do
+        local key_encoded
+        if cjson_ok then
+          key_encoded = cjson.encode(k)
+        else
+          key_encoded = string.format("%q", tostring(k))
+        end
+        parts[#parts + 1] = key_encoded .. ":" .. canonical_json(value[k])
+      end
+      return "{" .. table.concat(parts, ",") .. "}"
+    end
+  else
+    if cjson_ok then
+      local ok, encoded = pcall(cjson.encode, value)
+      if ok then return encoded end
+    end
+    if value == nil then return "null" end
+    if t == "string" then return string.format("%q", value) end
+    return tostring(value)
+  end
+end
+
 local function canonical_payload(msg)
   local payload = msg.payload or msg.Payload or {}
-  if cjson_ok then
-    local ok, encoded = pcall(cjson.encode, payload)
-    if ok then return encoded end
-  end
+  local ok, encoded = pcall(canonical_json, payload)
+  if ok then return encoded end
   return tostring(payload)
 end
 
@@ -397,15 +457,33 @@ local function bump_rate(key, window, max_allowed)
   return true
 end
 
+local function metrics_counter(name, value)
+  local m = _G.metrics
+  if m and type(m.counter) == "function" then
+    pcall(m.counter, name, value or 1)
+  end
+end
+
+local function caller_identity(msg)
+  -- prefer verified identity (JWT subject), then signature reference, else envelope actor/gateway/ip
+  if msg._jwt_sub and msg._jwt_sub ~= "" then return "jwt:" .. tostring(msg._jwt_sub) end
+  local sig_ref = msg.signatureRef or msg["Signature-Ref"]
+  if sig_ref and sig_ref ~= "" then return "sig:" .. tostring(sig_ref) end
+  if Auth.resolve_actor(msg) then return "actor:" .. tostring(Auth.resolve_actor(msg)) end
+  if Auth.gateway_id(msg) then return "gw:" .. tostring(Auth.gateway_id(msg)) end
+  if msg.ip or msg.IP then return "ip:" .. tostring(msg.ip or msg.IP) end
+  return "anon"
+end
+
 function Auth.rate_limit_check(msg)
   local ok, err = bump_rate("global", RL_WINDOW, RL_MAX)
   if not ok then return ok, err end
   local tenant = msg.tenant or msg.Tenant or msg["Tenant-Id"] or "global"
-  local caller = Auth.resolve_actor(msg) or Auth.gateway_id(msg) or msg.ip or msg.IP or "anon"
+  local caller = caller_identity(msg)
   local key = string.format("tenant:%s:caller:%s", tenant, caller)
-  if key then
-    return bump_rate(key, RL_WINDOW, RL_CALLER_MAX)
-  end
+  local ok_caller, err_caller = bump_rate(key, RL_WINDOW, RL_CALLER_MAX)
+  if not ok_caller then metrics_counter("write.rate_limited", 1) end
+  if not ok_caller then return ok_caller, err_caller end
   return true
 end
 
