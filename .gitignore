@@ -20,6 +20,13 @@ logs/
 tmp/
 .env
 metrics/
+dev/
+dev/*.json
+dev/*.ndjson
+dev/*.log
+dev/outbox-queue.ndjson
+dev/write-export.ndjson
+dev/write-rate-store.json
 
 # Tests / fixtures outputs
 *.snap
