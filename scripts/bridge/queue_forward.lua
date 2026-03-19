@@ -9,6 +9,7 @@ local log_path = os.getenv("AO_QUEUE_LOG_PATH") or "dev/queue-log.ndjson"
 local max_retries = tonumber(os.getenv("AO_QUEUE_MAX_RETRIES") or "5")
 local outbox_path = os.getenv("WRITE_OUTBOX_PATH")
 local outbox_hmac_secret = os.getenv("OUTBOX_HMAC_SECRET")
+local strict_outbox_hmac = os.getenv("WRITE_STRICT_OUTBOX_HMAC") == "1"
 local crypto = require("ao.shared.crypto")
 
 local function ensure_dir(path)
@@ -74,13 +75,20 @@ local remaining = {}
 for _, ev in ipairs(queue) do
   ev.attempts = (ev.attempts or 0) + 1
   local req_hash = sha256_str(cjson.encode(ev))
-  if outbox_hmac_secret and ev.hmac then
-    local msg = (ev.siteId or "") .. "|" .. (ev.pageId or ev.orderId or "") .. "|" .. (ev.versionId or ev.amount or "")
-    local expected = crypto.hmac_sha256_hex(msg, outbox_hmac_secret)
-    if expected and expected:lower() ~= tostring(ev.hmac):lower() then
-      append_log({ ts = os.date("!%Y-%m-%dT%H:%M:%SZ"), requestId = ev.requestId, status = "hmac_mismatch" })
-      io.stderr:write(string.format("hmac mismatch for requestId=%s\n", tostring(ev.requestId)))
+  if outbox_hmac_secret then
+    if strict_outbox_hmac and not ev.hmac then
+      append_log({ ts = os.date("!%Y-%m-%dT%H:%M:%SZ"), requestId = ev.requestId, status = "hmac_missing" })
+      io.stderr:write(string.format("hmac missing for requestId=%s (strict mode)\n", tostring(ev.requestId)))
       goto skip
+    end
+    if ev.hmac then
+      local msg = (ev.siteId or "") .. "|" .. (ev.pageId or ev.orderId or "") .. "|" .. (ev.versionId or ev.amount or "")
+      local expected = crypto.hmac_sha256_hex(msg, outbox_hmac_secret)
+      if expected and expected:lower() ~= tostring(ev.hmac):lower() then
+        append_log({ ts = os.date("!%Y-%m-%dT%H:%M:%SZ"), requestId = ev.requestId, status = "hmac_mismatch" })
+        io.stderr:write(string.format("hmac mismatch for requestId=%s\n", tostring(ev.requestId)))
+        goto skip
+      end
     end
   end
   local ok, status, resp_hash = bridge.forward_event(ev)
