@@ -35,24 +35,19 @@ jobs:
             lua5.4 liblua5.4-dev luarocks \
             libssl-dev libsodium-dev libsqlite3-dev
 
-      - name: Install rocks from lockfile
+      - name: Install rocks (Lua 5.4)
         run: |
-          if [ -f ops/rocks.lock ]; then
-            LUA_VER=5.4
-            while read -r name version; do
-              case "$name" in \#*|"") continue ;; esac
-              luarocks --lua-version=$LUA_VER install --local "$name" "$version"
-            done < ops/rocks.lock
-            eval "$(luarocks --lua-version=$LUA_VER path)"
-            echo "$HOME/.luarocks/bin" >> $GITHUB_PATH
-            {
-              echo "LUA_PATH=$LUA_PATH"
-              echo "LUA_CPATH=$LUA_CPATH"
-            } >> "$GITHUB_ENV"
-          else
-            echo "ops/rocks.lock missing" >&2
-            exit 1
-          fi
+          set -euo pipefail
+          rocks=(lua-cjson luv lsqlite3 luaossl luasodium)
+          for rock in "${rocks[@]}"; do
+            luarocks --lua-version=5.4 install --local "$rock"
+          done
+          eval "$(luarocks --lua-version=5.4 path)"
+          echo "$HOME/.luarocks/bin" >> $GITHUB_PATH
+          {
+            echo "LUA_PATH=$LUA_PATH"
+            echo "LUA_CPATH=$LUA_CPATH"
+          } >> "$GITHUB_ENV"
 
       - name: Install luacheck/stylua
         run: |
