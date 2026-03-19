@@ -17,7 +17,12 @@ local cmd = {
   tenant = "demo",
   actor = "smoke-admin",
   ["Actor-Role"] = "admin",
-  payload = { tenant = "demo", siteId = "demo-site", url = "https://example.com/hook", events = { "test" } },
+  payload = {
+    tenant = "demo",
+    siteId = "demo-site",
+    url = "https://example.com/hook",
+    events = { "test" },
+  },
   gatewayId = "smoke-gw",
   nonce = "smoke-nonce-" .. tostring(math.random(1, 1e6)),
   ts = os.time(),
