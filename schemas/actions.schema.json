@@ -30,186 +30,644 @@
         "UpsertShipmentStatus",
         "CreatePaymentIntent",
         "ConfirmPayment",
-        "UpdatePaymentStatus"
+        "UpdatePaymentStatus",
+        "AddDisputeEvidence",
+        "CreateForm",
+        "SubmitForm",
+        "ListSubmissions",
+        "RunFormWebhooks",
+        "RetrySubmission",
+        "RegisterLocaleRoute",
+        "GetLocaleRoute",
+        "CreateTranslationTask",
+        "SubmitTranslation",
+        "ApproveTranslation",
+        "ListTranslations",
+        "UnlockContent",
+        "SubmitForReview",
+        "ApproveContent",
+        "RequestChanges",
+        "AddContentComment",
+        "SchedulePublish",
+        "RunScheduledPublishes",
+        "DeleteRoute",
+        "UpsertCoupon",
+        "RevokeEntitlement",
+        "UpsertInventory",
+        "UpsertPriceRule",
+        "GrantRole",
+        "UpsertCustomer",
+        "CreateSubscription",
+        "UpdateSubscriptionStatus",
+        "UpsertOrderStatus",
+        "IssueRefund",
+        "ApplyCoupon",
+        "RemoveCoupon",
+        "IssueOtp",
+        "ExchangeOtp",
+        "IssueSession",
+        "RevokeSession",
+        "CartAddItem",
+        "CartGet",
+        "CartPrice",
+        "CartRemoveItem",
+        "AddShippingRate",
+        "AddTaxRate",
+        "ValidateAddress",
+        "GetShippingQuote",
+        "CapturePayment",
+        "PaymentReturn",
+        "RefreshPaymentStatus",
+        "VoidPayment",
+        "CreateShippingLabel",
+        "UpdateShipmentTracking",
+        "ProviderWebhook",
+        "CreateWebhook",
+        "GetOpsHealth",
+        "RunWebhookRetries"
       ]
     },
     "GoPayWebhook": {
       "type": "object",
       "properties": {
-        "event": { "type": "string" },
-        "paymentId": { "type": "string" },
-        "orderId": { "type": "string" },
-        "status": { "type": "string" },
-        "amount": { "type": "number" },
-        "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
-        "raw": { "type": "object" }
+        "event": {
+          "type": "string"
+        },
+        "paymentId": {
+          "type": "string"
+        },
+        "orderId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 3
+        },
+        "raw": {
+          "type": "object"
+        }
       },
-      "required": ["event", "paymentId", "status"],
+      "required": [
+        "event",
+        "paymentId",
+        "status"
+      ],
       "additionalProperties": true
     },
     "CreateOrder": {
       "type": "object",
       "properties": {
-        "orderId": { "type": "string", "minLength": 1 },
-        "siteId": { "type": "string", "minLength": 1 },
-        "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
-        "cartId": { "type": "string" },
+        "orderId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "siteId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 3
+        },
+        "cartId": {
+          "type": "string"
+        },
         "items": {
           "type": "array",
           "items": {
             "type": "object",
             "properties": {
-              "sku": { "type": "string" },
-              "qty": { "type": "number" },
-              "price": { "type": "number" },
-              "title": { "type": "string" }
+              "sku": {
+                "type": "string"
+              },
+              "qty": {
+                "type": "number"
+              },
+              "price": {
+                "type": "number"
+              },
+              "title": {
+                "type": "string"
+              }
             },
-            "required": ["sku", "qty"],
+            "required": [
+              "sku",
+              "qty"
+            ],
             "additionalProperties": true
           },
           "minItems": 1
         },
-        "total": { "type": "number" },
+        "total": {
+          "type": "number"
+        },
         "address": {
           "type": "object",
           "properties": {
-            "country": { "type": "string", "minLength": 2 },
-            "region": { "type": "string" },
-            "city": { "type": "string" },
-            "postal": { "type": "string" },
-            "line1": { "type": "string" },
-            "taxId": { "type": "string" }
+            "country": {
+              "type": "string",
+              "minLength": 2
+            },
+            "region": {
+              "type": "string"
+            },
+            "city": {
+              "type": "string"
+            },
+            "postal": {
+              "type": "string"
+            },
+            "line1": {
+              "type": "string"
+            },
+            "taxId": {
+              "type": "string"
+            }
           },
           "additionalProperties": true
         }
       },
-      "required": ["orderId", "siteId", "currency"],
+      "required": [
+        "orderId",
+        "siteId",
+        "currency"
+      ],
       "additionalProperties": true
     },
     "LockContent": {
       "type": "object",
       "properties": {
-        "siteId": { "type": "string", "minLength": 1 },
-        "pageId": { "type": "string", "minLength": 1 },
-        "ttl": { "type": "number", "minimum": 1 }
+        "siteId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pageId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ttl": {
+          "type": "number",
+          "minimum": 1
+        }
       },
-      "required": ["siteId", "pageId"],
+      "required": [
+        "siteId",
+        "pageId"
+      ],
       "additionalProperties": true
     },
     "RefundPayment": {
       "type": "object",
       "properties": {
-        "paymentId": { "type": "string" },
-        "amount": { "type": "number" },
-        "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
-        "reason": { "type": "string" },
+        "paymentId": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 3
+        },
+        "reason": {
+          "type": "string"
+        },
         "items": {
           "type": "array",
           "items": {
             "type": "object",
             "properties": {
-              "sku": { "type": "string" },
-              "qty": { "type": "number" }
+              "sku": {
+                "type": "string"
+              },
+              "qty": {
+                "type": "number"
+              }
             },
-            "required": ["sku", "qty"],
+            "required": [
+              "sku",
+              "qty"
+            ],
             "additionalProperties": true
           },
           "minItems": 1
         }
       },
-      "required": ["paymentId", "amount", "currency"],
+      "required": [
+        "paymentId",
+        "amount",
+        "currency"
+      ],
       "additionalProperties": true
     },
     "CreateShipment": {
       "type": "object",
       "properties": {
-        "shipmentId": { "type": "string" },
-        "orderId": { "type": "string" },
-        "status": { "type": "string" },
-        "carrier": { "type": "string" },
-        "tracking": { "type": "string" },
+        "shipmentId": {
+          "type": "string"
+        },
+        "orderId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "carrier": {
+          "type": "string"
+        },
+        "tracking": {
+          "type": "string"
+        },
         "items": {
           "type": "array",
           "items": {
             "type": "object",
             "properties": {
-              "sku": { "type": "string" },
-              "qty": { "type": "number" }
+              "sku": {
+                "type": "string"
+              },
+              "qty": {
+                "type": "number"
+              }
             },
-            "required": ["sku", "qty"],
+            "required": [
+              "sku",
+              "qty"
+            ],
             "additionalProperties": true
           }
         }
       },
-      "required": ["shipmentId", "orderId", "status"],
+      "required": [
+        "shipmentId",
+        "orderId",
+        "status"
+      ],
       "additionalProperties": true
     },
     "UpsertReturnStatus": {
       "type": "object",
       "properties": {
-        "returnId": { "type": "string" },
-        "status": { "type": "string" },
-        "reason": { "type": "string" },
-        "orderId": { "type": "string" }
+        "returnId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "orderId": {
+          "type": "string"
+        }
       },
-      "required": ["returnId", "status"],
+      "required": [
+        "returnId",
+        "status"
+      ],
       "additionalProperties": true
     },
     "ProviderShippingWebhook": {
       "type": "object",
       "properties": {
-        "provider": { "type": "string" },
-        "shipmentId": { "type": "string" },
-        "status": { "type": "string" },
+        "provider": {
+          "type": "string"
+        },
+        "shipmentId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
         "items": {
           "type": "array",
           "items": {
             "type": "object",
-            "properties": { "sku": { "type": "string" }, "qty": { "type": "number" } },
-            "required": ["sku", "qty"],
+            "properties": {
+              "sku": {
+                "type": "string"
+              },
+              "qty": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "sku",
+              "qty"
+            ],
             "additionalProperties": true
           }
         }
       },
-      "required": ["provider", "shipmentId"],
+      "required": [
+        "provider",
+        "shipmentId"
+      ],
       "additionalProperties": true
     },
     "UpsertShipmentStatus": {
       "type": "object",
       "properties": {
-        "shipmentId": { "type": "string" },
-        "status": { "type": "string" },
-        "tracking": { "type": "string" },
-        "carrier": { "type": "string" },
-        "orderId": { "type": "string" },
-        "trackingUrl": { "type": "string" },
-        "eta": { "type": "string" }
+        "shipmentId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "tracking": {
+          "type": "string"
+        },
+        "carrier": {
+          "type": "string"
+        },
+        "orderId": {
+          "type": "string"
+        },
+        "trackingUrl": {
+          "type": "string"
+        },
+        "eta": {
+          "type": "string"
+        }
       },
-      "required": ["shipmentId", "status"],
+      "required": [
+        "shipmentId",
+        "status"
+      ],
       "additionalProperties": true
     },
     "CreatePaymentIntent": {
       "type": "object",
       "properties": {
-        "orderId": { "type": "string" },
-        "amount": { "type": "number" },
-        "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
-        "provider": { "type": "string" }
+        "orderId": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 3
+        },
+        "provider": {
+          "type": "string"
+        }
       },
-      "required": ["orderId", "amount", "currency"],
+      "required": [
+        "orderId",
+        "amount",
+        "currency"
+      ],
       "additionalProperties": true
     },
     "ConfirmPayment": {
       "type": "object",
       "properties": {
-        "paymentId": { "type": "string" },
-        "provider": { "type": "string" },
-        "returnUrl": { "type": "string" }
+        "paymentId": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "returnUrl": {
+          "type": "string"
+        }
       },
-      "required": ["paymentId", "provider"],
+      "required": [
+        "paymentId",
+        "provider"
+      ],
+      "additionalProperties": true
+    },
+    "AddDisputeEvidence": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "CreateForm": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "SubmitForm": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "ListSubmissions": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "RunFormWebhooks": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "RetrySubmission": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "RegisterLocaleRoute": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "GetLocaleRoute": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "CreateTranslationTask": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "SubmitTranslation": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "ApproveTranslation": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "ListTranslations": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "UnlockContent": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "SubmitForReview": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "ApproveContent": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "RequestChanges": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "AddContentComment": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "SchedulePublish": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "RunScheduledPublishes": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "DeleteRoute": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "UpsertCoupon": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "RevokeEntitlement": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "UpsertInventory": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "UpsertPriceRule": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "GrantRole": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "UpsertCustomer": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "CreateSubscription": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "UpdateSubscriptionStatus": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "UpsertOrderStatus": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "IssueRefund": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "ApplyCoupon": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "RemoveCoupon": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "IssueOtp": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "ExchangeOtp": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "IssueSession": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "RevokeSession": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "CartAddItem": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "CartGet": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "CartPrice": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "CartRemoveItem": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "AddShippingRate": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "AddTaxRate": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "ValidateAddress": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "GetShippingQuote": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "CapturePayment": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "PaymentReturn": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "RefreshPaymentStatus": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "VoidPayment": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "CreateShippingLabel": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "UpdateShipmentTracking": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "ProviderWebhook": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "CreateWebhook": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "GetOpsHealth": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "RunWebhookRetries": {
+      "type": "object",
       "additionalProperties": true
     }
   },
-  "required": ["Action"],
+  "required": [
+    "Action"
+  ],
   "additionalProperties": true
 }
