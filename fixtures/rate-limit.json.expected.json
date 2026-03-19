@@ -1,0 +1,4 @@
+[
+  { "status": "OK", "requestId": "rid-rl-1", "payload": { "draftKey": "site-1:home" } },
+  { "status": "ERROR", "code": "RATE_LIMITED", "message": "rate_limited", "requestId": "rid-rl-2" }
+]

@@ -1,0 +1,21 @@
+{
+  "commands": [
+    {
+      "action": "PublishPageVersion",
+      "requestId": "rid-pub-1",
+      "actor": "editor-1",
+      "Actor-Role": "editor",
+      "tenant": "site-1",
+      "payload": { "siteId": "site-1", "pageId": "home", "versionId": "v1", "manifestTx": "tx-1" }
+    },
+    {
+      "action": "PublishPageVersion",
+      "requestId": "rid-pub-2",
+      "actor": "editor-1",
+      "Actor-Role": "editor",
+      "tenant": "site-1",
+      "expectedVersion": "v0",
+      "payload": { "siteId": "site-1", "pageId": "home", "versionId": "v2", "manifestTx": "tx-2" }
+    }
+  ]
+}

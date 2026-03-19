@@ -1,0 +1,6 @@
+{
+  "status": "ERROR",
+  "code": "UNAUTHORIZED",
+  "message": "missing_signature",
+  "requestId": "rid-missing-sig-1"
+}

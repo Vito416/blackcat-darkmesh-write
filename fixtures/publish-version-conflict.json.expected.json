@@ -1,0 +1,4 @@
+[
+  { "status": "OK", "requestId": "rid-pub-1", "payload": { "version": "v1", "manifestTx": "tx-1" } },
+  { "status": "ERROR", "code": "VERSION_CONFLICT", "message": "expectedVersion mismatch", "requestId": "rid-pub-2", "details": { "current": "v1" } }
+]
