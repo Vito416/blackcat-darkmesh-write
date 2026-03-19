@@ -1,3 +1,4 @@
+-- luacheck: max_line_length 260
 package.path = table.concat({ '?.lua', '?/init.lua', 'ao/?.lua', 'ao/?/init.lua', package.path }, ';')
 local write = require 'ao.write.process'
 

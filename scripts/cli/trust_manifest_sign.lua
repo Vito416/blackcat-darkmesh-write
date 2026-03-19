@@ -1,3 +1,4 @@
+-- luacheck: max_line_length 200
 -- Sign a resolver trust manifest (HMAC-SHA256) for publishing to Arweave.
 -- Usage:
 --   TRUST_MANIFEST_HMAC=secret lua scripts/cli/trust_manifest_sign.lua manifest.json > manifest.signed.json

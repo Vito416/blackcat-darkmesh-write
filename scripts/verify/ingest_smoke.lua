@@ -1,4 +1,5 @@
 -- Minimal smoke: load write process and run a no-op command to ensure auth/idempotency plumbing works.
+-- luacheck: max_line_length 180
 package.path = table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
 local process = require("ao.write.process")
 

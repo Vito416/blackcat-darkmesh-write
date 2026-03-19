@@ -1,3 +1,4 @@
+-- luacheck: max_line_length 200
 local write = require "ao.write.process"
 
 local function req(action, extra)

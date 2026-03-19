@@ -1,5 +1,6 @@
 -- Bridge stub: forward write outbox events to AO (mock).
 -- In production, this would post to blackcat-darkmesh-ao registry/site process.
+-- luacheck: max_line_length 200
 
 local write = require("ao.write.process")
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env lua
+-- luacheck: max_line_length 200
 -- Forward outbox events to -ao HTTP endpoint (mock-safe).
 -- Env:
 --   AO_ENDPOINT=https://... (required)

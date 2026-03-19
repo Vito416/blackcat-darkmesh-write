@@ -18,6 +18,7 @@ jobs:
     name: Static checks
     runs-on: ubuntu-latest
     env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       RUN_JWT_SPEC: ${{ github.event_name == 'schedule' && '1' || '' }}
       RUN_RATE_SPEC: ${{ github.event_name == 'schedule' && '1' || '' }}
       WRITE_RATE_STORE_PATH: ${{ github.event_name == 'schedule' && 'dev/write-rate-store.json' || '' }}

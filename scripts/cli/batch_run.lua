@@ -1,4 +1,5 @@
 #!/usr/bin/env lua
+-- luacheck: max_line_length 200
 -- Run all fixture commands and optionally compare with expected outputs.
 
 local function load_json_module()
@@ -56,15 +57,13 @@ local function run_fixture(path)
   local write = load_write()
   cmd._env = nil
 
-  local commands, expected_all = nil, nil
+  local commands = cmd.commands or { cmd }
+  for _, c in ipairs(commands) do c._env = nil end
+  local expected_all
   if cmd.commands then
-    commands = cmd.commands
-    for _, c in ipairs(commands) do c._env = nil end
     local expected_path = path .. ".expected.json"
     local expected_str = read_file(expected_path)
     if expected_str then expected_all = cjson.decode(expected_str) end
-  else
-    commands = { cmd }
   end
 
   local results = {}

@@ -1,3 +1,4 @@
+-- luacheck: max_line_length 220
 -- Minimal JWT mapping check: run with
 -- WRITE_REQUIRE_JWT=1 WRITE_JWT_HS_SECRET=dev-secret lua5.4 scripts/verify/jwt_actor_spec.lua
 local ok_mime, _ = pcall(require, "mime")

@@ -1,3 +1,4 @@
+-- luacheck: max_line_length 200
 -- JWT expiry & claim consistency spec.
 -- Run with: WRITE_REQUIRE_JWT=1 WRITE_JWT_HS_SECRET=dev-secret lua5.4 scripts/verify/jwt_expiry_spec.lua
 

@@ -25,7 +25,6 @@ local paypal_ok, paypal = pcall(require, "ao.shared.paypal")
 local tax = require("ao.shared.tax")
 local ok_mime, mime = pcall(require, "mime")
 local ok_json, cjson = pcall(require, "cjson.safe")
-local err -- forward declare
 
 local OUTBOX_PATH = os.getenv("WRITE_OUTBOX_PATH")
 local WAL_PATH = os.getenv("WRITE_WAL_PATH")
@@ -204,10 +203,6 @@ end
 
 local function ok(req_id, payload)
   return { status = "OK", requestId = req_id, payload = payload or {} }
-end
-
-local function err(req_id, code, msg, details)
-  return { status = "ERROR", code = code, message = msg, requestId = req_id, details = details }
 end
 
 local function breaker_allows(provider)
@@ -1316,7 +1311,10 @@ function handlers.RefundPayment(cmd)
       return err(cmd.requestId, "PROVIDER_ERROR", perr or "stripe refund failed")
     end
   elseif payment.provider == "paypal" and paypal_ok and payment.providerPaymentId then
-    local ok_refund, perr_paypal = paypal.refund and paypal.refund(payment.providerPaymentId, cmd.payload.amount) or true
+    local ok_refund, perr_paypal = true, nil
+    if paypal.refund then
+      ok_refund, perr_paypal = paypal.refund(payment.providerPaymentId, cmd.payload.amount)
+    end
     if ok_refund == false then
       breaker_note(payment.provider, false)
       return err(cmd.requestId, "PROVIDER_ERROR", perr_paypal or "paypal refund failed")
