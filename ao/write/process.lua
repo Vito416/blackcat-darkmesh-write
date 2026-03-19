@@ -72,6 +72,8 @@ local PSP_BREAKER_COOLDOWN = tonumber(os.getenv("WRITE_PSP_BREAKER_COOLDOWN") or
 local WEBHOOK_REPLAY_WINDOW = tonumber(os.getenv("WRITE_WEBHOOK_REPLAY_WINDOW") or "600")
 local WEBHOOK_RETRY_MAX = tonumber(os.getenv("WRITE_WEBHOOK_RETRY_MAX") or "5")
 local WEBHOOK_RETRY_BASE = tonumber(os.getenv("WRITE_WEBHOOK_RETRY_BASE_SECONDS") or "30")
+local WEBHOOK_RETRY_JITTER_PCT = tonumber(os.getenv("WRITE_WEBHOOK_RETRY_JITTER_PCT") or "20")
+local WEBHOOK_SEEN_PATH = os.getenv("WRITE_WEBHOOK_SEEN_PATH")
 
 local M = {}
 
@@ -102,6 +104,28 @@ local function attach_outbox_hmac(ev)
   if not hmac then return false, herr end
   ev.hmac = ev.hmac or hmac
   ev.Hmac = ev.Hmac or hmac
+  return true
+end
+
+local function atomic_persist(path, kv)
+  local ok_cjson, cjson = pcall(require, "cjson")
+  if not ok_cjson then return false, "cjson_missing" end
+  local encoded = cjson.encode(kv)
+  if not encoded then return false, "encode_failed" end
+  local tmp = path .. ".tmp"
+  local f = io.open(tmp, "w")
+  if not f then return false, "open_failed" end
+  local ok_write = f:write(encoded)
+  f:flush(); f:close()
+  if not ok_write then
+    os.remove(tmp)
+    return false, "write_failed"
+  end
+  local ok_mv, mv_err = os.rename(tmp, path)
+  if not ok_mv then
+    os.remove(tmp)
+    return false, mv_err or "rename_failed"
+  end
   return true
 end
 
@@ -230,11 +254,22 @@ local function mark_webhook_seen(key, ts)
     end
   end
   state.webhook_seen[key] = ts
+  if WEBHOOK_SEEN_PATH then
+    atomic_persist(WEBHOOK_SEEN_PATH, state.webhook_seen)
+  end
   return true
 end
 
 local function backoff_seconds(attempt)
-  return WEBHOOK_RETRY_BASE * (2 ^ math.max(0, attempt - 1))
+  local base = WEBHOOK_RETRY_BASE * (2 ^ math.max(0, attempt - 1))
+  local jitter_pct = WEBHOOK_RETRY_JITTER_PCT
+  if jitter_pct and jitter_pct > 0 then
+    local spread = base * jitter_pct / 100
+    local delta = (math.random() * 2 - 1) * spread
+    base = base + delta
+  end
+  if base < 1 then base = 1 end
+  return base
 end
 
 local function enqueue_webhook_retry(handler_name, cmd, attempt)
@@ -335,6 +370,24 @@ local function set_payment_status(pid, new_status, provider_status, req_id)
       })
     end
   end
+end
+
+local allowed_order_transitions = {
+  draft = { confirmed = true, cancelled = true },
+  confirmed = { paid = true, cancelled = true },
+  paid = { fulfilled = true, refunded = true, cancelled = true },
+  fulfilled = { returned = true, refunded = true },
+  returned = { refunded = true },
+  refunded = {},
+  cancelled = {},
+}
+
+local function can_transition(order, target)
+  local current = order.status or "draft"
+  if current == target then return true end
+  local allowed = allowed_order_transitions[current] or {}
+  if allowed[target] then return true end
+  return false, string.format("transition_not_allowed:%s->%s", current, target)
 end
 
 function handlers.AddDisputeEvidence(cmd)
@@ -1446,7 +1499,8 @@ function handlers.CreateOrder(cmd)
     customerId = cmd.payload.customerId,
     currency = cart.currency,
     items = cart.items,
-    status = "pending",
+    status = "draft",
+    version = 1,
     totals = totals,
     coupon = cmd.payload.coupon, -- legacy
     coupons = cmd.payload.coupon and { cmd.payload.coupon } or {},
