@@ -11,7 +11,7 @@ if [ ! -f "$FILE" ]; then
   exit 1
 fi
 LOCAL_HASH=$(sha256sum "$FILE" | awk '{print $1}')
-REMOTE_HASH=$(curl -sL "https://arweave.net/${TXID}" | sha256sum | awk '{print $1}')
+REMOTE_HASH=$(curl --connect-timeout 5 --max-time 15 --max-filesize 52428800 -sL "https://arweave.net/${TXID}" | sha256sum | awk '{print $1}')
 if [ "$LOCAL_HASH" = "$REMOTE_HASH" ]; then
   echo "hash match: $LOCAL_HASH"
   exit 0

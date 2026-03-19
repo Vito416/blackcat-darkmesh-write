@@ -20,7 +20,7 @@ jobs:
       WRITE_RATE_STORE_PATH: ${{ github.event_name == 'schedule' && 'dev/write-rate-store.json' || '' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
 
@@ -38,10 +38,7 @@ jobs:
             LUA_VER=5.4
             while read -r name version; do
               case "$name" in \#*|"") continue ;; esac
-              if ! luarocks --lua-version=$LUA_VER install --local "$name" "$version"; then
-                echo "lock install failed for $name $version; retrying latest" >&2
-                luarocks --lua-version=$LUA_VER install --local "$name"
-              fi
+              luarocks --lua-version=$LUA_VER install --local "$name" "$version"
             done < ops/rocks.lock
             eval "$(luarocks --lua-version=$LUA_VER path)"
             echo "$HOME/.luarocks/bin" >> $GITHUB_PATH
@@ -66,8 +63,15 @@ jobs:
 
       - name: Install gitleaks
         run: |
+          set -euo pipefail
           GITLEAKS_VERSION=8.30.0
-          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz -o /tmp/gitleaks.tar.gz
+          GITLEAKS_SHA256=${GITLEAKS_SHA256:-79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e}
+          curl --connect-timeout 10 --max-time 30 -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o /tmp/gitleaks.tar.gz
+          if [ -n "${GITLEAKS_SHA256}" ]; then
+            echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          fi
           tar -xzf /tmp/gitleaks.tar.gz -C /tmp
           sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
 
@@ -167,7 +171,7 @@ jobs:
 
       - name: Upload bundle artifact
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: write-bundle
           path: artifacts/write-bundle.json
