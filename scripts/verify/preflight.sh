@@ -138,6 +138,11 @@ LUA
     LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
     LUA_CPATH="${ROCKS_LUA_CPATH}" \
       lua5.4 "$ROOT_DIR/scripts/verify/rate_tenant_scope_spec.lua"
+    echo "[verify] nonce persistence"
+    WRITE_NONCE_STORE_PATH="${WRITE_NONCE_STORE_PATH:-dev/write-nonce-store.json}" \
+    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
+    LUA_CPATH="${ROCKS_LUA_CPATH}" \
+      lua5.4 "$ROOT_DIR/scripts/verify/nonce_persist_spec.lua"
   fi
   if [ "${RUN_JWT_SPEC:-0}" -eq 1 ]; then
     echo "[verify] jwt actor mapping"
