@@ -62,7 +62,7 @@ scripts/cli/       # local helpers (run command)
 3) Run checks: `RUN_DEPS_CHECK=1 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" LUA_CPATH="$HOME/.luarocks/lib/lua/5.4/?.so" scripts/verify/preflight.sh`.
 4) Fixtures: `RUN_BATCH=1 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/cli/batch_run.lua` (uses the env from step 2; hashes/nonce/signature checks can be relaxed via `WRITE_REQUIRE_*` env).
 5) Outbox/queue paths in the template default to `/var/lib/ao/...`; for dev you can override to `dev/*` paths next to the repo.
-6) Optional specs: `RUN_JWT_SPEC=1 lua5.4 scripts/verify/jwt_actor_spec.lua`; `RUN_RATE_SPEC=1 WRITE_RATE_STORE_PATH=dev/write-rate-store.json lua5.4 scripts/verify/rate_store_spec.lua`.
+6) Optional specs: `RUN_JWT_SPEC=1 lua5.4 scripts/verify/jwt_actor_spec.lua` + `scripts/verify/jwt_expiry_spec.lua`; `RUN_RATE_SPEC=1 WRITE_RATE_STORE_PATH=dev/write-rate-store.json lua5.4 scripts/verify/rate_store_spec.lua`.
 
 ## Env toggles (write process)
 - `WRITE_REQUIRE_SIGNATURE=1` — reject commands without `signatureRef`.

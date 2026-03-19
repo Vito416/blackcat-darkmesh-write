@@ -111,22 +111,41 @@ function Auth.require_role_for_action(msg, policy)
 end
 
 local function verify_jwt(msg)
-  if not REQUIRE_JWT then
+  local token = msg.jwt or msg.JWT or msg.token
+  if not token then
+    if REQUIRE_JWT then
+      return false, "missing_jwt"
+    end
     return true
   end
   if not JWT_SECRET or JWT_SECRET == "" then
-    return false, "jwt_secret_missing"
+    if REQUIRE_JWT then
+      return false, "jwt_secret_missing"
+    end
+    return true
   end
   if not jwt_ok or not jwt.verify_hs256 then
     return false, "jwt_deps_missing"
   end
-  local token = msg.jwt or msg.JWT or msg.token
-  if not token then
-    return false, "missing_jwt"
-  end
   local ok, payload_or_err = jwt.verify_hs256(token, JWT_SECRET)
   if not ok then
     return false, payload_or_err or "jwt_invalid"
+  end
+  local claims = payload_or_err
+  if type(claims) == "table" then
+    local now = os_time()
+    local exp = tonumber(claims.exp)
+    if exp and (now - TS_DRIFT) > exp then
+      return false, "jwt_expired"
+    end
+    local nbf = tonumber(claims.nbf)
+    if nbf and (now + TS_DRIFT) < nbf then
+      return false, "jwt_not_before"
+    end
+    local iat = tonumber(claims.iat)
+    if iat and math.abs(now - iat) > TS_DRIFT then
+      return false, "jwt_iat_skew"
+    end
   end
   return true, payload_or_err
 end
@@ -137,6 +156,20 @@ function Auth.consume_jwt(msg)
   -- map JWT claims onto envelope if caller didn't already supply them
   if type(claims) == "table" then
     local mapped = Auth.actor_from_jwt(claims)
+    if REQUIRE_JWT and mapped then
+      local env_actor = msg.actor or msg.Actor
+      local env_tenant = msg.tenant or msg.Tenant
+      local env_role = msg["Actor-Role"] or msg.actorRole
+      if mapped.actor and env_actor and tostring(env_actor) ~= tostring(mapped.actor) then
+        return false, "jwt_actor_mismatch"
+      end
+      if mapped.tenant and env_tenant and tostring(env_tenant) ~= tostring(mapped.tenant) then
+        return false, "jwt_tenant_mismatch"
+      end
+      if mapped.role and env_role and tostring(env_role) ~= tostring(mapped.role) then
+        return false, "jwt_role_mismatch"
+      end
+    end
     if mapped then
       msg.actor = msg.actor or msg.Actor or mapped.actor
       msg.Actor = msg.Actor or msg.actor

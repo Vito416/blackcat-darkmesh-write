@@ -141,6 +141,11 @@ LUA
       LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
       LUA_CPATH="${ROCKS_LUA_CPATH}" \
       lua5.4 "$ROOT_DIR/scripts/verify/jwt_actor_spec.lua"
+    echo "[verify] jwt expiry/consistency"
+    WRITE_REQUIRE_JWT=1 WRITE_JWT_HS_SECRET="${WRITE_JWT_HS_SECRET:-dev-secret}" \
+      LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
+      LUA_CPATH="${ROCKS_LUA_CPATH}" \
+      lua5.4 "$ROOT_DIR/scripts/verify/jwt_expiry_spec.lua"
   fi
   if [ "${RUN_CHECKSUM_ALERT:-0}" -eq 1 ]; then
     echo "[verify] checksum alert"
