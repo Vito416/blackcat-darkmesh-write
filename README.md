@@ -133,3 +133,5 @@ scripts/cli/       # local helpers (run command)
 
 ## License
 Blackcat Darkmesh Write Proprietary License (see `LICENSE`). External contributions require written permission from Black Cat Academy s. r. o.
+
+Planned umbrella licensing note: this repository is intended to be one official component of the Blackcat `Covered System`, not a separately monetized silo. Under the planned BFNL bundle, official Blackcat repositories and future mandatory internal components are treated as one integrated licensing surface for ordinary deployment classes. Repository separation exists for maintenance, safety, and delivery, not to trigger a separate founder fee or future steward/development fee for each repository. The draft licensing bundle currently lives in the `blackcat-darkmesh-ao` repository under `docs/`.
