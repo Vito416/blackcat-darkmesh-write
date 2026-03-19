@@ -78,6 +78,7 @@ scripts/cli/       # local helpers (run command)
 - Shipping/Tax export for AO: persist rates with `WRITE_RATE_STORE_PATH` and run `scripts/export/rates.lua [rate_store] [shipping.ndjson] [tax.ndjson]`; point AO to the outputs via `AO_SHIPPING_RATES_PATH` / `AO_TAX_RATES_PATH`.
 - Dispute evidence payload: `AddDisputeEvidence` accepts `evidence.url|hash|hashAlgo|type|note|fileName` to carry provider links/hashes; stored in `payment_disputes` and can be sent via provider webhooks.
 - `WRITE_RL_WINDOW_SECONDS` / `WRITE_RL_MAX_REQUESTS` — rate-limit per tenant+actor (default 60s / 200 reqs).
+- `WRITE_RATE_STORE_PATH` — persist rate-limit buckets across restarts (optional; JSON file written on each request).
 - Bridge/env for queue/HTTP: `AO_ENDPOINT=https://...` (optional); `AO_API_KEY`; `DRY_RUN=1` or `AO_BRIDGE_MODE=mock|off|http`; `AO_BRIDGE_RETRIES`/`AO_BRIDGE_BACKOFF_MS`; `AO_QUEUE_PATH` (persisted queue), `AO_QUEUE_LOG_PATH=/var/lib/ao/queue-log.ndjson`, `AO_QUEUE_MAX_RETRIES=5`, `AO_EXPECT_RESPONSE_HASH` to enforce downstream body hash.
 - Outbox HMAC enforcement: `WRITE_STRICT_OUTBOX_HMAC=1` rejects outbox events without `hmac` when `OUTBOX_HMAC_SECRET` is set (default off; forwarder still checks mismatches when `hmac` is present).
 - Trust manifest signing (resolvers): set `TRUST_MANIFEST_HMAC` and run `lua scripts/cli/trust_manifest_sign.lua manifest.json > manifest.signed.json`; optionally set `TRUST_MANIFEST_SIGNER`.

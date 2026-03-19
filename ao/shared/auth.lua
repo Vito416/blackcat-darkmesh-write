@@ -28,12 +28,38 @@ local SIG_PUBLIC = getenv_multi("WRITE_SIG_PUBLIC", "AUTH_SIG_PUBLIC")
 local SIG_SECRET = getenv_multi("WRITE_SIG_SECRET", "AUTH_SIG_SECRET")
 local REQUIRE_JWT = getenv_multi("WRITE_REQUIRE_JWT", "AUTH_REQUIRE_JWT") == "1"
 local JWT_SECRET = getenv_multi("WRITE_JWT_HS_SECRET", "AUTH_JWT_HS_SECRET")
+local RATE_STORE_PATH = getenv_multi("WRITE_RATE_STORE_PATH", "AUTH_RATE_STORE_PATH")
 
 local crypto_ok, crypto = pcall(require, "ao.shared.crypto")
 local jwt_ok, jwt = pcall(require, "ao.shared.jwt")
+local cjson_ok, cjson = pcall(require, "cjson")
 
 local nonce_store = {}
 local rate_store = {}
+
+local function load_rate_store()
+  if not RATE_STORE_PATH or RATE_STORE_PATH == "" then return end
+  local f = io.open(RATE_STORE_PATH, "r")
+  if not f then return end
+  local content = f:read("*a")
+  f:close()
+  if not cjson_ok then return end
+  local ok, decoded = pcall(cjson.decode, content)
+  if ok and type(decoded) == "table" then
+    rate_store = decoded
+  end
+end
+
+local function persist_rate_store()
+  if not RATE_STORE_PATH or RATE_STORE_PATH == "" then return end
+  if not cjson_ok then return end
+  local f = io.open(RATE_STORE_PATH, "w")
+  if not f then return end
+  f:write(cjson.encode(rate_store))
+  f:close()
+end
+
+load_rate_store()
 
 local function parse_iso8601(ts)
   if type(ts) ~= "string" then return nil end
@@ -279,6 +305,7 @@ local function bump_rate(key, window, max_allowed)
   end
   bucket.count = bucket.count + 1
   rate_store[key] = bucket
+  persist_rate_store()
   if max_allowed and bucket.count > max_allowed then
     return false, "rate_limited"
   end
