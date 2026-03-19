@@ -38,11 +38,16 @@ Observability
 - Prom scrape via `METRICS_PROM_PATH`; NDJSON export via `METRICS_NDJSON_PATH`;
   log stream to `METRICS_LOG`.
 - Klíčové metriky: `write.webhook.verify_fail`, `write.webhook.replay`,
-  `write.webhook.retry_queue`, `write.webhook.retry_overdue`,
-  `write.webhook.retry_lag_seconds`, `write.wal.apply_duration_seconds`,
-  `write.idempotency.collisions_total`, `write.psp.<provider>.breaker_open`,
-  `write.psp.<provider>.breaker_blocked`.
-- HMAC/outbox: `write.outbox.queue_size`, `write.outbox.hmac_missing` (if export emits), monitor WAL size `write_wal_bytes`.
+  `write.webhook.retry_queue` / `webhook_retry_queue`,
+  `write.webhook.retry_overdue` / `webhook_retry_overdue`,
+  `write.webhook.retry_lag_seconds` / `webhook_retry_lag_seconds`,
+  `write.wal.apply_duration_seconds` / `wal_apply_duration_seconds`,
+  `write.idempotency.collisions_total` / `idempotency_collisions_total`,
+  `write.psp.<provider>.breaker_open` / `breaker_open`,
+  `write.psp.<provider>.breaker_blocked`,
+  `write.outbox.queue_size` / `outbox_queue_depth`.
+- HMAC/outbox: `write.outbox.queue_size`, `write_outbox_hmac_missing_total`,
+  `write_outbox_hmac_mismatch_total`; monitor WAL size `write_wal_bytes`.
 - Protect scrape: if exposing `/metrics` via sidecar, put behind basic auth or mTLS
   (`scrape_configs` example: `basic_auth` username/password) to avoid leaking
   operational signals.

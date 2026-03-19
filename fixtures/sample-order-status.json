@@ -9,7 +9,7 @@
   "signatureRef": "sigref-sample-order-001",
   "payload": {
     "orderId": "order-1",
-    "status": "paid",
-    "reason": "test payment"
+    "status": "confirmed",
+    "reason": "test order confirmation"
   }
 }

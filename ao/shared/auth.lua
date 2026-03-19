@@ -125,7 +125,6 @@ local function persist_nonce_store()
 end
 
 load_nonce_store()
-trim_nonce(START_EPOCH)
 
 local function parse_iso8601(ts)
   if type(ts) ~= "string" then return nil end
@@ -277,6 +276,8 @@ local function trim_nonce(now)
     nonce_store[items[i][1]] = nil
   end
 end
+
+trim_nonce(START_EPOCH)
 
 function Auth.require_nonce(msg)
   if not REQUIRE_NONCE then return true end

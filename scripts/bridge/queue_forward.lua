@@ -16,6 +16,9 @@ local metrics_ok, metrics = pcall(require, "ao.shared.metrics")
 local function m_counter(name, value)
   if metrics_ok and metrics and metrics.counter then metrics.counter(name, value or 1) end
 end
+local function m_gauge(name, value)
+  if metrics_ok and metrics and metrics.gauge then metrics.gauge(name, value) end
+end
 
 local function ensure_dir(path)
   local dir = path:match("(.+)/[^/]+$")
@@ -175,4 +178,6 @@ for _, ev in ipairs(queue) do
 end
 
 save_queue(remaining)
+m_gauge("outbox_queue_depth", #remaining)
+m_gauge("write.outbox.queue_size", #remaining)
 print(string.format("[queue] delivered=%d pending=%d", #delivered, #remaining))

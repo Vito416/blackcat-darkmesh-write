@@ -96,8 +96,12 @@ scripts/cli/       # local helpers (run command)
 - `RUN_BATCH=1 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/cli/batch_run.lua` — run all fixtures and enforce matches to `*.expected.json` (CI uses this).
 - Queue forwarder (persisted outbox → HTTP):  
   `AO_QUEUE_PATH=dev/outbox-queue.ndjson AO_QUEUE_LOG_PATH=dev/queue-log.ndjson AO_QUEUE_MAX_RETRIES=5 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/bridge/queue_forward.lua`
+- Outbox replay into a fresh queue:  
+  `WRITE_OUTBOX_PATH=dev/outbox.json AO_QUEUE_PATH=dev/outbox-queue.ndjson lua scripts/verify/outbox_replay.lua`
 - Health snapshot (write-side files & deps):  
   `WRITE_WAL_PATH=... WRITE_OUTBOX_PATH=... AO_QUEUE_PATH=... LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/verify/health.lua`
+- Export verifier (PII scrub check):  
+  `WRITE_OUTBOX_EXPORT_PATH=dev/outbox.ndjson lua scripts/verify/export_verify.lua`
 
 ## Prod hardening checklist
 - Set `WRITE_STRICT_OUTBOX_HMAC=1` and ensure every emitted event includes `hmac`.
@@ -109,16 +113,23 @@ scripts/cli/       # local helpers (run command)
 ## Monitoring
 - Expose Prom-style `/metrics` via `ao.shared.metrics` (see `METRICS_PROM_PATH`, `METRICS_LOG`, `METRICS_BEARER_TOKEN`).
 - Key counters:
+  - `outbox_queue_depth`, `write.outbox.queue_size`
   - `write_auth_signature_failed_total`, `write_auth_signature_missing_total`
   - `write_auth_jwt_invalid_total`, `write_auth_jwt_expired_total`, `write_auth_jwt_not_before_total`, `write_auth_jwt_skew_total`, `write_auth_jwt_*_mismatch_total`
   - `write_auth_nonce_replay_total`
   - `write_auth_rate_limited_total`
+  - `write.idempotency.collisions`, `idempotency_collisions_total`
+  - `write.webhook.retry_queue`, `webhook_retry_queue`, `write.webhook.retry_lag_seconds`, `webhook_retry_lag_seconds`, `webhook_retry_overdue`
+  - `write.psp.breaker_open`, `breaker_open`
+  - `write.wal.apply_duration_seconds`, `wal_apply_duration_seconds`
   - `write_outbox_hmac_missing_total`, `write_outbox_hmac_mismatch_total`
 - Sample alerts (PromQL):
   - `increase(write_auth_rate_limited_total[5m]) > 50`
   - `increase(write_auth_jwt_invalid_total[5m]) > 5 or increase(write_auth_jwt_expired_total[5m]) > 20`
   - `increase(write_auth_nonce_replay_total[5m]) > 0`
   - `increase(write_outbox_hmac_mismatch_total[5m]) > 0 or increase(write_outbox_hmac_missing_total[5m]) > 5`
+  - `max_over_time(outbox_queue_depth[5m]) > 100 or increase(webhook_retry_queue[5m]) > 20`
+  - `increase(breaker_open[5m]) > 0`
 - Add alerts on rising trends; log/Prom output controlled by `METRICS_*` envs in `ao/shared/metrics.lua`.
 
 ## Bridge (stub)

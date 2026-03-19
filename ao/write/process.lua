@@ -55,6 +55,7 @@ local function enqueue_event(ev)
   persist.save("outbox_queue", q)
   if metrics_ok then
     gauge("write.outbox.queue_size", #q)
+    gauge("outbox_queue_depth", #q)
   end
 end
 -- legacy helper used by older code paths; now routes everything to the durable queue
@@ -237,6 +238,7 @@ local function breaker_note(provider, success)
     end
   end
   gauge("write.psp.breaker_open", open_total)
+  gauge("breaker_open", open_total)
 end
 
 local function mark_webhook_seen(key, ts)
@@ -289,6 +291,7 @@ local function enqueue_webhook_retry(handler_name, cmd, attempt)
   })
   persist.save("write_state", state)
   gauge("write.webhook.retry_queue", #state.webhook_retry)
+  gauge("webhook_retry_queue", #state.webhook_retry)
   counter("write.webhook.retry_scheduled", 1)
 end
 
@@ -362,10 +365,12 @@ local function set_payment_status(pid, new_status, provider_status, req_id)
     local new_order_status = map[p.status]
     if new_order_status then
       state.orders[p.orderId].status = new_order_status
+      state.orders[p.orderId].version = (state.orders[p.orderId].version or 1) + 1
       enqueue_event({
         type = "OrderStatusUpdated",
         orderId = p.orderId,
         status = new_order_status,
+        version = state.orders[p.orderId].version,
         requestId = req_id,
       })
     end
@@ -1079,25 +1084,61 @@ function handlers.UpdateSubscriptionStatus(cmd)
 end
 
 function handlers.UpsertOrderStatus(cmd)
-  state.orders[cmd.payload.orderId] = state.orders[cmd.payload.orderId] or { items = {} }
-  state.orders[cmd.payload.orderId].status = cmd.payload.status
-  state.orders[cmd.payload.orderId].reason = cmd.payload.reason
-  state.orders[cmd.payload.orderId].totalAmount = cmd.payload.totalAmount or state.orders[cmd.payload.orderId].totalAmount
-  state.orders[cmd.payload.orderId].currency = cmd.payload.currency or state.orders[cmd.payload.orderId].currency
-  state.orders[cmd.payload.orderId].vatRate = cmd.payload.vatRate or state.orders[cmd.payload.orderId].vatRate
-  state.orders[cmd.payload.orderId].updatedAt = cmd.timestamp
+  local oid = cmd.payload.orderId
+  if not oid or oid == "" then
+    return err(cmd.requestId, "INVALID_INPUT", "orderId_required")
+  end
+
+  state.orders[oid] = state.orders[oid] or { items = {}, status = "draft", version = 1 }
+  local order = state.orders[oid]
+
+  local expected_version = cmd.expectedVersion or (cmd.payload and cmd.payload.expectedVersion)
+  if expected_version and order.version and order.version ~= expected_version then
+    return err(cmd.requestId, "VERSION_CONFLICT", "expectedVersion mismatch", { current = order.version })
+  end
+
+  local target = cmd.payload.status
+  if not target or target == "" then
+    return err(cmd.requestId, "INVALID_INPUT", "status_required")
+  end
+
+  local ok_trans, trans_err = can_transition(order, target)
+  if not ok_trans then
+    return err(cmd.requestId, "INVALID_STATE", trans_err or "transition_not_allowed", { from = order.status or "draft", to = target })
+  end
+
+  if order.status == target then
+    return ok(cmd.requestId, {
+      orderId = oid,
+      status = order.status,
+      version = order.version,
+      totalAmount = order.totalAmount,
+      currency = order.currency,
+      vatRate = order.vatRate,
+    })
+  end
+
+  order.status = target
+  order.reason = cmd.payload.reason
+  order.totalAmount = cmd.payload.totalAmount or order.totalAmount
+  order.currency = cmd.payload.currency or order.currency
+  order.vatRate = cmd.payload.vatRate or order.vatRate
+  order.updatedAt = cmd.timestamp
+  order.version = (order.version or 1) + 1
   enqueue_event({
     type = "OrderStatusUpdated",
-    orderId = cmd.payload.orderId,
-    status = cmd.payload.status,
+    orderId = oid,
+    status = order.status,
+    version = order.version,
     requestId = cmd.requestId,
   })
   return ok(cmd.requestId, {
-    orderId = cmd.payload.orderId,
-    status = cmd.payload.status,
-    totalAmount = cmd.payload.totalAmount,
-    currency = cmd.payload.currency,
-    vatRate = cmd.payload.vatRate,
+    orderId = oid,
+    status = order.status,
+    version = order.version,
+    totalAmount = order.totalAmount,
+    currency = order.currency,
+    vatRate = order.vatRate,
   })
 end
 
@@ -2395,6 +2436,7 @@ function handlers.RunWebhookRetries(cmd)
   state.webhook_retry = remaining
   persist.save("write_state", state)
   gauge("write.webhook.retry_queue", #state.webhook_retry)
+  gauge("webhook_retry_queue", #state.webhook_retry)
   local overdue = 0
   for _, job in ipairs(state.webhook_retry) do
     if job.nextAttempt and job.nextAttempt <= now then overdue = overdue + 1 end
@@ -2407,7 +2449,9 @@ function handlers.RunWebhookRetries(cmd)
     end
   end
   gauge("write.webhook.retry_lag_seconds", math.max(0, max_lag))
+  gauge("webhook_retry_lag_seconds", math.max(0, max_lag))
   gauge("write.webhook.retry_overdue", overdue)
+  gauge("webhook_retry_overdue", overdue)
   return ok(cmd.requestId, { retry_size = #state.webhook_retry })
 end
 
@@ -2417,6 +2461,7 @@ function M.route(command)
   local stored = idem.lookup(command.requestId or command["Request-Id"])
   if stored then
     counter("write.idempotency.collisions", 1)
+    counter("idempotency_collisions_total", 1)
     return stored
   end
 
@@ -2496,6 +2541,7 @@ function M.route(command)
   if apply_started then
     local apply_duration = os.clock() - apply_started
     gauge("write.wal.apply_duration_seconds", apply_duration)
+    gauge("wal_apply_duration_seconds", apply_duration)
   end
   local wal_entry
   do

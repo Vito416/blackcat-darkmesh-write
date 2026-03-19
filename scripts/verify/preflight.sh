@@ -85,6 +85,18 @@ if command -v lua5.4 >/dev/null 2>&1; then
     LUA_CPATH="${ROCKS_LUA_CPATH}" \
       lua5.4 "$ROOT_DIR/scripts/verify/conflicts.lua"
   fi
+  if [ "${RUN_SCHEMA_CONSISTENCY:-1}" -eq 1 ]; then
+    echo "[verify] schema/handler consistency"
+    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
+    LUA_CPATH="${ROCKS_LUA_CPATH}" \
+      lua5.4 "$ROOT_DIR/scripts/verify/schema_consistency.lua"
+  fi
+  if [ "${RUN_IDEM_PROPERTY:-1}" -eq 1 ]; then
+    echo "[verify] idempotency property test"
+    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
+    LUA_CPATH="${ROCKS_LUA_CPATH}" \
+      lua5.4 "$ROOT_DIR/scripts/verify/idempotency_property.lua"
+  fi
   if [ -n "${WRITE_IDEM_PATH:-}" ]; then
     echo "[verify] idempotency persistence"
     LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 - <<'LUA'

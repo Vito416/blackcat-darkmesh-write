@@ -51,6 +51,7 @@ local function flush_queue()
   storage.put("outbox_queue", keep)
   if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
   gauge("write.outbox.queue_size", #keep)
+  gauge("outbox_queue_depth", #keep)
 
   -- retry DLQ too
   local dlq = storage.get("outbox_dlq") or {}
