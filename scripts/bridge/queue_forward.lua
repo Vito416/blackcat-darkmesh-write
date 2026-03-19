@@ -80,7 +80,7 @@ for _, ev in ipairs(queue) do
     if expected and expected:lower() ~= tostring(ev.hmac):lower() then
       append_log({ ts = os.date("!%Y-%m-%dT%H:%M:%SZ"), requestId = ev.requestId, status = "hmac_mismatch" })
       io.stderr:write(string.format("hmac mismatch for requestId=%s\n", tostring(ev.requestId)))
-      goto continue
+      goto skip
     end
   end
   local ok, status, resp_hash = bridge.forward_event(ev)
@@ -104,7 +104,7 @@ for _, ev in ipairs(queue) do
     end
     io.stderr:write(string.format("deliver failed (%s) for requestId=%s\n", tostring(status), tostring(ev.requestId)))
   end
-  ::continue::
+  ::skip::
 end
 
 save_queue(remaining)
