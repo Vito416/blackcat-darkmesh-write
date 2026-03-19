@@ -16,7 +16,14 @@ local cart = write.route {
   ["Actor-Role"] = "admin",
   nonce = "ne1",
   ts = os.time(),
-  payload = { cartId = "cart_eo", siteId = "s1", currency = "USD", sku = "sku-eo", qty = 1, price = 1000 },
+  payload = {
+    cartId = "cart_eo",
+    siteId = "s1",
+    currency = "USD",
+    sku = "sku-eo",
+    qty = 1,
+    price = 1000,
+  },
 }
 assert(ok(cart), "cart add failed")
 local order = write.route {

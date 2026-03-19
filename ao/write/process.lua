@@ -1299,13 +1299,10 @@ function handlers.CreateSubscription(cmd)
     status = cmd.payload.status or "active",
     requestId = cmd.requestId,
   }
-  return ok(
-    cmd.requestId,
-    {
-      subscriptionId = cmd.payload.subscriptionId,
-      status = state.subscriptions[cmd.payload.subscriptionId].status,
-    }
-  )
+  return ok(cmd.requestId, {
+    subscriptionId = cmd.payload.subscriptionId,
+    status = state.subscriptions[cmd.payload.subscriptionId].status,
+  })
 end
 
 function handlers.UpdateSubscriptionStatus(cmd)
@@ -1433,15 +1430,12 @@ function handlers.IssueRefund(cmd)
     return err(cmd.requestId, "SERVER_ERROR", hmac_err or "outbox_hmac_failed")
   end
   enqueue_event(ev)
-  return ok(
-    cmd.requestId,
-    {
-      orderId = cmd.payload.orderId,
-      amount = cmd.payload.amount,
-      currency = cmd.payload.currency,
-      vatRate = cmd.payload.vatRate,
-    }
-  )
+  return ok(cmd.requestId, {
+    orderId = cmd.payload.orderId,
+    amount = cmd.payload.amount,
+    currency = cmd.payload.currency,
+    vatRate = cmd.payload.vatRate,
+  })
 end
 
 -- Minimal payment-level refund handler; PSP-specific flows can be added later.
@@ -1614,15 +1608,12 @@ function handlers.ApplyCoupon(cmd)
     requestId = cmd.requestId,
   }
   enqueue_event(ev)
-  return ok(
-    cmd.requestId,
-    {
-      orderId = cmd.payload.orderId,
-      totalAmount = order.totalAmount,
-      code = cmd.payload.code,
-      coupons = order.coupons,
-    }
-  )
+  return ok(cmd.requestId, {
+    orderId = cmd.payload.orderId,
+    totalAmount = order.totalAmount,
+    code = cmd.payload.code,
+    coupons = order.coupons,
+  })
 end
 
 function handlers.RemoveCoupon(cmd)
@@ -1689,16 +1680,13 @@ function handlers.ExchangeOtp(cmd)
   if not token then
     return err(cmd.requestId, "SERVER_ERROR", terr or "jwt_failed")
   end
-  return ok(
-    cmd.requestId,
-    {
-      token = token,
-      exp = os.time() + ttl,
-      role = entry.role,
-      tenant = entry.tenant,
-      sub = entry.sub,
-    }
-  )
+  return ok(cmd.requestId, {
+    token = token,
+    exp = os.time() + ttl,
+    role = entry.role,
+    tenant = entry.tenant,
+    sub = entry.sub,
+  })
 end
 
 -- Session issuance (short-lived JWT) and revocation
@@ -2088,15 +2076,12 @@ function handlers.GetShippingQuote(cmd)
   if not selected then
     return err(cmd.requestId, "NOT_FOUND", "no rate")
   end
-  return ok(
-    cmd.requestId,
-    {
-      price = selected.price,
-      currency = selected.currency,
-      carrier = selected.carrier,
-      service = selected.service,
-    }
-  )
+  return ok(cmd.requestId, {
+    price = selected.price,
+    currency = selected.currency,
+    carrier = selected.carrier,
+    service = selected.service,
+  })
 end
 
 function handlers.CreatePaymentIntent(cmd)
@@ -2216,16 +2201,13 @@ function handlers.CreatePaymentIntent(cmd)
   end
   enqueue_event(ev)
   breaker_note(provider, status ~= "error")
-  return ok(
-    cmd.requestId,
-    {
-      paymentId = pid,
-      provider = provider,
-      status = status,
-      providerPaymentId = providerPaymentId,
-      gatewayUrl = gatewayUrl,
-    }
-  )
+  return ok(cmd.requestId, {
+    paymentId = pid,
+    provider = provider,
+    status = status,
+    providerPaymentId = providerPaymentId,
+    gatewayUrl = gatewayUrl,
+  })
 end
 
 function handlers.CapturePayment(cmd)

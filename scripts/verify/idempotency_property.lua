@@ -54,24 +54,20 @@ local function run_pair(action, payload1, payload2)
   end
 end
 
-run_pair(
-  "SaveDraftPage",
-  {
-    payload = {
-      siteId = "s-idem",
-      pageId = "home",
-      locale = "en",
-      blocks = { { type = "text", value = "first" } },
-    },
+run_pair("SaveDraftPage", {
+  payload = {
+    siteId = "s-idem",
+    pageId = "home",
+    locale = "en",
+    blocks = { { type = "text", value = "first" } },
   },
-  {
-    payload = {
-      siteId = "s-idem",
-      pageId = "home",
-      locale = "en",
-      blocks = { { type = "text", value = "second" } },
-    },
-  }
-)
+}, {
+  payload = {
+    siteId = "s-idem",
+    pageId = "home",
+    locale = "en",
+    blocks = { { type = "text", value = "second" } },
+  },
+})
 
 print "idempotency_property: ok"
