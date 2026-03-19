@@ -20,7 +20,7 @@ assert(first.status == "OK")
 local replay = call(req)
 assert(replay.status == "OK") -- idem cache returns same response
 
-local unknown = call { Action = "NotAllowed", ["Request-Id"] = "rid-2" }
+local unknown = call { Action = "NotAllowed", ["Request-Id"] = "rid-2", ["Actor-Role"] = "editor" }
 assert(unknown.code == "UNKNOWN_ACTION")
 
 print("conflicts: ok")
