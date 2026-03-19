@@ -1,21 +1,25 @@
 -- Lightweight outbox daemon with retry/backoff.
 -- Requires luv; falls back to single-run if luv missing.
 
-local bridge = require("ao.shared.bridge")
-local storage = require("ao.shared.storage")
+local bridge = require "ao.shared.bridge"
+local storage = require "ao.shared.storage"
 local metrics_ok, metrics = pcall(require, "ao.shared.metrics")
 local ok_luv, uv = pcall(require, "luv")
 
-local OUTBOX_PATH = os.getenv("WRITE_OUTBOX_PATH")
-local retry_limit = tonumber(os.getenv("OUTBOX_RETRY_LIMIT") or os.getenv("RETRY_LIMIT") or "5")
-local backoff_ms = tonumber(os.getenv("OUTBOX_BACKOFF_MS") or "500")
-local prom = os.getenv("PROM_FORMAT") == "1"
+local OUTBOX_PATH = os.getenv "WRITE_OUTBOX_PATH"
+local retry_limit = tonumber(os.getenv "OUTBOX_RETRY_LIMIT" or os.getenv "RETRY_LIMIT" or "5")
+local backoff_ms = tonumber(os.getenv "OUTBOX_BACKOFF_MS" or "500")
+local prom = os.getenv "PROM_FORMAT" == "1"
 
 local function gauge(name, value)
-  if metrics_ok and metrics.gauge then metrics.gauge(name, value) end
+  if metrics_ok and metrics.gauge then
+    metrics.gauge(name, value)
+  end
 end
 
-if OUTBOX_PATH then storage.load(OUTBOX_PATH) end
+if OUTBOX_PATH then
+  storage.load(OUTBOX_PATH)
+end
 
 local function next_backoff(attempts)
   local base = math.max(1, backoff_ms / 1000)
@@ -24,7 +28,7 @@ end
 
 local function flush_queue()
   local now = os.time()
-  local q = storage.get("outbox_queue") or {}
+  local q = storage.get "outbox_queue" or {}
   local keep = {}
   local sent = 0
   for _, entry in ipairs(q) do
@@ -35,7 +39,7 @@ local function flush_queue()
       else
         entry.attempts = (entry.attempts or 0) + 1
         if entry.attempts >= retry_limit then
-          local dlq = storage.get("outbox_dlq") or {}
+          local dlq = storage.get "outbox_dlq" or {}
           entry.failedAt = now
           table.insert(dlq, entry)
           storage.put("outbox_dlq", dlq)
@@ -49,12 +53,14 @@ local function flush_queue()
     end
   end
   storage.put("outbox_queue", keep)
-  if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
+  if OUTBOX_PATH then
+    storage.persist(OUTBOX_PATH)
+  end
   gauge("write.outbox.queue_size", #keep)
   gauge("outbox_queue_depth", #keep)
 
   -- retry DLQ too
-  local dlq = storage.get("outbox_dlq") or {}
+  local dlq = storage.get "outbox_dlq" or {}
   local dlq_keep = {}
   for _, entry in ipairs(dlq) do
     entry.retries = (entry.retries or 0) + 1
@@ -64,11 +70,20 @@ local function flush_queue()
     end
   end
   storage.put("outbox_dlq", dlq_keep)
-  if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
+  if OUTBOX_PATH then
+    storage.persist(OUTBOX_PATH)
+  end
   gauge("write.outbox.dlq_size", #dlq_keep)
 
   if prom then
-    print(string.format("outbox_sent %d\noutbox_queue_pending %d\noutbox_dlq_size %d", sent, #keep, #dlq_keep))
+    print(
+      string.format(
+        "outbox_sent %d\noutbox_queue_pending %d\noutbox_dlq_size %d",
+        sent,
+        #keep,
+        #dlq_keep
+      )
+    )
   else
     print(string.format("sent=%d queue=%d dlq=%d", sent, #keep, #dlq_keep))
   end

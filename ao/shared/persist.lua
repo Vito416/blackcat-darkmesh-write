@@ -5,19 +5,33 @@
 
 local persist = {}
 
-local base = os.getenv("WRITE_STATE_DIR")
+local base = os.getenv "WRITE_STATE_DIR"
 local export_ok, export = pcall(require, "ao.shared.export")
 local json_ok, cjson = pcall(require, "cjson.safe")
 
 local pii_keys = {
-  address = true, Address = true,
-  line1 = true, line2 = true, city = true, postal = true, region = true,
-  phone = true, email = true,
-  subject = true, ["Subject"] = true,
-  customerId = true, ["Customer-Id"] = true, customerRef = true, ["Customer-Ref"] = true,
-  token = true, tokenHash = true, ["Token-Hash"] = true,
-  sessionHash = true, ["Session-Hash"] = true,
-  jwt = true, JWT = true,
+  address = true,
+  Address = true,
+  line1 = true,
+  line2 = true,
+  city = true,
+  postal = true,
+  region = true,
+  phone = true,
+  email = true,
+  subject = true,
+  ["Subject"] = true,
+  customerId = true,
+  ["Customer-Id"] = true,
+  customerRef = true,
+  ["Customer-Ref"] = true,
+  token = true,
+  tokenHash = true,
+  ["Token-Hash"] = true,
+  sessionHash = true,
+  ["Session-Hash"] = true,
+  jwt = true,
+  JWT = true,
 }
 
 local function scrub(value)
@@ -35,7 +49,9 @@ local function scrub(value)
 end
 
 local function path_for(ns)
-  if not base then return nil end
+  if not base then
+    return nil
+  end
   return base .. "/" .. ns .. ".json"
 end
 
@@ -48,7 +64,7 @@ function persist.load(ns, default_value)
   if not f then
     return default_value
   end
-  local content = f:read("*a")
+  local content = f:read "*a"
   f:close()
   local decoded = cjson.decode(content or "")
   if type(decoded) == "table" then
@@ -61,12 +77,12 @@ function persist.save(ns, value)
   local p = path_for(ns)
   -- Append PII-scrubbed snapshot to WeaveDB export (immutable)
   if export_ok and type(export.write) == "function" then
-    export.write({
+    export.write {
       kind = "state_snapshot",
       ns = ns,
       ts = os.time(),
       state = scrub(value),
-    })
+    }
   end
   -- Write mutable snapshot for local restart
   if p and json_ok then

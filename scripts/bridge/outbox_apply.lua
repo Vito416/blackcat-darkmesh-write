@@ -14,7 +14,7 @@ if not ok then
   os.exit(1)
 end
 
-local outbox = storage.get("outbox_queue") or storage.get("outbox") or {}
+local outbox = storage.get "outbox_queue" or storage.get "outbox" or {}
 local applied = 0
 for _, entry in ipairs(outbox) do
   local ev = entry.event or entry

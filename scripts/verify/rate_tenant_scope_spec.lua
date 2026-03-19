@@ -1,6 +1,6 @@
 -- Verifies rate limit buckets are namespaced by tenant+actor.
 -- luacheck: globals os.setenv
-local auth = require("ao.shared.auth")
+local auth = require "ao.shared.auth"
 
 -- tighten limits for the test
 if os.setenv then
@@ -17,4 +17,4 @@ local msg2 = { tenant = "tenant-b", actor = "alice" }
 local ok2, err2 = auth.rate_limit_check(msg2)
 assert(ok2, "separate tenant should have independent bucket: " .. tostring(err2))
 
-print("rate_tenant_scope_spec: ok")
+print "rate_tenant_scope_spec: ok"

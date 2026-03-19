@@ -16,25 +16,35 @@ local flush_ndjson
 
 local function ensure_dir(path)
   local dir = path:match "(.+)/[^/]+$"
-  if dir then os.execute(string.format('mkdir -p "%s"', dir)) end
+  if dir then
+    os.execute(string.format('mkdir -p "%s"', dir))
+  end
 end
 
 local function log(event)
-  if not ENABLED or not LOG_PATH then return end
+  if not ENABLED or not LOG_PATH then
+    return
+  end
   ensure_dir(LOG_PATH)
   local f = io.open(LOG_PATH, "a")
-  if not f then return end
-  f:write(string.format(
-    '{"ts":"%s","event":"%s","value":%s}\n',
-    os.date "!%Y-%m-%dT%H:%M:%SZ",
-    event.name or "metric",
-    event.value or 0
-  ))
+  if not f then
+    return
+  end
+  f:write(
+    string.format(
+      '{"ts":"%s","event":"%s","value":%s}\n',
+      os.date "!%Y-%m-%dT%H:%M:%SZ",
+      event.name or "metric",
+      event.value or 0
+    )
+  )
   f:close()
 end
 
 function Metrics.inc(name, value)
-  if os.getenv("METRICS_DISABLED") == "1" then return end
+  if os.getenv "METRICS_DISABLED" == "1" then
+    return
+  end
   value = value or 1
   counters[name] = (counters[name] or 0) + value
   log { name = name, value = counters[name] }
@@ -52,7 +62,9 @@ function Metrics.counter(name, value)
 end
 
 function Metrics.gauge(name, value)
-  if os.getenv("METRICS_DISABLED") == "1" then return end
+  if os.getenv "METRICS_DISABLED" == "1" then
+    return
+  end
   gauges[name] = value
   log { name = name, value = value }
   since_flush = since_flush + 1
@@ -65,10 +77,14 @@ function Metrics.gauge(name, value)
 end
 
 function Metrics.flush_prom()
-  if not PROM_PATH then return end
+  if not PROM_PATH then
+    return
+  end
   ensure_dir(PROM_PATH)
   local f = io.open(PROM_PATH, "w")
-  if not f then return end
+  if not f then
+    return
+  end
   for k, v in pairs(counters) do
     f:write(string.format("%s_total %d\n", k:gsub("[^%w_]", "_"), v))
   end
@@ -80,10 +96,14 @@ function Metrics.flush_prom()
 end
 
 flush_ndjson = function()
-  if not NDJSON_PATH then return end
+  if not NDJSON_PATH then
+    return
+  end
   ensure_dir(NDJSON_PATH)
   local f = io.open(NDJSON_PATH, "w")
-  if not f then return end
+  if not f then
+    return
+  end
   local ts = os.date "!%Y-%m-%dT%H:%M:%SZ"
   for k, v in pairs(counters) do
     f:write(string.format('{"ts":"%s","type":"counter","name":"%s","value":%s}\n', ts, k, v))
@@ -95,7 +115,9 @@ flush_ndjson = function()
 end
 
 function Metrics.tick()
-  if os.getenv("METRICS_DISABLED") == "1" then return end
+  if os.getenv "METRICS_DISABLED" == "1" then
+    return
+  end
   local now = os.time()
   if FLUSH_INTERVAL > 0 and (now - last_flush) >= FLUSH_INTERVAL then
     Metrics.flush_prom()
@@ -108,7 +130,9 @@ function Metrics.tick()
 end
 
 function Metrics.start_background()
-  if started then return end
+  if started then
+    return
+  end
   started = true
   if FLUSH_INTERVAL > 0 and timer_ok then
     timer.start(FLUSH_INTERVAL, Metrics.flush_prom)

@@ -30,50 +30,76 @@ local function simple_decode(str)
       pos = pos + 1
       local obj = {}
       skip_ws()
-      if str:sub(pos, pos) == "}" then pos = pos + 1; return obj end
+      if str:sub(pos, pos) == "}" then
+        pos = pos + 1
+        return obj
+      end
       while true do
         skip_ws()
         local key = parse_value()
         skip_ws()
-        if str:sub(pos, pos) ~= ":" then return nil end
+        if str:sub(pos, pos) ~= ":" then
+          return nil
+        end
         pos = pos + 1
         local val = parse_value()
         obj[key] = val
         skip_ws()
         local sep = str:sub(pos, pos)
         pos = pos + 1
-        if sep == "}" then break end
-        if sep ~= "," then return nil end
+        if sep == "}" then
+          break
+        end
+        if sep ~= "," then
+          return nil
+        end
       end
       return obj
     elseif ch == "[" then
       pos = pos + 1
       local arr = {}
       skip_ws()
-      if str:sub(pos, pos) == "]" then pos = pos + 1; return arr end
+      if str:sub(pos, pos) == "]" then
+        pos = pos + 1
+        return arr
+      end
       while true do
         local val = parse_value()
         table.insert(arr, val)
         skip_ws()
         local sep = str:sub(pos, pos)
         pos = pos + 1
-        if sep == "]" then break end
-        if sep ~= "," then return nil end
+        if sep == "]" then
+          break
+        end
+        if sep ~= "," then
+          return nil
+        end
       end
       return arr
     else
       local lit = str:match("^[%w%.%-]+", pos)
-      if not lit then return nil end
+      if not lit then
+        return nil
+      end
       pos = pos + #lit
-      if lit == "true" then return true end
-      if lit == "false" then return false end
-      if lit == "null" then return nil end
+      if lit == "true" then
+        return true
+      end
+      if lit == "false" then
+        return false
+      end
+      if lit == "null" then
+        return nil
+      end
       local num = tonumber(lit)
       return num
     end
   end
   local ok, val = pcall(parse_value)
-  if not ok then return nil end
+  if not ok then
+    return nil
+  end
   return val
 end
 
@@ -84,7 +110,9 @@ local function decode_json(str)
   local ok, dkjson = pcall(require, "dkjson")
   if ok then
     local obj, pos, err = dkjson.decode(str, 1, nil)
-    if err then return nil end
+    if err then
+      return nil
+    end
     return obj
   end
   return simple_decode(str)
@@ -92,13 +120,15 @@ end
 
 local function read_json(path)
   local f = io.open(path, "r")
-  if not f then return nil end
-  local content = f:read("*a")
+  if not f then
+    return nil
+  end
+  local content = f:read "*a"
   f:close()
   return decode_json(content)
 end
 
-local ROOT = (... and (...):match("^(.*)%.schema$")) or ""
+local ROOT = (... and (...):match "^(.*)%.schema$") or ""
 local envelope_path = "schemas/command-envelope.schema.json"
 local actions_path = "schemas/actions.schema.json"
 
@@ -108,7 +138,9 @@ local ACTIONS = read_json(actions_path) or {}
 local function type_of(value)
   local t = type(value)
   if t == "table" then
-    if next(value) == nil then return "object" end
+    if next(value) == nil then
+      return "object"
+    end
     local i = 0
     for _ in pairs(value) do
       i = i + 1
@@ -136,7 +168,9 @@ local function validate_properties(value, schema, path, errors)
         local actual_type = type_of(v)
         local expected_types = {}
         if type(prop.type) == "table" then
-          for _, t in ipairs(prop.type) do expected_types[t] = true end
+          for _, t in ipairs(prop.type) do
+            expected_types[t] = true
+          end
         elseif prop.type then
           expected_types[prop.type] = true
         end
@@ -151,18 +185,25 @@ local function validate_properties(value, schema, path, errors)
             local exp_list = table.concat(
               (function(t)
                 local r = {}
-                for k in pairs(t) do table.insert(r, k) end
+                for k in pairs(t) do
+                  table.insert(r, k)
+                end
                 return r
               end)(expected_types),
               "|"
             )
-            table.insert(errors, path .. name .. " expected " .. exp_list .. ", got " .. actual_type)
+            table.insert(
+              errors,
+              path .. name .. " expected " .. exp_list .. ", got " .. actual_type
+            )
           end
         end
         if prop.enum then
           local ok_enum = false
           for _, ev in ipairs(prop.enum) do
-            if ev == v then ok_enum = true end
+            if ev == v then
+              ok_enum = true
+            end
           end
           if not ok_enum then
             table.insert(errors, path .. name .. " not in enum")
@@ -183,9 +224,16 @@ local function validate_properties(value, schema, path, errors)
           for idx, item in ipairs(v) do
             local itype = type_of(item)
             if prop.items.type and itype ~= prop.items.type then
-              table.insert(errors, path .. name .. "[" .. idx .. "] expected " .. prop.items.type .. ", got " .. itype)
+              table.insert(
+                errors,
+                path .. name .. "[" .. idx .. "] expected " .. prop.items.type .. ", got " .. itype
+              )
             end
-            if prop.items.pattern and itype == "string" and not tostring(item):match(prop.items.pattern) then
+            if
+              prop.items.pattern
+              and itype == "string"
+              and not tostring(item):match(prop.items.pattern)
+            then
               table.insert(errors, path .. name .. "[" .. idx .. "] pattern mismatch")
             end
           end
@@ -196,7 +244,7 @@ local function validate_properties(value, schema, path, errors)
           validate_properties(v, prop, path .. name .. ".", errors)
         end
         if prop.format == "date-time" and actual_type == "string" then
-          if not tostring(v):match("^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%dZ$") then
+          if not tostring(v):match "^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%dZ$" then
             table.insert(errors, path .. name .. " invalid date-time")
           end
         end
@@ -224,7 +272,9 @@ end
 
 function Schema.validate_action(action, payload)
   local action_schema = ACTIONS.properties and ACTIONS.properties[action]
-  if not action_schema then return true end
+  if not action_schema then
+    return true
+  end
   return validate(payload or {}, action_schema)
 end
 

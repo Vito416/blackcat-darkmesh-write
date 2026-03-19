@@ -1,17 +1,21 @@
 -- Health snapshot for write process
 
-local cjson = require("cjson")
+local cjson = require "cjson"
 local lfs_ok, lfs = pcall(require, "lfs")
 local function sha256_file(path)
   local p = io.popen("sha256sum " .. path .. " 2>/dev/null")
-  if not p then return nil end
-  local out = p:read("*a") or ""
+  if not p then
+    return nil
+  end
+  local out = p:read "*a" or ""
   p:close()
-  return out:match("^(%w+)")
+  return out:match "^(%w+)"
 end
 
 local function file_size(path)
-  if not lfs_ok then return "n/a" end
+  if not lfs_ok then
+    return "n/a"
+  end
   local attr = lfs.attributes(path)
   return attr and attr.size or 0
 end
@@ -20,12 +24,12 @@ local function print_line(k, v)
   io.stdout:write(string.format("%s: %s\n", k, tostring(v)))
 end
 
-local wal = os.getenv("WRITE_WAL_PATH") or ""
-local outbox = os.getenv("WRITE_OUTBOX_PATH") or ""
-local queue = os.getenv("AO_QUEUE_PATH") or ""
-local queue_log = os.getenv("AO_QUEUE_LOG_PATH") or ""
-local wal_max = tonumber(os.getenv("WRITE_WAL_MAX_BYTES") or "5242880") -- 5 MiB default
-local queue_max = tonumber(os.getenv("AO_QUEUE_MAX_BYTES") or "2097152") -- 2 MiB default
+local wal = os.getenv "WRITE_WAL_PATH" or ""
+local outbox = os.getenv "WRITE_OUTBOX_PATH" or ""
+local queue = os.getenv "AO_QUEUE_PATH" or ""
+local queue_log = os.getenv "AO_QUEUE_LOG_PATH" or ""
+local wal_max = tonumber(os.getenv "WRITE_WAL_MAX_BYTES" or "5242880") -- 5 MiB default
+local queue_max = tonumber(os.getenv "AO_QUEUE_MAX_BYTES" or "2097152") -- 2 MiB default
 
 print_line("deps.cjson", cjson and "yes" or "no")
 print_line("deps.luv", pcall(require, "luv") and "yes" or "no")
@@ -39,7 +43,9 @@ if wal ~= "" then
   print_line("wal.path", wal)
   local sz = file_size(wal)
   print_line("wal.size", sz)
-  if wal_max > 0 and sz > wal_max then health = "warn:wal_size" end
+  if wal_max > 0 and sz > wal_max then
+    health = "warn:wal_size"
+  end
   print_line("wal.sha256", sha256_file(wal) or "n/a")
 end
 if outbox ~= "" then
@@ -51,7 +57,9 @@ if queue ~= "" then
   print_line("queue.path", queue)
   local sz = file_size(queue)
   print_line("queue.size", sz)
-  if queue_max > 0 and sz > queue_max then health = "warn:queue_size" end
+  if queue_max > 0 and sz > queue_max then
+    health = "warn:queue_size"
+  end
   print_line("queue.sha256", sha256_file(queue) or "n/a")
 end
 if queue_log ~= "" then

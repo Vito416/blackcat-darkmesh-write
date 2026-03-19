@@ -2,50 +2,58 @@
 -- luacheck: ignore send_event OUTBOX_PATH role_policy bridge jwt ok ok_json cjson auth state content_key discount vat schedule_retry OUTBOX_HMAC_SECRET
 -- Entry point for the write command AO process.
 
-local validation = require("ao.shared.validation")
-local auth = require("ao.shared.auth")
-local idem = require("ao.shared.idempotency")
-local audit = require("ao.shared.audit")
-local storage = require("ao.shared.storage")
-local export = require("ao.shared.export")
-local persist = require("ao.shared.persist")
-local bridge = require("ao.shared.bridge")
-local crypto = require("ao.shared.crypto")
-local jwt = require("ao.shared.jwt")
+local validation = require "ao.shared.validation"
+local auth = require "ao.shared.auth"
+local idem = require "ao.shared.idempotency"
+local audit = require "ao.shared.audit"
+local storage = require "ao.shared.storage"
+local export = require "ao.shared.export"
+local persist = require "ao.shared.persist"
+local bridge = require "ao.shared.bridge"
+local crypto = require "ao.shared.crypto"
+local jwt = require "ao.shared.jwt"
 local metrics_ok, metrics = pcall(require, "ao.shared.metrics")
 if not metrics_ok or type(metrics.gauge) ~= "function" then
   metrics = {
-    gauge = function(...) return ... end,
-    counter = function(...) return ... end,
+    gauge = function(...)
+      return ...
+    end,
+    counter = function(...)
+      return ...
+    end,
   }
 end
 local gopay_ok, gopay = pcall(require, "ao.shared.gopay")
 local stripe_ok, stripe = pcall(require, "ao.shared.stripe")
 local paypal_ok, paypal = pcall(require, "ao.shared.paypal")
-local tax = require("ao.shared.tax")
+local tax = require "ao.shared.tax"
 local ok_mime, mime = pcall(require, "mime")
 local ok_json, cjson = pcall(require, "cjson.safe")
 
-local OUTBOX_PATH = os.getenv("WRITE_OUTBOX_PATH")
-local WAL_PATH = os.getenv("WRITE_WAL_PATH")
-local OUTBOX_HMAC_SECRET = os.getenv("OUTBOX_HMAC_SECRET")
-local CART_STORE_PATH = os.getenv("WRITE_CART_STORE_PATH")
-local RATE_STORE_PATH = os.getenv("WRITE_RATE_STORE_PATH")
-local PSP_HOSTED_ONLY = os.getenv("WRITE_PSP_HOSTED_ONLY") ~= "0" -- default on (secrets live in Worker)
-local PSP_BREAKER_THRESHOLD = tonumber(os.getenv("WRITE_PSP_BREAKER_THRESHOLD") or "5")
-local PSP_BREAKER_COOLDOWN = tonumber(os.getenv("WRITE_PSP_BREAKER_COOLDOWN") or "300")
-local WEBHOOK_REPLAY_WINDOW = tonumber(os.getenv("WRITE_WEBHOOK_REPLAY_WINDOW") or "600")
-local WEBHOOK_RETRY_MAX = tonumber(os.getenv("WRITE_WEBHOOK_RETRY_MAX") or "5")
-local WEBHOOK_RETRY_BASE = tonumber(os.getenv("WRITE_WEBHOOK_RETRY_BASE_SECONDS") or "30")
-local WEBHOOK_RETRY_JITTER_PCT = tonumber(os.getenv("WRITE_WEBHOOK_RETRY_JITTER_PCT") or "20")
-local WEBHOOK_SEEN_PATH = os.getenv("WRITE_WEBHOOK_SEEN_PATH")
+local OUTBOX_PATH = os.getenv "WRITE_OUTBOX_PATH"
+local WAL_PATH = os.getenv "WRITE_WAL_PATH"
+local OUTBOX_HMAC_SECRET = os.getenv "OUTBOX_HMAC_SECRET"
+local CART_STORE_PATH = os.getenv "WRITE_CART_STORE_PATH"
+local RATE_STORE_PATH = os.getenv "WRITE_RATE_STORE_PATH"
+local PSP_HOSTED_ONLY = os.getenv "WRITE_PSP_HOSTED_ONLY" ~= "0" -- default on (secrets live in Worker)
+local PSP_BREAKER_THRESHOLD = tonumber(os.getenv "WRITE_PSP_BREAKER_THRESHOLD" or "5")
+local PSP_BREAKER_COOLDOWN = tonumber(os.getenv "WRITE_PSP_BREAKER_COOLDOWN" or "300")
+local WEBHOOK_REPLAY_WINDOW = tonumber(os.getenv "WRITE_WEBHOOK_REPLAY_WINDOW" or "600")
+local WEBHOOK_RETRY_MAX = tonumber(os.getenv "WRITE_WEBHOOK_RETRY_MAX" or "5")
+local WEBHOOK_RETRY_BASE = tonumber(os.getenv "WRITE_WEBHOOK_RETRY_BASE_SECONDS" or "30")
+local WEBHOOK_RETRY_JITTER_PCT = tonumber(os.getenv "WRITE_WEBHOOK_RETRY_JITTER_PCT" or "20")
+local WEBHOOK_SEEN_PATH = os.getenv "WRITE_WEBHOOK_SEEN_PATH"
 local ok_schema, schema = pcall(require, "ao.shared.schema")
 
 local function gauge(name, value)
-  if metrics and metrics.gauge then metrics.gauge(name, value) end
+  if metrics and metrics.gauge then
+    metrics.gauge(name, value)
+  end
 end
 local function counter(name, delta)
-  if metrics and metrics.counter then metrics.counter(name, delta or 1) end
+  if metrics and metrics.counter then
+    metrics.counter(name, delta or 1)
+  end
 end
 
 local function err(req_id, code, msg, details)
@@ -66,10 +74,12 @@ local function enqueue_event(ev)
       end
     end
   end
-  local q = storage.get("outbox_queue") or {}
+  local q = storage.get "outbox_queue" or {}
   table.insert(q, { event = ev, status = "pending", attempts = 0, nextAttempt = os.time() })
   storage.put("outbox_queue", q)
-  if os.getenv("WRITE_OUTBOX_PATH") then storage.persist(os.getenv("WRITE_OUTBOX_PATH")) end
+  if os.getenv "WRITE_OUTBOX_PATH" then
+    storage.persist(os.getenv "WRITE_OUTBOX_PATH")
+  end
   export.write(ev)
   persist.save("outbox_queue", q)
   if metrics_ok then
@@ -96,19 +106,29 @@ local role_policy = {
 
 local function sha256_str(str)
   local tmp = os.tmpname()
-  local f = io.open(tmp, "w"); if not f then return nil end
-  f:write(str); f:close()
+  local f = io.open(tmp, "w")
+  if not f then
+    return nil
+  end
+  f:write(str)
+  f:close()
   local p = io.popen("sha256sum " .. tmp .. " 2>/dev/null")
-  local out = p and p:read("*a") or ""
-  if p then p:close() end
+  local out = p and p:read "*a" or ""
+  if p then
+    p:close()
+  end
   os.remove(tmp)
-  return out:match("^(%w+)")
+  return out:match "^(%w+)"
 end
 
 local function attach_outbox_hmac(ev)
-  if not OUTBOX_HMAC_SECRET or OUTBOX_HMAC_SECRET == "" then return true end
+  if not OUTBOX_HMAC_SECRET or OUTBOX_HMAC_SECRET == "" then
+    return true
+  end
   local hmac, herr = auth.compute_outbox_hmac(ev, OUTBOX_HMAC_SECRET)
-  if not hmac then return false, herr end
+  if not hmac then
+    return false, herr
+  end
   ev.hmac = ev.hmac or hmac
   ev.Hmac = ev.Hmac or hmac
   return true
@@ -116,14 +136,21 @@ end
 
 local function atomic_persist(path, kv)
   local ok_cjson, cjson = pcall(require, "cjson")
-  if not ok_cjson then return false, "cjson_missing" end
+  if not ok_cjson then
+    return false, "cjson_missing"
+  end
   local encoded = cjson.encode(kv)
-  if not encoded then return false, "encode_failed" end
+  if not encoded then
+    return false, "encode_failed"
+  end
   local tmp = path .. ".tmp"
   local f = io.open(tmp, "w")
-  if not f then return false, "open_failed" end
+  if not f then
+    return false, "open_failed"
+  end
   local ok_write = f:write(encoded)
-  f:flush(); f:close()
+  f:flush()
+  f:close()
   if not ok_write then
     os.remove(tmp)
     return false, "write_failed"
@@ -138,41 +165,41 @@ end
 
 -- simple in-memory state; AO runtime would persist
 local state = persist.load("write_state", {
-  drafts = {},        -- key: siteId:pageId -> payload
-  versions = {},      -- siteId -> versionId
-  routes = {},        -- siteId -> map[path] = target
-  products = {},      -- siteId -> map[sku] = payload
-  roles = {},         -- tenant -> subject -> role
-  profiles = {},      -- subject -> profile
-  entitlements = {},  -- subject -> list of {asset, policy}
-  inventory = {},     -- siteId -> sku -> entry
-  price_rules = {},   -- siteId -> ruleId -> entry
-  customers = {},     -- tenant -> customerId -> profile
-  orders = {},        -- orderId -> full order payload
-  coupons = {},       -- code -> { type, value, currency, minOrder, expiresAt }
-  webhooks = {},      -- tenant -> list of endpoints
-  payments = {},      -- paymentId -> {orderId, amount, currency, provider, status}
-  shipments = {},     -- shipmentId -> {status, tracking, carrier}
-  returns = {},       -- returnId -> {status, reason}
-  dlq = {},           -- dead-letter for outbox
+  drafts = {}, -- key: siteId:pageId -> payload
+  versions = {}, -- siteId -> versionId
+  routes = {}, -- siteId -> map[path] = target
+  products = {}, -- siteId -> map[sku] = payload
+  roles = {}, -- tenant -> subject -> role
+  profiles = {}, -- subject -> profile
+  entitlements = {}, -- subject -> list of {asset, policy}
+  inventory = {}, -- siteId -> sku -> entry
+  price_rules = {}, -- siteId -> ruleId -> entry
+  customers = {}, -- tenant -> customerId -> profile
+  orders = {}, -- orderId -> full order payload
+  coupons = {}, -- code -> { type, value, currency, minOrder, expiresAt }
+  webhooks = {}, -- tenant -> list of endpoints
+  payments = {}, -- paymentId -> {orderId, amount, currency, provider, status}
+  shipments = {}, -- shipmentId -> {status, tracking, carrier}
+  returns = {}, -- returnId -> {status, reason}
+  dlq = {}, -- dead-letter for outbox
   inventory_reservations = {}, -- orderId -> { siteId=..., items = { {sku, qty} } }
-  carts = {},         -- cartId -> { siteId, currency, items = { {sku, qty, price, currency, productId, title} } }
+  carts = {}, -- cartId -> { siteId, currency, items = { {sku, qty, price, currency, productId, title} } }
   coupon_redemptions = {}, -- code -> count
   shipping_rates = {}, -- siteId -> list of {country, region, minWeight, maxWeight, price, currency, carrier, service}
-  tax_rates = {},     -- siteId -> list of {country, region, rate, category}
-  otps = {},          -- code_hash -> { sub, tenant, role, exp }
-  otp_rate = {},      -- key -> { count, reset }
+  tax_rates = {}, -- siteId -> list of {country, region, rate, category}
+  otps = {}, -- code_hash -> { sub, tenant, role, exp }
+  otp_rate = {}, -- key -> { count, reset }
   payment_tokens = {}, -- customerId -> provider -> token
   payment_disputes = {}, -- paymentId -> { status, reason, evidence }
-  sessions = {},      -- sessionId -> { sub, tenant, role, exp, device }
+  sessions = {}, -- sessionId -> { sub, tenant, role, exp, device }
   subscriptions = {}, -- subscriptionId -> { customerId, planId, status, meta }
-  workflows = {},     -- contentKey -> { status, reviewers, history, scheduledAt, expiresAt }
-  locks = {},         -- contentKey -> { owner, expiresAt }
-  comments = {},      -- contentKey -> list of { author, text, ts }
-  scheduled = {},     -- list of { contentKey, siteId, pageId, versionId, publishAt }
-  forms = {},         -- formId -> { schema, spam, webhooks }
-  submissions = {},   -- formId -> list of submissions
-  translations = {},  -- taskId -> { siteId, pageId, sourceLocale, targetLocale, status, draft, reviewer, history }
+  workflows = {}, -- contentKey -> { status, reviewers, history, scheduledAt, expiresAt }
+  locks = {}, -- contentKey -> { owner, expiresAt }
+  comments = {}, -- contentKey -> list of { author, text, ts }
+  scheduled = {}, -- list of { contentKey, siteId, pageId, versionId, publishAt }
+  forms = {}, -- formId -> { schema, spam, webhooks }
+  submissions = {}, -- formId -> list of submissions
+  translations = {}, -- taskId -> { siteId, pageId, sourceLocale, targetLocale, status, draft, reviewer, history }
   locale_routes = {}, -- siteId -> locale -> path -> target
   form_webhooks = {}, -- formId -> queue of webhook deliveries
   psp_breakers = {}, -- provider -> { count, open_until }
@@ -184,18 +211,24 @@ local state = persist.load("write_state", {
 do
   if CART_STORE_PATH then
     storage.load(CART_STORE_PATH)
-    local persisted = storage.get("carts")
-    if persisted then state.carts = persisted end
+    local persisted = storage.get "carts"
+    if persisted then
+      state.carts = persisted
+    end
   end
   if RATE_STORE_PATH then
     storage.load(RATE_STORE_PATH)
-    local sh = storage.get("shipping_rates")
-    if sh then state.shipping_rates = sh end
-    local tx = storage.get("tax_rates")
-    if tx then state.tax_rates = tx end
+    local sh = storage.get "shipping_rates"
+    if sh then
+      state.shipping_rates = sh
+    end
+    local tx = storage.get "tax_rates"
+    if tx then
+      state.tax_rates = tx
+    end
   end
 end
-local outbox = {}      -- emitted events for downstream (-ao bridge)
+local outbox = {} -- emitted events for downstream (-ao bridge)
 
 local function content_key(siteId, pageId)
   return (siteId or "") .. ":" .. (pageId or "")
@@ -251,7 +284,9 @@ local function mark_webhook_seen(key, ts)
   end
   local prev = state.webhook_seen[key]
   if prev then
-    if prev > now then prev = now end -- clamp any poisoned future value
+    if prev > now then
+      prev = now
+    end -- clamp any poisoned future value
     if (ts - prev) <= WEBHOOK_REPLAY_WINDOW then
       counter("write.webhook.replay", 1)
       return false
@@ -267,26 +302,42 @@ end
 local webhook_counter
 -- Shared GoPay webhook handling (also used by direct GoPayWebhook action)
 local function handle_gopay_webhook(cmd, schedule_retry)
-  local replay_key = "gopay:" .. (cmd.payload.eventId or cmd.payload.paymentId or cmd.payload.orderId or cmd.requestId or "")
+  local replay_key = "gopay:"
+    .. (cmd.payload.eventId or cmd.payload.paymentId or cmd.payload.orderId or cmd.requestId or "")
   if replay_key ~= "" and not mark_webhook_seen(replay_key, cmd.timestamp) then
     webhook_counter("gopay", "replay")
     return err(cmd.requestId, "REPLAY", "duplicate_webhook")
   end
 
-  local secret = os.getenv("GOPAY_WEBHOOK_SECRET")
+  local secret = os.getenv "GOPAY_WEBHOOK_SECRET"
   if secret and cmd.payload.raw and cmd.payload.raw.body then
-    local sig = cmd.payload.raw.headers and (cmd.payload.raw.headers["X-GoPay-Signature"] or cmd.payload.raw.headers["GoPay-Signature"])
-    if not sig then return err(cmd.requestId, "UNAUTHORIZED", "missing_signature") end
-    local ok_sig = gopay_ok and gopay.verify_signature and gopay.verify_signature(cmd.payload.raw.body, sig, secret)
-    if not ok_sig then return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid") end
+    local sig = cmd.payload.raw.headers
+      and (
+        cmd.payload.raw.headers["X-GoPay-Signature"] or cmd.payload.raw.headers["GoPay-Signature"]
+      )
+    if not sig then
+      return err(cmd.requestId, "UNAUTHORIZED", "missing_signature")
+    end
+    local ok_sig = gopay_ok
+      and gopay.verify_signature
+      and gopay.verify_signature(cmd.payload.raw.body, sig, secret)
+    if not ok_sig then
+      return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid")
+    end
   end
 
-  if os.getenv("GOPAY_WEBHOOK_BASIC") == "1" and cmd.payload.raw and cmd.payload.raw.headers then
+  if os.getenv "GOPAY_WEBHOOK_BASIC" == "1" and cmd.payload.raw and cmd.payload.raw.headers then
     local auth = cmd.payload.raw.headers["Authorization"]
     local decoded = gopay_ok and gopay.verify_basic and gopay.verify_basic(auth)
-    if not decoded then return err(cmd.requestId, "UNAUTHORIZED", "basic_invalid") end
-    local expected = (os.getenv("GOPAY_CLIENT_ID") or "") .. ":" .. (os.getenv("GOPAY_CLIENT_SECRET") or "")
-    if decoded ~= expected then return err(cmd.requestId, "UNAUTHORIZED", "basic_mismatch") end
+    if not decoded then
+      return err(cmd.requestId, "UNAUTHORIZED", "basic_invalid")
+    end
+    local expected = (os.getenv "GOPAY_CLIENT_ID" or "")
+      .. ":"
+      .. (os.getenv "GOPAY_CLIENT_SECRET" or "")
+    if decoded ~= expected then
+      return err(cmd.requestId, "UNAUTHORIZED", "basic_mismatch")
+    end
   end
 
   if ok_schema then
@@ -298,7 +349,7 @@ local function handle_gopay_webhook(cmd, schedule_retry)
   end
 
   if cmd.payload.raw and cmd.payload.raw.risk then
-    local thresh = tonumber(os.getenv("GOPAY_RISK_THRESHOLD") or "70")
+    local thresh = tonumber(os.getenv "GOPAY_RISK_THRESHOLD" or "70")
     if tonumber(cmd.payload.raw.risk) and tonumber(cmd.payload.raw.risk) >= thresh then
       cmd.payload.status = "RISK"
     end
@@ -329,7 +380,8 @@ local function handle_gopay_webhook(cmd, schedule_retry)
           pending = "pending",
           risk_review = "risk_review",
         }
-        state.orders[p.orderId].status = order_status_map[p.status] or state.orders[p.orderId].status
+        state.orders[p.orderId].status = order_status_map[p.status]
+          or state.orders[p.orderId].status
       end
       local ev = {
         type = "PaymentStatusChanged",
@@ -340,12 +392,12 @@ local function handle_gopay_webhook(cmd, schedule_retry)
       }
       enqueue_event(ev)
       if p.orderId and state.orders[p.orderId] and state.orders[p.orderId].status then
-        enqueue_event({
+        enqueue_event {
           type = "OrderStatusUpdated",
           orderId = p.orderId,
           status = state.orders[p.orderId].status,
           requestId = cmd.requestId,
-        })
+        }
       end
       webhook_counter("gopay", "success")
       return ok(cmd.requestId, { paymentId = pid, status = p.status })
@@ -353,7 +405,7 @@ local function handle_gopay_webhook(cmd, schedule_retry)
   end
   webhook_counter("gopay", "missing_payment")
   if schedule_retry then
-    return schedule_retry("payment_not_tracked")
+    return schedule_retry "payment_not_tracked"
   end
   return err(cmd.requestId, "NOT_FOUND", "payment_not_tracked")
 end
@@ -366,7 +418,9 @@ local function backoff_seconds(attempt)
     local delta = (math.random() * 2 - 1) * spread
     base = base + delta
   end
-  if base < 1 then base = 1 end
+  if base < 1 then
+    base = 1
+  end
   return base
 end
 
@@ -427,8 +481,10 @@ local function b64url(x)
 end
 
 local function otp_hash(code)
-  local salt = os.getenv("OTP_HMAC_SECRET")
-  if not salt or salt == "" then return code end -- fallback (plain)
+  local salt = os.getenv "OTP_HMAC_SECRET"
+  if not salt or salt == "" then
+    return code
+  end -- fallback (plain)
   return crypto.hmac_sha256_hex(code, salt) or code
 end
 
@@ -438,7 +494,9 @@ end
 
 local function set_payment_status(pid, new_status, provider_status, req_id)
   local p = state.payments[pid]
-  if not p then return end
+  if not p then
+    return
+  end
   p.status = new_status or p.status
   p.updatedAt = os.time()
   local ev = {
@@ -462,13 +520,13 @@ local function set_payment_status(pid, new_status, provider_status, req_id)
     if new_order_status then
       state.orders[p.orderId].status = new_order_status
       state.orders[p.orderId].version = (state.orders[p.orderId].version or 1) + 1
-      enqueue_event({
+      enqueue_event {
         type = "OrderStatusUpdated",
         orderId = p.orderId,
         status = new_order_status,
         version = state.orders[p.orderId].version,
         requestId = req_id,
-      })
+      }
     end
   end
 end
@@ -485,29 +543,42 @@ local allowed_order_transitions = {
 
 local function can_transition(order, target)
   local current = order.status or "draft"
-  if current == target then return true end
+  if current == target then
+    return true
+  end
   local allowed = allowed_order_transitions[current] or {}
-  if allowed[target] then return true end
+  if allowed[target] then
+    return true
+  end
   return false, string.format("transition_not_allowed:%s->%s", current, target)
 end
 
 function handlers.AddDisputeEvidence(cmd)
   local payment = state.payments[cmd.payload.paymentId]
-  if not payment then return err(cmd.requestId, "NOT_FOUND", "payment not found") end
-  local pd = state.payment_disputes[cmd.payload.paymentId] or { status = payment.status, reason = payment.reason }
+  if not payment then
+    return err(cmd.requestId, "NOT_FOUND", "payment not found")
+  end
+  local pd = state.payment_disputes[cmd.payload.paymentId]
+    or { status = payment.status, reason = payment.reason }
   pd.evidence = cmd.payload.evidence or pd.evidence
-  if cmd.payload.status then pd.status = cmd.payload.status end
-  if cmd.payload.reason then pd.reason = cmd.payload.reason end
+  if cmd.payload.status then
+    pd.status = cmd.payload.status
+  end
+  if cmd.payload.reason then
+    pd.reason = cmd.payload.reason
+  end
   state.payment_disputes[cmd.payload.paymentId] = pd
-  if pd.status then set_payment_status(cmd.payload.paymentId, pd.status, "dispute_evidence", cmd.requestId) end
-  enqueue_event({
+  if pd.status then
+    set_payment_status(cmd.payload.paymentId, pd.status, "dispute_evidence", cmd.requestId)
+  end
+  enqueue_event {
     type = "PaymentDisputeEvidence",
     paymentId = cmd.payload.paymentId,
     provider = cmd.payload.provider,
     status = pd.status,
     reason = pd.reason,
     requestId = cmd.requestId,
-  })
+  }
   return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = pd.status })
 end
 
@@ -516,8 +587,8 @@ local function otp_rate_key(sub, tenant)
 end
 
 local function check_otp_rate(sub, tenant)
-  local window = tonumber(os.getenv("OTP_RATE_WINDOW") or "60")
-  local max = tonumber(os.getenv("OTP_RATE_MAX") or "5")
+  local window = tonumber(os.getenv "OTP_RATE_WINDOW" or "60")
+  local max = tonumber(os.getenv "OTP_RATE_MAX" or "5")
   local key = otp_rate_key(sub, tenant)
   local bucket = state.otp_rate[key] or { count = 0, reset = os.time() + window }
   if os.time() > bucket.reset then
@@ -533,8 +604,11 @@ local function check_otp_rate(sub, tenant)
 end
 
 local function issue_jwt(sub, tenant, role, ttl)
-  local secret = os.getenv("WRITE_JWT_HS_SECRET")
-  local dev_mode = (_G.RUN_CONTRACTS == "1") or (os.getenv("RUN_CONTRACTS") == "1") or (os.getenv("CI") == "true") or (os.getenv("ALLOW_DEV_JWT") == "1")
+  local secret = os.getenv "WRITE_JWT_HS_SECRET"
+  local dev_mode = (_G.RUN_CONTRACTS == "1")
+    or (os.getenv "RUN_CONTRACTS" == "1")
+    or (os.getenv "CI" == "true")
+    or (os.getenv "ALLOW_DEV_JWT" == "1")
   if (not secret or secret == "") and dev_mode then
     secret = "dev-otp-secret"
   end
@@ -549,7 +623,7 @@ local function issue_jwt(sub, tenant, role, ttl)
     return nil, "jwt_deps_missing"
   end
   local now = os.time()
-  local header = b64url(cjson.encode({ alg = "HS256", typ = "JWT" }))
+  local header = b64url(cjson.encode { alg = "HS256", typ = "JWT" })
   local payload_tbl = {
     iss = "blackcat-write",
     sub = sub,
@@ -563,8 +637,12 @@ local function issue_jwt(sub, tenant, role, ttl)
   local payload = b64url(cjson.encode(payload_tbl))
   local signing = header .. "." .. payload
   local sig_hex = crypto.hmac_sha256_hex(signing, secret)
-  if not sig_hex then return nil, "jwt_sign_failed" end
-  local sig = sig_hex:gsub("%x%x", function(x) return string.char(tonumber(x, 16)) end)
+  if not sig_hex then
+    return nil, "jwt_sign_failed"
+  end
+  local sig = sig_hex:gsub("%x%x", function(x)
+    return string.char(tonumber(x, 16))
+  end)
   local token = signing .. "." .. b64url(sig)
   return token
 end
@@ -578,15 +656,27 @@ function handlers.SaveDraftPage(cmd)
   }
   -- touch workflow history if exists
   if state.workflows[key] then
-    table.insert(state.workflows[key].history, { at = cmd.timestamp, by = cmd.actor, action = "draft_saved" })
+    table.insert(
+      state.workflows[key].history,
+      { at = cmd.timestamp, by = cmd.actor, action = "draft_saved" }
+    )
   end
   return ok(cmd.requestId, { draftKey = key })
 end
 
 function handlers.PublishPageVersion(cmd)
   local siteId = cmd.payload.siteId
-  if cmd.expectedVersion and state.versions[siteId] and state.versions[siteId] ~= cmd.expectedVersion then
-    return err(cmd.requestId, "VERSION_CONFLICT", "expectedVersion mismatch", { current = state.versions[siteId] })
+  if
+    cmd.expectedVersion
+    and state.versions[siteId]
+    and state.versions[siteId] ~= cmd.expectedVersion
+  then
+    return err(
+      cmd.requestId,
+      "VERSION_CONFLICT",
+      "expectedVersion mismatch",
+      { current = state.versions[siteId] }
+    )
   end
   state.versions[siteId] = cmd.payload.versionId
   local ev = {
@@ -598,7 +688,9 @@ function handlers.PublishPageVersion(cmd)
     requestId = cmd.requestId,
   }
   local ok_hmac, hmac_err = attach_outbox_hmac(ev)
-  if not ok_hmac then return err(cmd.requestId, "SERVER_ERROR", hmac_err or "outbox_hmac_failed") end
+  if not ok_hmac then
+    return err(cmd.requestId, "SERVER_ERROR", hmac_err or "outbox_hmac_failed")
+  end
   enqueue_event(ev)
   table.insert(outbox, ev) -- keep in-memory outbox for tests/introspection
   local key = content_key(cmd.payload.siteId, cmd.payload.pageId)
@@ -622,7 +714,8 @@ function handlers.UpsertRoute(cmd)
 end
 
 function handlers.CreateForm(cmd)
-  local formId = cmd.payload.formId or ("form_" .. tostring(os.time()) .. "_" .. math.random(0, 9999))
+  local formId = cmd.payload.formId
+    or ("form_" .. tostring(os.time()) .. "_" .. math.random(0, 9999))
   state.forms[formId] = {
     schema = cmd.payload.schema or {},
     spam = cmd.payload.spam or {},
@@ -658,7 +751,7 @@ local function rate_limit_form(formId, ip)
   end
   bucket.count = bucket.count + 1
   state.otp_rate[key] = bucket
-  local max = tonumber(os.getenv("FORM_RATE_MAX") or "30")
+  local max = tonumber(os.getenv "FORM_RATE_MAX" or "30")
   if bucket.count > max then
     return false
   end
@@ -666,7 +759,7 @@ local function rate_limit_form(formId, ip)
 end
 
 function handlers.SubmitForm(cmd)
-  local recaptcha_secret = os.getenv("FORM_RECAPTCHA_SECRET")
+  local recaptcha_secret = os.getenv "FORM_RECAPTCHA_SECRET"
   if recaptcha_secret and recaptcha_secret ~= "" then
     local token = cmd.payload.recaptchaToken
     if not token or token == "" then
@@ -678,7 +771,11 @@ function handlers.SubmitForm(cmd)
       if f then
         f:write("secret=" .. recaptcha_secret .. "&response=" .. token)
         f:close()
-        os.execute("curl -s -X POST https://www.google.com/recaptcha/api/siteverify --data-binary @" .. tmp .. " >/dev/null")
+        os.execute(
+          "curl -s -X POST https://www.google.com/recaptcha/api/siteverify --data-binary @"
+            .. tmp
+            .. " >/dev/null"
+        )
         os.remove(tmp)
       end
     end
@@ -707,22 +804,22 @@ function handlers.SubmitForm(cmd)
     status = "stored",
   }
   table.insert(state.submissions[cmd.payload.formId], record)
-  enqueue_event({
+  enqueue_event {
     type = "FormSubmitted",
     formId = cmd.payload.formId,
     requestId = cmd.requestId,
     ts = cmd.timestamp,
-  })
+  }
   -- fire webhooks
   for _, wh in ipairs(form.webhooks or {}) do
-    enqueue_event({
+    enqueue_event {
       type = "FormWebhook",
       formId = cmd.payload.formId,
       url = wh.url,
       secret = wh.secret,
       payload = record,
       requestId = cmd.requestId,
-    })
+    }
     state.form_webhooks[cmd.payload.formId] = state.form_webhooks[cmd.payload.formId] or {}
     table.insert(state.form_webhooks[cmd.payload.formId], {
       id = "wh_" .. submissionId .. "_" .. tostring(math.random(0, 9999)),
@@ -734,12 +831,17 @@ function handlers.SubmitForm(cmd)
       nextAttempt = cmd.timestamp,
     })
   end
-  return ok(cmd.requestId, { formId = cmd.payload.formId, stored = true, submissionId = submissionId })
+  return ok(
+    cmd.requestId,
+    { formId = cmd.payload.formId, stored = true, submissionId = submissionId }
+  )
 end
 
 function handlers.ListSubmissions(cmd)
   local formId = cmd.payload.formId
-  if not formId then return err(cmd.requestId, "INVALID_INPUT", "formId required") end
+  if not formId then
+    return err(cmd.requestId, "INVALID_INPUT", "formId required")
+  end
   local list = state.submissions[formId] or {}
   local limit = tonumber(cmd.payload.limit) or 100
   local offset = tonumber(cmd.payload.offset) or 0
@@ -759,7 +861,7 @@ local function deliver_webhook(entry)
     f:write(body)
     f:close()
   end
-  local timeout = tonumber(os.getenv("FORM_WEBHOOK_TIMEOUT") or "5")
+  local timeout = tonumber(os.getenv "FORM_WEBHOOK_TIMEOUT" or "5")
   local cmd = string.format(
     "curl -sS --max-time %d -X POST '%s' -H 'Content-Type: application/json'%s --data-binary @%s",
     timeout,
@@ -773,7 +875,7 @@ local function deliver_webhook(entry)
 end
 
 function handlers.RunFormWebhooks(cmd)
-  local max_attempts = tonumber(os.getenv("FORM_WEBHOOK_MAX_ATTEMPTS") or "5")
+  local max_attempts = tonumber(os.getenv "FORM_WEBHOOK_MAX_ATTEMPTS" or "5")
   local now = os.time()
   local delivered, failed = 0, 0
   for formId, queue in pairs(state.form_webhooks) do
@@ -819,14 +921,19 @@ end
 
 -- Locale routing ----------------------------------------------------------
 function handlers.RegisterLocaleRoute(cmd)
-  if not (cmd.payload.siteId and cmd.payload.locale and cmd.payload.path and cmd.payload.target) then
+  if
+    not (cmd.payload.siteId and cmd.payload.locale and cmd.payload.path and cmd.payload.target)
+  then
     return err(cmd.requestId, "INVALID_INPUT", "siteId, locale, path, target required")
   end
   state.locale_routes[cmd.payload.siteId] = state.locale_routes[cmd.payload.siteId] or {}
-  state.locale_routes[cmd.payload.siteId][cmd.payload.locale] =
-    state.locale_routes[cmd.payload.siteId][cmd.payload.locale] or {}
+  state.locale_routes[cmd.payload.siteId][cmd.payload.locale] = state.locale_routes[cmd.payload.siteId][cmd.payload.locale]
+    or {}
   state.locale_routes[cmd.payload.siteId][cmd.payload.locale][cmd.payload.path] = cmd.payload.target
-  return ok(cmd.requestId, { siteId = cmd.payload.siteId, locale = cmd.payload.locale, path = cmd.payload.path })
+  return ok(
+    cmd.requestId,
+    { siteId = cmd.payload.siteId, locale = cmd.payload.locale, path = cmd.payload.path }
+  )
 end
 
 function handlers.GetLocaleRoute(cmd)
@@ -836,8 +943,8 @@ function handlers.GetLocaleRoute(cmd)
   if not (site and locale and path) then
     return err(cmd.requestId, "INVALID_INPUT", "siteId, locale, path required")
   end
-  local target =
-    state.locale_routes[site] and state.locale_routes[site][locale]
+  local target = state.locale_routes[site]
+    and state.locale_routes[site][locale]
     and state.locale_routes[site][locale][path]
   if not target then
     return err(cmd.requestId, "NOT_FOUND", "route not found")
@@ -862,9 +969,13 @@ function handlers.CreateTranslationTask(cmd)
 end
 
 function handlers.SubmitTranslation(cmd)
-  if not cmd.payload.taskId then return err(cmd.requestId, "INVALID_INPUT", "taskId required") end
+  if not cmd.payload.taskId then
+    return err(cmd.requestId, "INVALID_INPUT", "taskId required")
+  end
   local task = state.translations[cmd.payload.taskId]
-  if not task then return err(cmd.requestId, "NOT_FOUND", "translation task not found") end
+  if not task then
+    return err(cmd.requestId, "NOT_FOUND", "translation task not found")
+  end
   task.translation = cmd.payload.translation
   task.status = "submitted"
   table.insert(task.history, { at = cmd.timestamp, by = cmd.actor, action = "submit" })
@@ -872,9 +983,13 @@ function handlers.SubmitTranslation(cmd)
 end
 
 function handlers.ApproveTranslation(cmd)
-  if not cmd.payload.taskId then return err(cmd.requestId, "INVALID_INPUT", "taskId required") end
+  if not cmd.payload.taskId then
+    return err(cmd.requestId, "INVALID_INPUT", "taskId required")
+  end
   local task = state.translations[cmd.payload.taskId]
-  if not task then return err(cmd.requestId, "NOT_FOUND", "translation task not found") end
+  if not task then
+    return err(cmd.requestId, "NOT_FOUND", "translation task not found")
+  end
   task.status = "approved"
   task.approvedAt = cmd.timestamp
   task.approvedBy = cmd.actor
@@ -892,7 +1007,8 @@ end
 function handlers.ListTranslations(cmd)
   local items = {}
   for id, t in pairs(state.translations) do
-    if (not cmd.payload.siteId or t.siteId == cmd.payload.siteId)
+    if
+      (not cmd.payload.siteId or t.siteId == cmd.payload.siteId)
       and (not cmd.payload.targetLocale or t.targetLocale == cmd.payload.targetLocale)
     then
       table.insert(items, { taskId = id, task = t })
@@ -908,10 +1024,17 @@ end
 function handlers.LockContent(cmd)
   local key = content_key(cmd.payload.siteId, cmd.payload.pageId)
   local ttl = tonumber(cmd.payload.ttl or 300)
-  if ttl < 30 then ttl = 30 end
-  if ttl > 7200 then ttl = 7200 end
+  if ttl < 30 then
+    ttl = 30
+  end
+  if ttl > 7200 then
+    ttl = 7200
+  end
   state.locks[key] = { owner = cmd.actor, expiresAt = os.time() + ttl }
-  return ok(cmd.requestId, { locked = true, key = key, owner = cmd.actor, expiresAt = state.locks[key].expiresAt })
+  return ok(
+    cmd.requestId,
+    { locked = true, key = key, owner = cmd.actor, expiresAt = state.locks[key].expiresAt }
+  )
 end
 
 function handlers.UnlockContent(cmd)
@@ -933,7 +1056,10 @@ function handlers.SubmitForReview(cmd)
   wf.submittedAt = cmd.timestamp
   wf.reviewers = cmd.payload.reviewers or wf.reviewers or {}
   wf.dueAt = cmd.payload.dueAt
-  table.insert(wf.history, { at = cmd.timestamp, by = cmd.actor, action = "submit", reviewers = wf.reviewers })
+  table.insert(
+    wf.history,
+    { at = cmd.timestamp, by = cmd.actor, action = "submit", reviewers = wf.reviewers }
+  )
   return ok(cmd.requestId, { key = key, status = wf.status, reviewers = wf.reviewers })
 end
 
@@ -976,7 +1102,10 @@ function handlers.RequestChanges(cmd)
   wf.requestedBy = cmd.actor
   wf.requestedAt = cmd.timestamp
   wf.changeNotes = cmd.payload.notes
-  table.insert(wf.history, { at = cmd.timestamp, by = cmd.actor, action = "request_changes", notes = cmd.payload.notes })
+  table.insert(
+    wf.history,
+    { at = cmd.timestamp, by = cmd.actor, action = "request_changes", notes = cmd.payload.notes }
+  )
   return ok(cmd.requestId, { status = wf.status, notes = cmd.payload.notes })
 end
 
@@ -1073,13 +1202,13 @@ function handlers.UpsertCoupon(cmd)
     is_active = cmd.payload.is_active ~= false,
     stackable = cmd.payload.stackable == true,
   }
-  enqueue_event({
+  enqueue_event {
     type = "PromoAdded",
     siteId = cmd.payload.siteId or cmd.payload.tenant or "default",
     code = cmd.payload.code,
     payload = state.coupons[cmd.payload.code],
     requestId = cmd.requestId,
-  })
+  }
   return ok(cmd.requestId, { code = cmd.payload.code })
 end
 
@@ -1095,7 +1224,9 @@ function handlers.RevokeEntitlement(cmd)
   local list = state.entitlements[subj] or {}
   local kept = {}
   for _, e in ipairs(list) do
-    if e.asset ~= cmd.payload.asset then table.insert(kept, e) end
+    if e.asset ~= cmd.payload.asset then
+      table.insert(kept, e)
+    end
   end
   state.entitlements[subj] = kept
   return ok(cmd.requestId, { subject = subj, asset = cmd.payload.asset, revoked = true })
@@ -1109,14 +1240,14 @@ function handlers.UpsertInventory(cmd)
     location = cmd.payload.location,
     updatedAt = cmd.timestamp,
   }
-  enqueue_event({
+  enqueue_event {
     type = "InventorySet",
     siteId = site,
     sku = cmd.payload.sku,
     quantity = cmd.payload.quantity,
     warehouse = cmd.payload.location,
     requestId = cmd.requestId,
-  })
+  }
   return ok(cmd.requestId, { sku = cmd.payload.sku, quantity = cmd.payload.quantity })
 end
 
@@ -1129,14 +1260,20 @@ function handlers.UpsertPriceRule(cmd)
     currency = cmd.payload.currency,
     vatRate = cmd.payload.vatRate,
   }
-  return ok(cmd.requestId, { ruleId = cmd.payload.ruleId, currency = cmd.payload.currency, vatRate = cmd.payload.vatRate })
+  return ok(
+    cmd.requestId,
+    { ruleId = cmd.payload.ruleId, currency = cmd.payload.currency, vatRate = cmd.payload.vatRate }
+  )
 end
 
 function handlers.GrantRole(cmd)
   local tenant = cmd.payload.tenant or cmd.tenant
   state.roles[tenant] = state.roles[tenant] or {}
   state.roles[tenant][cmd.payload.subject] = cmd.payload.role
-  return ok(cmd.requestId, { tenant = tenant, subject = cmd.payload.subject, role = cmd.payload.role })
+  return ok(
+    cmd.requestId,
+    { tenant = tenant, subject = cmd.payload.subject, role = cmd.payload.role }
+  )
 end
 
 function handlers.UpsertCustomer(cmd)
@@ -1154,28 +1291,36 @@ function handlers.CreateSubscription(cmd)
     meta = cmd.payload.meta,
     createdAt = cmd.timestamp,
   }
-  enqueue_event({
+  enqueue_event {
     type = "SubscriptionCreated",
     subscriptionId = cmd.payload.subscriptionId,
     customerId = cmd.payload.customerId,
     planId = cmd.payload.planId,
     status = cmd.payload.status or "active",
     requestId = cmd.requestId,
-  })
-  return ok(cmd.requestId, { subscriptionId = cmd.payload.subscriptionId, status = state.subscriptions[cmd.payload.subscriptionId].status })
+  }
+  return ok(
+    cmd.requestId,
+    {
+      subscriptionId = cmd.payload.subscriptionId,
+      status = state.subscriptions[cmd.payload.subscriptionId].status,
+    }
+  )
 end
 
 function handlers.UpdateSubscriptionStatus(cmd)
   local sub = state.subscriptions[cmd.payload.subscriptionId]
-  if not sub then return err(cmd.requestId, "NOT_FOUND", "subscription not found") end
+  if not sub then
+    return err(cmd.requestId, "NOT_FOUND", "subscription not found")
+  end
   sub.status = cmd.payload.status
   sub.updatedAt = cmd.timestamp
-  enqueue_event({
+  enqueue_event {
     type = "SubscriptionStatusUpdated",
     subscriptionId = cmd.payload.subscriptionId,
     status = sub.status,
     requestId = cmd.requestId,
-  })
+  }
   return ok(cmd.requestId, { subscriptionId = cmd.payload.subscriptionId, status = sub.status })
 end
 
@@ -1190,7 +1335,12 @@ function handlers.UpsertOrderStatus(cmd)
 
   local expected_version = cmd.expectedVersion or (cmd.payload and cmd.payload.expectedVersion)
   if expected_version and order.version and order.version ~= expected_version then
-    return err(cmd.requestId, "VERSION_CONFLICT", "expectedVersion mismatch", { current = order.version })
+    return err(
+      cmd.requestId,
+      "VERSION_CONFLICT",
+      "expectedVersion mismatch",
+      { current = order.version }
+    )
   end
 
   local target = cmd.payload.status
@@ -1200,7 +1350,12 @@ function handlers.UpsertOrderStatus(cmd)
 
   local ok_trans, trans_err = can_transition(order, target)
   if not ok_trans then
-    return err(cmd.requestId, "INVALID_STATE", trans_err or "transition_not_allowed", { from = order.status or "draft", to = target })
+    return err(
+      cmd.requestId,
+      "INVALID_STATE",
+      trans_err or "transition_not_allowed",
+      { from = order.status or "draft", to = target }
+    )
   end
 
   if order.status == target then
@@ -1221,13 +1376,13 @@ function handlers.UpsertOrderStatus(cmd)
   order.vatRate = cmd.payload.vatRate or order.vatRate
   order.updatedAt = cmd.timestamp
   order.version = (order.version or 1) + 1
-  enqueue_event({
+  enqueue_event {
     type = "OrderStatusUpdated",
     orderId = oid,
     status = order.status,
     version = order.version,
     requestId = cmd.requestId,
-  })
+  }
   return ok(cmd.requestId, {
     orderId = oid,
     status = order.status,
@@ -1248,22 +1403,22 @@ function handlers.IssueRefund(cmd)
   if PSP_HOSTED_ONLY and provider and provider ~= "manual" then
     breaker_note(provider, true)
   else
-  if payment and payment.provider == "gopay" and payment.providerPaymentId then
-    if gopay_ok then
-      gopay.refund(payment.providerPaymentId, cmd.payload.amount)
-    else
-      return err(cmd.requestId, "PROVIDER_ERROR", "gopay module unavailable")
-    end
-  elseif payment and payment.provider == "stripe" and payment.providerPaymentId then
-    if stripe_ok then
-      local ok, perr = stripe.refund(payment.providerPaymentId, cmd.payload.amount)
-      if not ok then
-        breaker_note(payment.provider, false)
-        return err(cmd.requestId, "PROVIDER_ERROR", perr or "stripe refund failed")
+    if payment and payment.provider == "gopay" and payment.providerPaymentId then
+      if gopay_ok then
+        gopay.refund(payment.providerPaymentId, cmd.payload.amount)
+      else
+        return err(cmd.requestId, "PROVIDER_ERROR", "gopay module unavailable")
+      end
+    elseif payment and payment.provider == "stripe" and payment.providerPaymentId then
+      if stripe_ok then
+        local ok, perr = stripe.refund(payment.providerPaymentId, cmd.payload.amount)
+        if not ok then
+          breaker_note(payment.provider, false)
+          return err(cmd.requestId, "PROVIDER_ERROR", perr or "stripe refund failed")
+        end
       end
     end
-  end
-  breaker_note(provider, true)
+    breaker_note(provider, true)
   end
   local ev = {
     type = "IssueRefund",
@@ -1274,9 +1429,19 @@ function handlers.IssueRefund(cmd)
     requestId = cmd.requestId,
   }
   local ok_hmac, hmac_err = attach_outbox_hmac(ev)
-  if not ok_hmac then return err(cmd.requestId, "SERVER_ERROR", hmac_err or "outbox_hmac_failed") end
+  if not ok_hmac then
+    return err(cmd.requestId, "SERVER_ERROR", hmac_err or "outbox_hmac_failed")
+  end
   enqueue_event(ev)
-  return ok(cmd.requestId, { orderId = cmd.payload.orderId, amount = cmd.payload.amount, currency = cmd.payload.currency, vatRate = cmd.payload.vatRate })
+  return ok(
+    cmd.requestId,
+    {
+      orderId = cmd.payload.orderId,
+      amount = cmd.payload.amount,
+      currency = cmd.payload.currency,
+      vatRate = cmd.payload.vatRate,
+    }
+  )
 end
 
 -- Minimal payment-level refund handler; PSP-specific flows can be added later.
@@ -1328,47 +1493,83 @@ end
 -- Coupon helpers (very simplified)
 local function is_coupon_valid(code, order)
   local c = state.coupons[code]
-  if not c then return false, "unknown_coupon" end
+  if not c then
+    return false, "unknown_coupon"
+  end
   local now = os.time()
-  if c.startsAt and now < c.startsAt then return false, "not_started" end
-  if c.expiresAt and now > c.expiresAt then return false, "expired" end
-  if c.is_active == false then return false, "inactive" end
-  if c.currency and order.currency and c.currency ~= order.currency then return false, "currency_mismatch" end
-  if c.minOrder and order.totalAmount and order.totalAmount < c.minOrder then return false, "min_order_not_met" end
-  if c.maxRedemptions and (state.coupon_redemptions[code] or 0) >= c.maxRedemptions then return false, "coupon_exhausted" end
+  if c.startsAt and now < c.startsAt then
+    return false, "not_started"
+  end
+  if c.expiresAt and now > c.expiresAt then
+    return false, "expired"
+  end
+  if c.is_active == false then
+    return false, "inactive"
+  end
+  if c.currency and order.currency and c.currency ~= order.currency then
+    return false, "currency_mismatch"
+  end
+  if c.minOrder and order.totalAmount and order.totalAmount < c.minOrder then
+    return false, "min_order_not_met"
+  end
+  if c.maxRedemptions and (state.coupon_redemptions[code] or 0) >= c.maxRedemptions then
+    return false, "coupon_exhausted"
+  end
   if c.redeemByCustomer and order.customerId then
-    local per_customer = state.coupon_redemptions_customer[code] and state.coupon_redemptions_customer[code][order.customerId] or 0
-    if c.redeemByCustomer > 0 and per_customer >= c.redeemByCustomer then return false, "coupon_customer_exhausted" end
+    local per_customer = state.coupon_redemptions_customer[code]
+        and state.coupon_redemptions_customer[code][order.customerId]
+      or 0
+    if c.redeemByCustomer > 0 and per_customer >= c.redeemByCustomer then
+      return false, "coupon_customer_exhausted"
+    end
   end
   if c.maxStack and order.coupons and #order.coupons >= c.maxStack then
     return false, "coupon_stack_limit"
   end
   if c.applies_to and type(c.applies_to) == "table" and order.items then
     local sku_allowed = {}
-    for _, sku in ipairs(c.applies_to) do sku_allowed[sku] = true end
+    for _, sku in ipairs(c.applies_to) do
+      sku_allowed[sku] = true
+    end
     local ok_any = false
     for _, it in ipairs(order.items) do
-      if sku_allowed[it.sku] then ok_any = true break end
+      if sku_allowed[it.sku] then
+        ok_any = true
+        break
+      end
     end
-    if not ok_any then return false, "coupon_not_applicable" end
+    if not ok_any then
+      return false, "coupon_not_applicable"
+    end
   end
   if c.applies_to_categories and type(c.applies_to_categories) == "table" and order.items then
     local cat_allowed = {}
-    for _, cat in ipairs(c.applies_to_categories) do cat_allowed[cat] = true end
+    for _, cat in ipairs(c.applies_to_categories) do
+      cat_allowed[cat] = true
+    end
     local ok_any = false
     for _, it in ipairs(order.items) do
-      if it.categoryId and cat_allowed[it.categoryId] then ok_any = true break end
+      if it.categoryId and cat_allowed[it.categoryId] then
+        ok_any = true
+        break
+      end
     end
-    if not ok_any then return false, "coupon_not_applicable" end
+    if not ok_any then
+      return false, "coupon_not_applicable"
+    end
   end
   return true
 end
 
 function handlers.ApplyCoupon(cmd)
   local order = state.orders[cmd.payload.orderId]
-  if not order then return err(cmd.requestId, "NOT_FOUND", "order not found") end
+  if not order then
+    return err(cmd.requestId, "NOT_FOUND", "order not found")
+  end
   order.totalAmount = order.totalAmount or (order.totals and order.totals.total)
-  if not order.totalAmount then return err(cmd.requestId, "NOT_FOUND", "order missing total") end
+  if not order.totalAmount then
+    return err(cmd.requestId, "NOT_FOUND", "order missing total")
+  end
 
   order.coupons = order.coupons or {}
   if #order.coupons > 0 then
@@ -1376,7 +1577,9 @@ function handlers.ApplyCoupon(cmd)
     local existing_codes = order.coupons
     local any_non_stackable = false
     for _, code in ipairs(existing_codes) do
-      if state.coupons[code] and state.coupons[code].stackable == false then any_non_stackable = true end
+      if state.coupons[code] and state.coupons[code].stackable == false then
+        any_non_stackable = true
+      end
     end
     local new_c = state.coupons[cmd.payload.code]
     if any_non_stackable or (new_c and new_c.stackable == false) then
@@ -1395,37 +1598,66 @@ function handlers.ApplyCoupon(cmd)
   else
     discount = c.value or 0
   end
-  if c.maxDiscount and discount > c.maxDiscount then discount = c.maxDiscount end
+  if c.maxDiscount and discount > c.maxDiscount then
+    discount = c.maxDiscount
+  end
   local new_total = math.max(0, order.totalAmount - discount)
-  order.totalAmount = tax.round(new_total, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2)
+  order.totalAmount = tax.round(new_total, os.getenv "CURRENCY_ROUND_MODE" or "half-up", 2)
   table.insert(order.coupons, cmd.payload.code)
   order.coupon = order.coupons[1] -- legacy
   state.coupon_redemptions[cmd.payload.code] = (state.coupon_redemptions[cmd.payload.code] or 0) + 1
-  local ev = { type = "CouponApplied", orderId = cmd.payload.orderId, code = cmd.payload.code, discount = discount, requestId = cmd.requestId }
+  local ev = {
+    type = "CouponApplied",
+    orderId = cmd.payload.orderId,
+    code = cmd.payload.code,
+    discount = discount,
+    requestId = cmd.requestId,
+  }
   enqueue_event(ev)
-  return ok(cmd.requestId, { orderId = cmd.payload.orderId, totalAmount = order.totalAmount, code = cmd.payload.code, coupons = order.coupons })
+  return ok(
+    cmd.requestId,
+    {
+      orderId = cmd.payload.orderId,
+      totalAmount = order.totalAmount,
+      code = cmd.payload.code,
+      coupons = order.coupons,
+    }
+  )
 end
 
 function handlers.RemoveCoupon(cmd)
   local order = state.orders[cmd.payload.orderId]
-  if not order then return err(cmd.requestId, "NOT_FOUND", "order not found") end
+  if not order then
+    return err(cmd.requestId, "NOT_FOUND", "order not found")
+  end
   order.coupons = order.coupons or {}
   local keep = {}
   for _, code in ipairs(order.coupons) do
-    if code ~= cmd.payload.code then table.insert(keep, code) end
+    if code ~= cmd.payload.code then
+      table.insert(keep, code)
+    end
   end
   order.coupons = keep
   order.coupon = keep[1]
-  local ev = { type = "CouponRemoved", orderId = cmd.payload.orderId, code = cmd.payload.code, requestId = cmd.requestId }
+  local ev = {
+    type = "CouponRemoved",
+    orderId = cmd.payload.orderId,
+    code = cmd.payload.code,
+    requestId = cmd.requestId,
+  }
   enqueue_event(ev)
   return ok(cmd.requestId, { orderId = cmd.payload.orderId })
 end
 
 -- OTP issuance and exchange for short-lived JWT
 function handlers.IssueOtp(cmd)
-  local ttl = tonumber(cmd.payload.ttl) or tonumber(os.getenv("OTP_TTL_SECONDS") or "300")
-  if ttl < 30 then ttl = 30 end
-  if ttl > 3600 then ttl = 3600 end
+  local ttl = tonumber(cmd.payload.ttl) or tonumber(os.getenv "OTP_TTL_SECONDS" or "300")
+  if ttl < 30 then
+    ttl = 30
+  end
+  if ttl > 3600 then
+    ttl = 3600
+  end
   local ok_rate, rate_err = check_otp_rate(cmd.payload.sub, cmd.payload.tenant)
   if not ok_rate then
     return err(cmd.requestId, "RATE_LIMITED", rate_err)
@@ -1444,25 +1676,40 @@ end
 function handlers.ExchangeOtp(cmd)
   local code = cmd.payload.code and cmd.payload.code:gsub("%s+", "")
   local entry = code and state.otps[otp_hash(code)]
-  if not entry then return err(cmd.requestId, "NOT_FOUND", "otp_not_found") end
+  if not entry then
+    return err(cmd.requestId, "NOT_FOUND", "otp_not_found")
+  end
   if os.time() > entry.exp then
     state.otps[otp_hash(code)] = nil
     return err(cmd.requestId, "UNAUTHORIZED", "otp_expired")
   end
   state.otps[otp_hash(code)] = nil -- one-time
-  local ttl = tonumber(os.getenv("OTP_JWT_TTL_SECONDS") or "900")
+  local ttl = tonumber(os.getenv "OTP_JWT_TTL_SECONDS" or "900")
   local token, terr = issue_jwt(entry.sub, entry.tenant, entry.role, ttl)
   if not token then
     return err(cmd.requestId, "SERVER_ERROR", terr or "jwt_failed")
   end
-  return ok(cmd.requestId, { token = token, exp = os.time() + ttl, role = entry.role, tenant = entry.tenant, sub = entry.sub })
+  return ok(
+    cmd.requestId,
+    {
+      token = token,
+      exp = os.time() + ttl,
+      role = entry.role,
+      tenant = entry.tenant,
+      sub = entry.sub,
+    }
+  )
 end
 
 -- Session issuance (short-lived JWT) and revocation
 function handlers.IssueSession(cmd)
-  local ttl = tonumber(cmd.payload.ttl) or tonumber(os.getenv("SESSION_TTL_SECONDS") or "900")
-  if ttl < 60 then ttl = 60 end
-  if ttl > 86400 then ttl = 86400 end
+  local ttl = tonumber(cmd.payload.ttl) or tonumber(os.getenv "SESSION_TTL_SECONDS" or "900")
+  if ttl < 60 then
+    ttl = 60
+  end
+  if ttl > 86400 then
+    ttl = 86400
+  end
   local sub = cmd.payload.sub or cmd.actor
   local tenant = cmd.payload.tenant or cmd.tenant
   local role = cmd.payload.role or cmd.role or "user"
@@ -1471,7 +1718,13 @@ function handlers.IssueSession(cmd)
     return err(cmd.requestId, "SERVER_ERROR", terr or "jwt_failed")
   end
   local sid = new_session_id()
-  state.sessions[sid] = { sub = sub, tenant = tenant, role = role, exp = os.time() + ttl, device = cmd.payload.deviceToken }
+  state.sessions[sid] = {
+    sub = sub,
+    tenant = tenant,
+    role = role,
+    exp = os.time() + ttl,
+    device = cmd.payload.deviceToken,
+  }
   return ok(cmd.requestId, { sessionId = sid, token = token, exp = os.time() + ttl })
 end
 
@@ -1494,9 +1747,12 @@ local function assert_currency(cart_currency, item_currency)
 end
 
 function handlers.CartAddItem(cmd)
-  local cart = state.carts[cmd.payload.cartId] or { siteId = cmd.payload.siteId, currency = cmd.payload.currency, items = {} }
+  local cart = state.carts[cmd.payload.cartId]
+    or { siteId = cmd.payload.siteId, currency = cmd.payload.currency, items = {} }
   local ok_cur, cur_err = assert_currency(cart.currency, cmd.payload.currency)
-  if not ok_cur then return err(cmd.requestId, "INVALID_INPUT", cur_err) end
+  if not ok_cur then
+    return err(cmd.requestId, "INVALID_INPUT", cur_err)
+  end
   cart.currency = cart.currency or cmd.payload.currency
   -- replace if same sku
   local updated = false
@@ -1526,13 +1782,17 @@ function handlers.CartAddItem(cmd)
   end
   state.carts[cmd.payload.cartId] = cart
   storage.put("carts", state.carts)
-  if CART_STORE_PATH then storage.persist(CART_STORE_PATH) end
+  if CART_STORE_PATH then
+    storage.persist(CART_STORE_PATH)
+  end
   return ok(cmd.requestId, { cartId = cmd.payload.cartId, items = #cart.items })
 end
 
 function handlers.CartGet(cmd)
   local cart = state.carts[cmd.payload.cartId]
-  if not cart then return err(cmd.requestId, "NOT_FOUND", "cart not found") end
+  if not cart then
+    return err(cmd.requestId, "NOT_FOUND", "cart not found")
+  end
   return ok(cmd.requestId, { cart = cart })
 end
 
@@ -1541,8 +1801,9 @@ function handlers.CartPrice(cmd)
   if not cart or #(cart.items or {}) == 0 then
     return err(cmd.requestId, "NOT_FOUND", "cart empty or missing")
   end
-  local vatRate = cmd.payload.vatRate or tonumber(os.getenv("TAX_RATE_DEFAULT") or "0")
-  local totals, total_err = compute_totals(cart, cmd.payload.coupon, vatRate, cmd.payload.shipping, cmd.payload.address)
+  local vatRate = cmd.payload.vatRate or tonumber(os.getenv "TAX_RATE_DEFAULT" or "0")
+  local totals, total_err =
+    compute_totals(cart, cmd.payload.coupon, vatRate, cmd.payload.shipping, cmd.payload.address)
   if not totals then
     return err(cmd.requestId, "INVALID_INPUT", total_err)
   end
@@ -1551,15 +1812,21 @@ end
 
 function handlers.CartRemoveItem(cmd)
   local cart = state.carts[cmd.payload.cartId]
-  if not cart then return err(cmd.requestId, "NOT_FOUND", "cart not found") end
+  if not cart then
+    return err(cmd.requestId, "NOT_FOUND", "cart not found")
+  end
   local keep = {}
   for _, it in ipairs(cart.items) do
-    if it.sku ~= cmd.payload.sku then table.insert(keep, it) end
+    if it.sku ~= cmd.payload.sku then
+      table.insert(keep, it)
+    end
   end
   cart.items = keep
   state.carts[cmd.payload.cartId] = cart
   storage.put("carts", state.carts)
-  if CART_STORE_PATH then storage.persist(CART_STORE_PATH) end
+  if CART_STORE_PATH then
+    storage.persist(CART_STORE_PATH)
+  end
   return ok(cmd.requestId, { cartId = cmd.payload.cartId, items = #cart.items })
 end
 
@@ -1583,14 +1850,18 @@ function compute_totals(cart, coupon_code, vatRate, shipping, address)
     end
     local c = state.coupons[coupon_code]
     if c then
-      if c.type == "percent" then discount = subtotal * (c.value or 0) / 100 else discount = c.value or 0 end
+      if c.type == "percent" then
+        discount = subtotal * (c.value or 0) / 100
+      else
+        discount = c.value or 0
+      end
       if c.maxRedemptions and (state.coupon_redemptions[coupon_code] or 0) >= c.maxRedemptions then
         return nil, "coupon_exhausted"
       end
     end
   end
   local net = math.max(0, subtotal - discount)
-  local shipping_fee = shipping or tonumber(os.getenv("SHIPPING_FLAT_FEE") or "0") or 0
+  local shipping_fee = shipping or tonumber(os.getenv "SHIPPING_FLAT_FEE" or "0") or 0
   -- try lookup rate table if no explicit shipping provided
   if shipping == nil then
     local rates = state.shipping_rates[cart.siteId or "default"] or {}
@@ -1601,7 +1872,8 @@ function compute_totals(cart, coupon_code, vatRate, shipping, address)
       local country_match = (not r.country) or (country and r.country == country)
       local region_match = (not r.region) or (region and r.region == region)
       local currency_match = (not r.currency) or (r.currency == cart.currency)
-      local fits_weight = (not r.minWeight or total_weight >= r.minWeight) and (not r.maxWeight or total_weight <= r.maxWeight)
+      local fits_weight = (not r.minWeight or total_weight >= r.minWeight)
+        and (not r.maxWeight or total_weight <= r.maxWeight)
       if country_match and region_match and currency_match and fits_weight then
         if not best_price or (r.price or 0) < best_price then
           best_price = r.price or 0
@@ -1628,15 +1900,17 @@ function compute_totals(cart, coupon_code, vatRate, shipping, address)
   end
   local vat_total = 0
   for _, it in ipairs(cart.items or {}) do
-    local rate = match_rate(it.categoryId) or vatRate or tonumber(os.getenv("TAX_RATE_DEFAULT") or "0")
+    local rate = match_rate(it.categoryId)
+      or vatRate
+      or tonumber(os.getenv "TAX_RATE_DEFAULT" or "0")
     vat_total = vat_total + ((it.price or 0) * (it.qty or 1) * (rate or 0))
   end
-  vat = tax.round(vat_total, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2)
-  local total = tax.round(net + vat + shipping_fee, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2)
+  vat = tax.round(vat_total, os.getenv "CURRENCY_ROUND_MODE" or "half-up", 2)
+  local total = tax.round(net + vat + shipping_fee, os.getenv "CURRENCY_ROUND_MODE" or "half-up", 2)
   return {
-    subtotal = tax.round(subtotal, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2),
-    discount = tax.round(discount, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2),
-    vat = tax.round(vat, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2),
+    subtotal = tax.round(subtotal, os.getenv "CURRENCY_ROUND_MODE" or "half-up", 2),
+    discount = tax.round(discount, os.getenv "CURRENCY_ROUND_MODE" or "half-up", 2),
+    vat = tax.round(vat, os.getenv "CURRENCY_ROUND_MODE" or "half-up", 2),
     shipping = shipping_fee,
     total = total,
   }
@@ -1663,16 +1937,19 @@ function handlers.CreateOrder(cmd)
     local site = cart.siteId or "default"
     local rates = state.tax_rates[site] or {}
     for _, r in ipairs(rates) do
-      local country_match = (not r.country) or (cmd.payload.address and r.country == string.upper(cmd.payload.address.country or ""))
-      local region_match = (not r.region) or (cmd.payload.address and r.region == cmd.payload.address.region)
+      local country_match = not r.country
+        or (cmd.payload.address and r.country == string.upper(cmd.payload.address.country or ""))
+      local region_match = not r.region
+        or (cmd.payload.address and r.region == cmd.payload.address.region)
       if country_match and region_match then
         vatRate = r.rate
         break
       end
     end
   end
-  vatRate = vatRate or tonumber(os.getenv("TAX_RATE_DEFAULT") or "0")
-  local totals, total_err = compute_totals(cart, cmd.payload.coupon, vatRate, cmd.payload.shipping, cmd.payload.address)
+  vatRate = vatRate or tonumber(os.getenv "TAX_RATE_DEFAULT" or "0")
+  local totals, total_err =
+    compute_totals(cart, cmd.payload.coupon, vatRate, cmd.payload.shipping, cmd.payload.address)
   if not totals then
     return err(cmd.requestId, "INVALID_INPUT", total_err)
   end
@@ -1693,7 +1970,9 @@ function handlers.CreateOrder(cmd)
     createdAt = cmd.timestamp,
   }
   if cmd.payload.coupon then
-    state.coupon_redemptions[cmd.payload.coupon] = (state.coupon_redemptions[cmd.payload.coupon] or 0) + 1
+    state.coupon_redemptions[cmd.payload.coupon] = (
+      state.coupon_redemptions[cmd.payload.coupon] or 0
+    ) + 1
   end
   local ev = {
     type = "OrderCreated",
@@ -1705,7 +1984,10 @@ function handlers.CreateOrder(cmd)
     requestId = cmd.requestId,
   }
   enqueue_event(ev)
-  return ok(cmd.requestId, { orderId = orderId, totalAmount = totals.total, currency = cart.currency })
+  return ok(
+    cmd.requestId,
+    { orderId = orderId, totalAmount = totals.total, currency = cart.currency }
+  )
 end
 
 function handlers.AddShippingRate(cmd)
@@ -1723,13 +2005,15 @@ function handlers.AddShippingRate(cmd)
   }
   table.insert(state.shipping_rates[site], row)
   storage.put("shipping_rates", state.shipping_rates)
-  if RATE_STORE_PATH then storage.persist(RATE_STORE_PATH) end
-  enqueue_event({
+  if RATE_STORE_PATH then
+    storage.persist(RATE_STORE_PATH)
+  end
+  enqueue_event {
     type = "ShippingRulesSet",
     siteId = site,
     rules = state.shipping_rates[site],
     requestId = cmd.requestId,
-  })
+  }
   return ok(cmd.requestId, { siteId = site, rates = #state.shipping_rates[site] })
 end
 
@@ -1744,13 +2028,15 @@ function handlers.AddTaxRate(cmd)
   }
   table.insert(state.tax_rates[site], row)
   storage.put("tax_rates", state.tax_rates)
-  if RATE_STORE_PATH then storage.persist(RATE_STORE_PATH) end
-  enqueue_event({
+  if RATE_STORE_PATH then
+    storage.persist(RATE_STORE_PATH)
+  end
+  enqueue_event {
     type = "TaxRulesSet",
     siteId = site,
     rules = state.tax_rates[site],
     requestId = cmd.requestId,
-  })
+  }
   return ok(cmd.requestId, { siteId = site, rates = #state.tax_rates[site] })
 end
 
@@ -1767,19 +2053,21 @@ function handlers.ValidateAddress(cmd)
     line1 = cmd.payload.line1,
     line2 = cmd.payload.line2,
   }
-  enqueue_event({
+  enqueue_event {
     type = "AddressValidated",
     siteId = cmd.payload.siteId or "default",
     subject = cmd.payload.subject,
     address = normalized,
     requestId = cmd.requestId,
-  })
+  }
   return ok(cmd.requestId, { valid = true, normalized = normalized })
 end
 
 function handlers.GetShippingQuote(cmd)
   local cart = state.carts[cmd.payload.cartId]
-  if not cart then return err(cmd.requestId, "NOT_FOUND", "cart not found") end
+  if not cart then
+    return err(cmd.requestId, "NOT_FOUND", "cart not found")
+  end
   local total_weight = 0
   for _, it in ipairs(cart.items or {}) do
     total_weight = total_weight + (it.weight or 0) * (it.qty or 1)
@@ -1790,7 +2078,8 @@ function handlers.GetShippingQuote(cmd)
   for _, r in ipairs(rates) do
     local country_match = (not r.country) or r.country == string.upper(cmd.payload.country)
     local region_match = (not r.region) or (cmd.payload.region and r.region == cmd.payload.region)
-    local fits_weight = (not r.minWeight or total_weight >= r.minWeight) and (not r.maxWeight or total_weight <= r.maxWeight)
+    local fits_weight = (not r.minWeight or total_weight >= r.minWeight)
+      and (not r.maxWeight or total_weight <= r.maxWeight)
     if country_match and region_match and fits_weight then
       selected = r
       break
@@ -1799,11 +2088,19 @@ function handlers.GetShippingQuote(cmd)
   if not selected then
     return err(cmd.requestId, "NOT_FOUND", "no rate")
   end
-  return ok(cmd.requestId, { price = selected.price, currency = selected.currency, carrier = selected.carrier, service = selected.service })
+  return ok(
+    cmd.requestId,
+    {
+      price = selected.price,
+      currency = selected.currency,
+      carrier = selected.carrier,
+      service = selected.service,
+    }
+  )
 end
 
 function handlers.CreatePaymentIntent(cmd)
-  local provider = cmd.payload.provider or os.getenv("PAYMENT_PROVIDER") or "manual"
+  local provider = cmd.payload.provider or os.getenv "PAYMENT_PROVIDER" or "manual"
   local pid = string.format("pay_%s", cmd.payload.orderId)
   local providerPaymentId, gatewayUrl
   local status = "requires_capture"
@@ -1817,61 +2114,67 @@ function handlers.CreatePaymentIntent(cmd)
     gatewayUrl = cmd.payload.gatewayUrl
     status = cmd.payload.status or "requires_capture"
   else
-  if provider == "gopay" then
-    if gopay_ok then
-      local pid_out, gw, state = gopay.create_payment({
-        orderId = cmd.payload.orderId,
-        amount = cmd.payload.amount,
-        currency = cmd.payload.currency,
-        returnUrl = cmd.payload.returnUrl,
-        description = cmd.payload.description,
-        paymentMethodToken = cmd.payload.paymentMethodToken,
-      })
-      providerPaymentId, gatewayUrl = pid_out, gw
-      if state == "CREATED" or state == "AUTHORIZED" then
-        status = "requires_capture"
-      elseif state == "PAID" then
-        status = "captured"
+    if provider == "gopay" then
+      if gopay_ok then
+        local pid_out, gw, state = gopay.create_payment {
+          orderId = cmd.payload.orderId,
+          amount = cmd.payload.amount,
+          currency = cmd.payload.currency,
+          returnUrl = cmd.payload.returnUrl,
+          description = cmd.payload.description,
+          paymentMethodToken = cmd.payload.paymentMethodToken,
+        }
+        providerPaymentId, gatewayUrl = pid_out, gw
+        if state == "CREATED" or state == "AUTHORIZED" then
+          status = "requires_capture"
+        elseif state == "PAID" then
+          status = "captured"
+        else
+          status = "pending"
+        end
       else
-        status = "pending"
+        status = "requires_capture"
       end
-    else
-      status = "requires_capture"
-    end
-  elseif provider == "stripe" then
-    if stripe_ok then
-      if cmd.payload.customerId and not cmd.payload.paymentMethodToken then
-        local token = state.payment_tokens[cmd.payload.customerId] and state.payment_tokens[cmd.payload.customerId].stripe
-        if token then cmd.payload.paymentMethodToken = token end
+    elseif provider == "stripe" then
+      if stripe_ok then
+        if cmd.payload.customerId and not cmd.payload.paymentMethodToken then
+          local token = state.payment_tokens[cmd.payload.customerId]
+            and state.payment_tokens[cmd.payload.customerId].stripe
+          if token then
+            cmd.payload.paymentMethodToken = token
+          end
+        end
+        providerPaymentId, gatewayUrl, status = stripe.create_payment {
+          orderId = cmd.payload.orderId,
+          amount = cmd.payload.amount,
+          currency = cmd.payload.currency,
+          returnUrl = cmd.payload.returnUrl,
+          description = cmd.payload.description,
+          metadata = cmd.payload.providerMetadata,
+          paymentMethodToken = cmd.payload.paymentMethodToken,
+          saveForFuture = cmd.payload.saveForFuture,
+        }
       end
-      providerPaymentId, gatewayUrl, status = stripe.create_payment({
-        orderId = cmd.payload.orderId,
-        amount = cmd.payload.amount,
-        currency = cmd.payload.currency,
-        returnUrl = cmd.payload.returnUrl,
-        description = cmd.payload.description,
-        metadata = cmd.payload.providerMetadata,
-        paymentMethodToken = cmd.payload.paymentMethodToken,
-        saveForFuture = cmd.payload.saveForFuture,
-      })
-    end
-  elseif provider == "paypal" then
-    if paypal_ok then
-      if cmd.payload.customerId and not cmd.payload.paymentMethodToken then
-        local token = state.payment_tokens[cmd.payload.customerId] and state.payment_tokens[cmd.payload.customerId].paypal
-        if token then cmd.payload.paymentMethodToken = token end
+    elseif provider == "paypal" then
+      if paypal_ok then
+        if cmd.payload.customerId and not cmd.payload.paymentMethodToken then
+          local token = state.payment_tokens[cmd.payload.customerId]
+            and state.payment_tokens[cmd.payload.customerId].paypal
+          if token then
+            cmd.payload.paymentMethodToken = token
+          end
+        end
+        providerPaymentId, gatewayUrl, status = paypal.create_payment {
+          orderId = cmd.payload.orderId,
+          amount = cmd.payload.amount,
+          currency = cmd.payload.currency,
+          returnUrl = cmd.payload.returnUrl,
+          description = cmd.payload.description,
+          metadata = cmd.payload.providerMetadata,
+          paymentMethodToken = cmd.payload.paymentMethodToken,
+        }
       end
-      providerPaymentId, gatewayUrl, status = paypal.create_payment({
-        orderId = cmd.payload.orderId,
-        amount = cmd.payload.amount,
-        currency = cmd.payload.currency,
-        returnUrl = cmd.payload.returnUrl,
-        description = cmd.payload.description,
-        metadata = cmd.payload.providerMetadata,
-        paymentMethodToken = cmd.payload.paymentMethodToken,
-      })
     end
-  end
   end -- PSP_HOSTED_ONLY
   state.payments[pid] = {
     orderId = cmd.payload.orderId,
@@ -1879,16 +2182,19 @@ function handlers.CreatePaymentIntent(cmd)
     currency = cmd.payload.currency,
     provider = provider,
     status = status,
-    risk = (os.getenv("PAYMENT_RISK_REQUIRED") == "1") and "review" or "pass",
+    risk = (os.getenv "PAYMENT_RISK_REQUIRED" == "1") and "review" or "pass",
     returnUrl = cmd.payload.returnUrl,
     description = cmd.payload.description,
-    providerUrl = (provider == "gopay" and (os.getenv("GOPAY_GATEWAY_URL") or "https://gw.gopay.com")) or nil,
+    providerUrl = (
+      provider == "gopay" and (os.getenv "GOPAY_GATEWAY_URL" or "https://gw.gopay.com")
+    ) or nil,
     providerPaymentId = providerPaymentId,
     gatewayUrl = gatewayUrl,
     tokenized = cmd.payload.paymentMethodToken ~= nil,
   }
   if cmd.payload.customerId and cmd.payload.paymentMethodToken then
-    state.payment_tokens[cmd.payload.customerId] = state.payment_tokens[cmd.payload.customerId] or {}
+    state.payment_tokens[cmd.payload.customerId] = state.payment_tokens[cmd.payload.customerId]
+      or {}
     state.payment_tokens[cmd.payload.customerId][provider] = cmd.payload.paymentMethodToken
   end
   local ev = {
@@ -1905,10 +2211,21 @@ function handlers.CreatePaymentIntent(cmd)
     requestId = cmd.requestId,
   }
   local ok_hmac, hmac_err = attach_outbox_hmac(ev)
-  if not ok_hmac then return err(cmd.requestId, "SERVER_ERROR", hmac_err or "outbox_hmac_failed") end
+  if not ok_hmac then
+    return err(cmd.requestId, "SERVER_ERROR", hmac_err or "outbox_hmac_failed")
+  end
   enqueue_event(ev)
   breaker_note(provider, status ~= "error")
-  return ok(cmd.requestId, { paymentId = pid, provider = provider, status = status, providerPaymentId = providerPaymentId, gatewayUrl = gatewayUrl })
+  return ok(
+    cmd.requestId,
+    {
+      paymentId = pid,
+      provider = provider,
+      status = status,
+      providerPaymentId = providerPaymentId,
+      gatewayUrl = gatewayUrl,
+    }
+  )
 end
 
 function handlers.CapturePayment(cmd)
@@ -1924,7 +2241,12 @@ function handlers.CapturePayment(cmd)
     -- allow capture for pending/authorized/pending-provider
     local allowed = { requires_capture = true, pending = true }
     if not allowed[payment.status] then
-      return err(cmd.requestId, "INVALID_STATE", "payment not capturable", { status = payment.status })
+      return err(
+        cmd.requestId,
+        "INVALID_STATE",
+        "payment not capturable",
+        { status = payment.status }
+      )
     end
   end
   if PSP_HOSTED_ONLY and payment.provider ~= "manual" then
@@ -1966,7 +2288,9 @@ end
 
 function handlers.ConfirmPayment(cmd)
   local payment = state.payments[cmd.payload.paymentId]
-  if not payment then return err(cmd.requestId, "NOT_FOUND", "payment not found") end
+  if not payment then
+    return err(cmd.requestId, "NOT_FOUND", "payment not found")
+  end
   local ok_br, br_err = breaker_allows(payment.provider)
   if not ok_br then
     return err(cmd.requestId, "PSP_UNAVAILABLE", br_err, { provider = payment.provider })
@@ -2010,40 +2334,66 @@ end
 -- PaymentReturn: invoked after 3-DS/SCA or redirect back
 function handlers.PaymentReturn(cmd)
   local payment = state.payments[cmd.payload.paymentId]
-  if not payment then return err(cmd.requestId, "NOT_FOUND", "payment not found") end
+  if not payment then
+    return err(cmd.requestId, "NOT_FOUND", "payment not found")
+  end
   local ok_br, br_err = breaker_allows(payment.provider)
   if not ok_br then
     return err(cmd.requestId, "PSP_UNAVAILABLE", br_err, { provider = payment.provider })
   end
   local status = "pending"
   if PSP_HOSTED_ONLY and payment.provider ~= "manual" then
-    set_payment_status(cmd.payload.paymentId, payment.status or "pending", payment.status, cmd.requestId)
+    set_payment_status(
+      cmd.payload.paymentId,
+      payment.status or "pending",
+      payment.status,
+      cmd.requestId
+    )
     breaker_note(payment.provider, true)
     return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = payment.status })
   end
   if cmd.payload.provider == "stripe" then
     status = stripe_ok and stripe.status_from_payload(cmd.payload.payload) or "pending"
     -- fallback paymentId from payload
-    if not payment.providerPaymentId and cmd.payload.payload and cmd.payload.payload.payment_intent then
+    if
+      not payment.providerPaymentId
+      and cmd.payload.payload
+      and cmd.payload.payload.payment_intent
+    then
       payment.providerPaymentId = cmd.payload.payload.payment_intent
     end
     if status == "requires_capture" then
-      handlers.ConfirmPayment({ payload = { paymentId = cmd.payload.paymentId, provider = "stripe", returnUrl = cmd.payload.redirectUrl }, requestId = cmd.requestId })
+      handlers.ConfirmPayment {
+        payload = {
+          paymentId = cmd.payload.paymentId,
+          provider = "stripe",
+          returnUrl = cmd.payload.redirectUrl,
+        },
+        requestId = cmd.requestId,
+      }
       status = payment.status or status
     end
     if payment.providerPaymentId and stripe_ok then
       local live_status = stripe.retrieve_status(payment.providerPaymentId)
       if live_status then
-        status = stripe.status_from_payload({ status = live_status })
+        status = stripe.status_from_payload { status = live_status }
       end
     end
   elseif cmd.payload.provider == "paypal" then
     status = paypal_ok and paypal.status_from_payload(cmd.payload.payload) or "pending"
-    if not payment.providerPaymentId and cmd.payload.payload and cmd.payload.payload.resource and cmd.payload.payload.resource.id then
+    if
+      not payment.providerPaymentId
+      and cmd.payload.payload
+      and cmd.payload.payload.resource
+      and cmd.payload.payload.resource.id
+    then
       payment.providerPaymentId = cmd.payload.payload.resource.id
     end
     if status == "requires_capture" then
-      handlers.ConfirmPayment({ payload = { paymentId = cmd.payload.paymentId, provider = "paypal" }, requestId = cmd.requestId })
+      handlers.ConfirmPayment {
+        payload = { paymentId = cmd.payload.paymentId, provider = "paypal" },
+        requestId = cmd.requestId,
+      }
       status = payment.status or status
     end
   end
@@ -2055,7 +2405,9 @@ end
 -- RefreshPaymentStatus: fetch latest status from provider and sync order/payment states
 function handlers.RefreshPaymentStatus(cmd)
   local payment = state.payments[cmd.payload.paymentId]
-  if not payment then return err(cmd.requestId, "NOT_FOUND", "payment not found") end
+  if not payment then
+    return err(cmd.requestId, "NOT_FOUND", "payment not found")
+  end
   local provider = cmd.payload.provider or payment.provider
   local ok_br, br_err = breaker_allows(provider)
   if not ok_br then
@@ -2067,19 +2419,28 @@ function handlers.RefreshPaymentStatus(cmd)
   end
   if provider == "stripe" and payment.providerPaymentId and stripe_ok then
     local live = stripe.retrieve_status(payment.providerPaymentId)
-    if live then new_status = stripe.status_from_payload({ status = live }) end
+    if live then
+      new_status = stripe.status_from_payload { status = live }
+    end
   elseif provider == "paypal" and payment.providerPaymentId and paypal_ok then
     local live = paypal.retrieve_status and paypal.retrieve_status(payment.providerPaymentId)
-    if live then new_status = live end
+    if live then
+      new_status = live
+    end
   elseif provider == "gopay" and payment.providerPaymentId and gopay_ok then
     local live = gopay.status and gopay.status(payment.providerPaymentId)
-    if live then new_status = live.status or live end
+    if live then
+      new_status = live.status or live
+    end
   end
   if new_status and new_status ~= payment.status then
     set_payment_status(cmd.payload.paymentId, new_status, "refresh", cmd.requestId)
   end
   breaker_note(provider, true)
-  return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = state.payments[cmd.payload.paymentId].status })
+  return ok(
+    cmd.requestId,
+    { paymentId = cmd.payload.paymentId, status = state.payments[cmd.payload.paymentId].status }
+  )
 end
 
 function handlers.VoidPayment(cmd)
@@ -2094,12 +2455,12 @@ function handlers.VoidPayment(cmd)
   if PSP_HOSTED_ONLY and payment.provider ~= "manual" then
     payment.status = "voided"
     payment.voidedAt = cmd.timestamp
-    enqueue_event({
+    enqueue_event {
       type = "PaymentVoided",
       paymentId = cmd.payload.paymentId,
       orderId = payment.orderId,
       requestId = cmd.requestId,
-    })
+    }
     breaker_note(payment.provider, true)
     return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = "voided" })
   end
@@ -2204,7 +2565,7 @@ end
 function handlers.CreateShippingLabel(cmd)
   state.shipments[cmd.payload.shipmentId] = state.shipments[cmd.payload.shipmentId] or {}
   local label_url
-  local base = os.getenv("CARRIER_LABEL_URL")
+  local base = os.getenv "CARRIER_LABEL_URL"
   if base then
     label_url = string.format("%s/%s.pdf", base, cmd.payload.shipmentId)
   else
@@ -2214,26 +2575,29 @@ function handlers.CreateShippingLabel(cmd)
   state.shipments[cmd.payload.shipmentId].carrier = cmd.payload.carrier
   state.shipments[cmd.payload.shipmentId].service = cmd.payload.service
   state.shipments[cmd.payload.shipmentId].orderId = cmd.payload.orderId
-  enqueue_event({
+  enqueue_event {
     type = "ShippingLabelCreated",
     shipmentId = cmd.payload.shipmentId,
     carrier = cmd.payload.carrier,
     service = cmd.payload.service,
     labelUrl = label_url,
     orderId = cmd.payload.orderId,
-  })
+  }
   return ok(cmd.requestId, { shipmentId = cmd.payload.shipmentId, labelUrl = label_url })
 end
 
 function handlers.UpdateShipmentTracking(cmd)
   state.shipments[cmd.payload.shipmentId] = state.shipments[cmd.payload.shipmentId] or {}
   state.shipments[cmd.payload.shipmentId].tracking = cmd.payload.tracking
-  state.shipments[cmd.payload.shipmentId].carrier = cmd.payload.carrier or state.shipments[cmd.payload.shipmentId].carrier
-  state.shipments[cmd.payload.shipmentId].eta = cmd.payload.eta or state.shipments[cmd.payload.shipmentId].eta
-  if os.getenv("CARRIER_TRACK_URL") and cmd.payload.tracking then
-    state.shipments[cmd.payload.shipmentId].trackingUrl = string.format("%s/%s", os.getenv("CARRIER_TRACK_URL"), cmd.payload.tracking)
+  state.shipments[cmd.payload.shipmentId].carrier = cmd.payload.carrier
+    or state.shipments[cmd.payload.shipmentId].carrier
+  state.shipments[cmd.payload.shipmentId].eta = cmd.payload.eta
+    or state.shipments[cmd.payload.shipmentId].eta
+  if os.getenv "CARRIER_TRACK_URL" and cmd.payload.tracking then
+    state.shipments[cmd.payload.shipmentId].trackingUrl =
+      string.format("%s/%s", os.getenv "CARRIER_TRACK_URL", cmd.payload.tracking)
   end
-  enqueue_event({
+  enqueue_event {
     type = "ShipmentTrackingUpdated",
     shipmentId = cmd.payload.shipmentId,
     tracking = cmd.payload.tracking,
@@ -2241,7 +2605,7 @@ function handlers.UpdateShipmentTracking(cmd)
     eta = state.shipments[cmd.payload.shipmentId].eta,
     trackingUrl = state.shipments[cmd.payload.shipmentId].trackingUrl,
     orderId = cmd.payload.orderId,
-  })
+  }
   return ok(cmd.requestId, { shipmentId = cmd.payload.shipmentId, tracking = cmd.payload.tracking })
 end
 
@@ -2288,10 +2652,16 @@ function handlers.ProviderWebhook(cmd)
     return handle_gopay_webhook(cmd, schedule_retry)
   end
   if cmd.payload.provider == "stripe" then
-    local secret = os.getenv("STRIPE_WEBHOOK_SECRET")
+    local secret = os.getenv "STRIPE_WEBHOOK_SECRET"
     if secret and cmd.payload.raw and cmd.payload.raw.body then
       local sig = cmd.payload.raw.headers and cmd.payload.raw.headers["Stripe-Signature"]
-      local ok_sig = stripe_ok and stripe.verify_webhook(cmd.payload.raw.body, sig, secret, tonumber(os.getenv("STRIPE_WEBHOOK_TOLERANCE") or "300"))
+      local ok_sig = stripe_ok
+        and stripe.verify_webhook(
+          cmd.payload.raw.body,
+          sig,
+          secret,
+          tonumber(os.getenv "STRIPE_WEBHOOK_TOLERANCE" or "300")
+        )
       if not ok_sig then
         webhook_counter("stripe", "verify_fail")
         return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid")
@@ -2321,11 +2691,12 @@ function handlers.ProviderWebhook(cmd)
     end
     for pid, p in pairs(state.payments) do
       if p.providerPaymentId == cmd.payload.paymentId or pid == cmd.payload.paymentId then
-        if cmd.payload.eventType:match("dispute") then
+        if cmd.payload.eventType:match "dispute" then
           state.payment_disputes[pid] = state.payment_disputes[pid] or {}
           state.payment_disputes[pid].status = new_status
           state.payment_disputes[pid].reason = cmd.payload.reason
-          state.payment_disputes[pid].evidence = cmd.payload.evidence or state.payment_disputes[pid].evidence
+          state.payment_disputes[pid].evidence = cmd.payload.evidence
+            or state.payment_disputes[pid].evidence
         end
         set_payment_status(pid, new_status, cmd.payload.eventType, cmd.requestId)
         webhook_counter("stripe", "success")
@@ -2333,15 +2704,17 @@ function handlers.ProviderWebhook(cmd)
       end
     end
     webhook_counter("stripe", "missing_payment")
-    return schedule_retry("payment_not_tracked")
+    return schedule_retry "payment_not_tracked"
   end
   if cmd.payload.provider == "paypal" then
-    local secret = os.getenv("PAYPAL_WEBHOOK_SECRET")
-    local strict = os.getenv("PAYPAL_WEBHOOK_STRICT") == "1"
+    local secret = os.getenv "PAYPAL_WEBHOOK_SECRET"
+    local strict = os.getenv "PAYPAL_WEBHOOK_STRICT" == "1"
     if (secret or strict) and cmd.payload.raw and cmd.payload.raw.body then
       local headers = cmd.payload.raw.headers or {}
       local sig = headers["PayPal-Transmission-Sig"] or headers["PP-Signature"]
-      if strict and not sig then return err(cmd.requestId, "UNAUTHORIZED", "missing_signature") end
+      if strict and not sig then
+        return err(cmd.requestId, "UNAUTHORIZED", "missing_signature")
+      end
       local ok_sig = false
       if paypal_ok then
         if sig and secret then
@@ -2355,7 +2728,9 @@ function handlers.ProviderWebhook(cmd)
       if not ok_sig then
         webhook_counter("paypal", "verify_fail")
       end
-      if strict and not ok_sig then return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid") end
+      if strict and not ok_sig then
+        return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid")
+      end
     end
     local status_map = {
       ["PAYMENT.CAPTURE.COMPLETED"] = "captured",
@@ -2378,11 +2753,12 @@ function handlers.ProviderWebhook(cmd)
     end
     for pid, p in pairs(state.payments) do
       if p.providerPaymentId == cmd.payload.paymentId or pid == cmd.payload.paymentId then
-        if cmd.payload.eventType:match("DISPUTE") then
+        if cmd.payload.eventType:match "DISPUTE" then
           state.payment_disputes[pid] = state.payment_disputes[pid] or {}
           state.payment_disputes[pid].status = new_status
           state.payment_disputes[pid].reason = cmd.payload.reason
-          state.payment_disputes[pid].evidence = cmd.payload.evidence or state.payment_disputes[pid].evidence
+          state.payment_disputes[pid].evidence = cmd.payload.evidence
+            or state.payment_disputes[pid].evidence
         end
         set_payment_status(pid, new_status, cmd.payload.eventType, cmd.requestId)
         webhook_counter("paypal", "success")
@@ -2390,10 +2766,10 @@ function handlers.ProviderWebhook(cmd)
       end
     end
     webhook_counter("paypal", "missing_payment")
-    return schedule_retry("payment_not_tracked")
+    return schedule_retry "payment_not_tracked"
   end
   webhook_counter(cmd.payload.provider, "unsupported")
-  return schedule_retry("provider_not_supported")
+  return schedule_retry "provider_not_supported"
 end
 
 function handlers.GoPayWebhook(cmd)
@@ -2422,8 +2798,8 @@ function handlers.ProviderShippingWebhook(cmd)
   sh.carrier = cmd.payload.carrier or sh.carrier
   sh.labelUrl = cmd.payload.labelUrl or sh.labelUrl
   sh.eta = cmd.payload.eta or sh.eta
-  if os.getenv("CARRIER_TRACK_URL") and sh.tracking and (not sh.trackingUrl) then
-    sh.trackingUrl = string.format("%s/%s", os.getenv("CARRIER_TRACK_URL"), sh.tracking)
+  if os.getenv "CARRIER_TRACK_URL" and sh.tracking and not sh.trackingUrl then
+    sh.trackingUrl = string.format("%s/%s", os.getenv "CARRIER_TRACK_URL", sh.tracking)
   end
   local ev = {
     type = "ShipmentUpdated",
@@ -2436,18 +2812,20 @@ function handlers.ProviderShippingWebhook(cmd)
     eta = sh.eta,
   }
   local ok_hmac, hmac_err = attach_outbox_hmac(ev)
-  if not ok_hmac then return err(cmd.requestId, "SERVER_ERROR", hmac_err or "outbox_hmac_failed") end
-  enqueue_event({
+  if not ok_hmac then
+    return err(cmd.requestId, "SERVER_ERROR", hmac_err or "outbox_hmac_failed")
+  end
+  enqueue_event {
     requestId = cmd.requestId,
     event = ev,
-  })
+  }
   if sh.orderId then
-    enqueue_event({
+    enqueue_event {
       type = "OrderStatusUpdated",
       orderId = sh.orderId,
       status = sh.status,
       requestId = cmd.requestId,
-    })
+    }
   end
   webhook_counter(cmd.payload.provider or "shipping", "success")
   return ok(cmd.requestId, { shipmentId = cmd.payload.shipmentId, status = sh.status })
@@ -2466,7 +2844,7 @@ function handlers.GetOpsHealth(cmd)
   for p, br in pairs(state.psp_breakers) do
     providers[p] = { open_until = br.open_until, count = br.count }
   end
-  local q = storage.get("outbox_queue") or {}
+  local q = storage.get "outbox_queue" or {}
   local retry_q = state.webhook_retry or {}
   return ok(cmd.requestId, {
     webhookReplayWindow = WEBHOOK_REPLAY_WINDOW,
@@ -2505,13 +2883,17 @@ function handlers.RunWebhookRetries(cmd)
   gauge("webhook_retry_queue", #state.webhook_retry)
   local overdue = 0
   for _, job in ipairs(state.webhook_retry) do
-    if job.nextAttempt and job.nextAttempt <= now then overdue = overdue + 1 end
+    if job.nextAttempt and job.nextAttempt <= now then
+      overdue = overdue + 1
+    end
   end
   local max_lag = 0
   for _, job in ipairs(state.webhook_retry) do
     if job.nextAttempt then
       local lag = now - job.nextAttempt
-      if lag > max_lag then max_lag = lag end
+      if lag > max_lag then
+        max_lag = lag
+      end
     end
   end
   gauge("write.webhook.retry_lag_seconds", math.max(0, max_lag))
@@ -2541,13 +2923,18 @@ function M.route(command)
     return err(command.requestId, "INVALID_INPUT", "Envelope validation failed", env_errs)
   end
 
-  local max_bytes = tonumber(os.getenv("WRITE_MAX_PAYLOAD_BYTES") or "262144")
+  local max_bytes = tonumber(os.getenv "WRITE_MAX_PAYLOAD_BYTES" or "262144")
   if max_bytes > 0 then
     local ok_json, cjson = pcall(require, "cjson.safe")
     if ok_json then
       local payload_bytes = #(cjson.encode(command.payload or {}))
       if payload_bytes > max_bytes then
-        return err(command.requestId, "PAYLOAD_TOO_LARGE", "payload exceeds limit", { bytes = payload_bytes, max = max_bytes })
+        return err(
+          command.requestId,
+          "PAYLOAD_TOO_LARGE",
+          "payload exceeds limit",
+          { bytes = payload_bytes, max = max_bytes }
+        )
       end
     end
   end
@@ -2562,13 +2949,20 @@ function M.route(command)
     return err(command.requestId, "RATE_LIMITED", rl_err_env or "rate_limited")
   end
 
-  _G.current_caller_id = command.callerId or command["Caller-Id"] or command.gatewayId or command["Gateway-Id"]
+  _G.current_caller_id = command.callerId
+    or command["Caller-Id"]
+    or command.gatewayId
+    or command["Gateway-Id"]
   local ok_sig, sig_err = auth.verify_signature(command)
   if not ok_sig then
     return err(command.requestId, "UNAUTHORIZED", sig_err or "signature failed")
   end
   if command.signature and (command.action or command.Action) then
-    local message = (command.action or command.Action) .. "|" .. (command.tenant or "") .. "|" .. (command.requestId or command["Request-Id"] or "")
+    local message = (command.action or command.Action)
+      .. "|"
+      .. (command.tenant or "")
+      .. "|"
+      .. (command.requestId or command["Request-Id"] or "")
     local ok_det, det_err = auth.verify_detached(message, command.signature)
     if not ok_det then
       return err(command.requestId, "UNAUTHORIZED", det_err or "detached signature failed")
@@ -2616,7 +3010,7 @@ function M.route(command)
       local req_json = cjson.encode(command)
       local resp_json = cjson.encode(response)
       wal_entry = {
-        ts = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+        ts = os.date "!%Y-%m-%dT%H:%M:%SZ",
         req = command.requestId,
         action = command.action,
         status = response.status,
@@ -2636,9 +3030,11 @@ function M.route(command)
         end
         local stat = io.popen(string.format("stat -c%s %q 2>/dev/null", WAL_PATH))
         if stat then
-          local size = tonumber(stat:read("*a"))
+          local size = tonumber(stat:read "*a")
           stat:close()
-          if size then gauge("write.wal.bytes", size) end
+          if size then
+            gauge("write.wal.bytes", size)
+          end
         end
       end
     end
@@ -2647,7 +3043,7 @@ function M.route(command)
   if not ok_idem then
     return err(command.requestId, "SERVER_ERROR", idem_err or "idempotency_persist_failed")
   end
-  audit.append({
+  audit.append {
     action = command.action,
     requestId = command.requestId,
     status = response.status,
@@ -2655,10 +3051,10 @@ function M.route(command)
     tenant = command.tenant,
     caller = command.caller,
     callerId = command.callerId or command["Caller-Id"],
-  })
+  }
   -- Append WAL entry to PII-scrubbed WeaveDB export for immutable audit
   if wal_entry then
-    export.write({
+    export.write {
       kind = "wal",
       ts = wal_entry.ts,
       req = wal_entry.req,
@@ -2666,7 +3062,7 @@ function M.route(command)
       status = wal_entry.status,
       reqHash = wal_entry.reqHash,
       respHash = wal_entry.respHash,
-    })
+    }
   end
   persist.save("write_state", state)
   return response
@@ -2681,7 +3077,7 @@ function M._outbox()
 end
 
 function M._storage_outbox()
-  return storage.all("outbox")
+  return storage.all "outbox"
 end
 
 -- expose handlers for tooling/tests (schema consistency)

@@ -1,7 +1,7 @@
 -- luacheck: max_line_length 200
 -- PayPal helper with live API when credentials are present; otherwise stub.
 
-local crypto = require("ao.shared.crypto")
+local crypto = require "ao.shared.crypto"
 local ok_json, cjson = pcall(require, "cjson.safe")
 local os_time = os.time
 
@@ -9,23 +9,39 @@ local PayPal = {}
 
 local token_cache = nil
 local verify_cache = {}
-local VERIFY_TTL = tonumber(os.getenv("PAYPAL_VERIFY_CACHE_TTL") or "300")
+local VERIFY_TTL = tonumber(os.getenv "PAYPAL_VERIFY_CACHE_TTL" or "300")
 
 local function api_token()
   local now = os.time()
-  if token_cache and token_cache.expires_at and now < token_cache.expires_at and token_cache.token then
+  if
+    token_cache
+    and token_cache.expires_at
+    and now < token_cache.expires_at
+    and token_cache.token
+  then
     return token_cache.token
   end
-  local cid = os.getenv("PAYPAL_CLIENT_ID")
-  local secret = os.getenv("PAYPAL_CLIENT_SECRET")
-  if not (cid and secret) then return nil end
-  local base = os.getenv("PAYPAL_API_BASE") or "https://api-m.sandbox.paypal.com"
-  local cmd = string.format("curl -sS -u %q:%q -d 'grant_type=client_credentials' %s/v1/oauth2/token", cid, secret, base)
+  local cid = os.getenv "PAYPAL_CLIENT_ID"
+  local secret = os.getenv "PAYPAL_CLIENT_SECRET"
+  if not (cid and secret) then
+    return nil
+  end
+  local base = os.getenv "PAYPAL_API_BASE" or "https://api-m.sandbox.paypal.com"
+  local cmd = string.format(
+    "curl -sS -u %q:%q -d 'grant_type=client_credentials' %s/v1/oauth2/token",
+    cid,
+    secret,
+    base
+  )
   local fh = io.popen(cmd)
-  if not fh then return nil end
-  local body = fh:read("*a")
+  if not fh then
+    return nil
+  end
+  local body = fh:read "*a"
   fh:close()
-  if not ok_json then return nil end
+  if not ok_json then
+    return nil
+  end
   local decoded = cjson.decode(body)
   if decoded and decoded.access_token then
     local ttl = tonumber(decoded.expires_in or 3000)
@@ -39,31 +55,45 @@ local function api_token()
 end
 
 local function api_base()
-  return os.getenv("PAYPAL_API_BASE") or "https://api-m.sandbox.paypal.com"
+  return os.getenv "PAYPAL_API_BASE" or "https://api-m.sandbox.paypal.com"
 end
 
 local function api_request(method, path, payload)
   local token = api_token()
-  if not token then return nil, "no_token" end
+  if not token then
+    return nil, "no_token"
+  end
   local url = api_base() .. path
   local data_arg = ""
   if payload then
-    if not ok_json then return nil, "json_missing" end
+    if not ok_json then
+      return nil, "json_missing"
+    end
     data_arg = string.format("-d '%s'", cjson.encode(payload))
   end
-  local cmd = string.format("curl -sS -X %s %s -H 'Authorization: Bearer %s' -H 'Content-Type: application/json' %s", method, url, token, data_arg)
+  local cmd = string.format(
+    "curl -sS -X %s %s -H 'Authorization: Bearer %s' -H 'Content-Type: application/json' %s",
+    method,
+    url,
+    token,
+    data_arg
+  )
   local fh = io.popen(cmd)
-  if not fh then return nil, "curl_failed" end
-  local body = fh:read("*a")
+  if not fh then
+    return nil, "curl_failed"
+  end
+  local body = fh:read "*a"
   fh:close()
-  if not ok_json then return nil, "json_missing" end
+  if not ok_json then
+    return nil, "json_missing"
+  end
   local decoded = cjson.decode(body)
   return decoded, decoded and decoded.message
 end
 
 function PayPal.create_payment(args)
-  local cid = os.getenv("PAYPAL_CLIENT_ID")
-  local secret = os.getenv("PAYPAL_CLIENT_SECRET")
+  local cid = os.getenv "PAYPAL_CLIENT_ID"
+  local secret = os.getenv "PAYPAL_CLIENT_SECRET"
   if cid and secret then
     local payload = {
       intent = "CAPTURE",
@@ -86,7 +116,9 @@ function PayPal.create_payment(args)
       local approve
       if resp.links then
         for _, l in ipairs(resp.links) do
-          if l.rel == "approve" then approve = l.href end
+          if l.rel == "approve" then
+            approve = l.href
+          end
         end
       end
       return resp.id, approve, "requires_capture"
@@ -94,13 +126,15 @@ function PayPal.create_payment(args)
   end
   -- fallback stub
   local pid = "pp_" .. (args.orderId or tostring(os.time()))
-  local approve_url = (os.getenv("PAYPAL_APPROVAL_URL") or "https://www.sandbox.paypal.com/checkoutnow?token=") .. pid
+  local approve_url = (
+    os.getenv "PAYPAL_APPROVAL_URL" or "https://www.sandbox.paypal.com/checkoutnow?token="
+  ) .. pid
   return pid, approve_url, "requires_capture"
 end
 
 function PayPal.capture(order_id)
-  local cid = os.getenv("PAYPAL_CLIENT_ID")
-  local secret = os.getenv("PAYPAL_CLIENT_SECRET")
+  local cid = os.getenv "PAYPAL_CLIENT_ID"
+  local secret = os.getenv "PAYPAL_CLIENT_SECRET"
   if cid and secret then
     local resp, err = api_request("POST", "/v2/checkout/orders/" .. order_id .. "/capture", {})
     return resp ~= nil, err
@@ -110,10 +144,11 @@ end
 
 function PayPal.void(order_id, reason)
   -- PayPal "void" is effectively to cancel an order before capture
-  local cid = os.getenv("PAYPAL_CLIENT_ID")
-  local secret = os.getenv("PAYPAL_CLIENT_SECRET")
+  local cid = os.getenv "PAYPAL_CLIENT_ID"
+  local secret = os.getenv "PAYPAL_CLIENT_SECRET"
   if cid and secret then
-    local resp, err = api_request("POST", "/v2/checkout/orders/" .. order_id .. "/cancel", { reason = reason })
+    local resp, err =
+      api_request("POST", "/v2/checkout/orders/" .. order_id .. "/cancel", { reason = reason })
     return resp ~= nil, err
   end
   return true
@@ -121,8 +156,8 @@ end
 
 function PayPal.refund(order_id, amount)
   -- if order_id is a capture id, refund against it
-  local cid = os.getenv("PAYPAL_CLIENT_ID")
-  local secret = os.getenv("PAYPAL_CLIENT_SECRET")
+  local cid = os.getenv "PAYPAL_CLIENT_ID"
+  local secret = os.getenv "PAYPAL_CLIENT_SECRET"
   if cid and secret then
     local payload = {}
     if amount then
@@ -131,7 +166,8 @@ function PayPal.refund(order_id, amount)
         currency_code = "USD",
       }
     end
-    local resp, err = api_request("POST", "/v2/payments/captures/" .. order_id .. "/refund", payload)
+    local resp, err =
+      api_request("POST", "/v2/payments/captures/" .. order_id .. "/refund", payload)
     return resp ~= nil, err
   end
   return true
@@ -139,33 +175,44 @@ end
 
 -- Basic webhook verification via HMAC if configured (not PayPal official RSA flow)
 function PayPal.verify_webhook(body, sig_header, secret)
-  if not (body and sig_header and secret) then return false end
+  if not (body and sig_header and secret) then
+    return false
+  end
   local expected = crypto.hmac_sha256_hex(body, secret)
   return expected == sig_header
 end
 
 -- Official webhook verification via PayPal API (requires PAYPAL_WEBHOOK_ID)
 function PayPal.verify_webhook_remote(body, headers)
-  if not (ok_json and body and headers) then return false, "missing" end
-  local webhook_id = os.getenv("PAYPAL_WEBHOOK_ID")
-  if not webhook_id then return false, "no_webhook_id" end
+  if not (ok_json and body and headers) then
+    return false, "missing"
+  end
+  local webhook_id = os.getenv "PAYPAL_WEBHOOK_ID"
+  if not webhook_id then
+    return false, "no_webhook_id"
+  end
   local tx_id = headers["PayPal-Transmission-Id"]
   local now = os_time()
   if tx_id and verify_cache[tx_id] and verify_cache[tx_id].expires_at > now then
     return verify_cache[tx_id].ok, verify_cache[tx_id].err
   end
   local token = api_token()
-  if not token then return false, "no_token" end
+  if not token then
+    return false, "no_token"
+  end
   local payload = {
     auth_algo = headers["PayPal-Auth-Algo"],
     cert_url = headers["PayPal-Cert-Url"],
     transmission_id = headers["PayPal-Transmission-Id"],
-    transmission_sig = headers["PayPal-Transmission-Sig"] or headers["PayPal-Transmission-Signature"],
+    transmission_sig = headers["PayPal-Transmission-Sig"]
+      or headers["PayPal-Transmission-Signature"],
     transmission_time = headers["PayPal-Transmission-Time"],
     webhook_id = webhook_id,
     webhook_event = ok_json and cjson.decode(body),
   }
-  if not payload.webhook_event then return false, "decode_failed" end
+  if not payload.webhook_event then
+    return false, "decode_failed"
+  end
   local base = api_base()
   local cmd = string.format(
     "curl -sS -X POST %s/v1/notifications/verify-webhook-signature -H 'Content-Type: application/json' -H 'Authorization: Bearer %s' -d '%s'",
@@ -174,15 +221,21 @@ function PayPal.verify_webhook_remote(body, headers)
     cjson.encode(payload)
   )
   local fh = io.popen(cmd)
-  if not fh then return false, "curl_failed" end
-  local resp_body = fh:read("*a") or ""
+  if not fh then
+    return false, "curl_failed"
+  end
+  local resp_body = fh:read "*a" or ""
   fh:close()
   local resp = cjson.decode(resp_body)
   if resp and resp.verification_status == "SUCCESS" then
-    if tx_id then verify_cache[tx_id] = { ok = true, err = nil, expires_at = now + VERIFY_TTL } end
+    if tx_id then
+      verify_cache[tx_id] = { ok = true, err = nil, expires_at = now + VERIFY_TTL }
+    end
     return true
   end
-  if tx_id then verify_cache[tx_id] = { ok = false, err = "verification_failed", expires_at = now + VERIFY_TTL } end
+  if tx_id then
+    verify_cache[tx_id] = { ok = false, err = "verification_failed", expires_at = now + VERIFY_TTL }
+  end
   return false, "verification_failed"
 end
 

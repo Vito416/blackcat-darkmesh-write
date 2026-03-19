@@ -3,14 +3,14 @@
 -- Usage:
 --   WRITE_OUTBOX_PATH=dev/outbox.json AO_QUEUE_PATH=dev/outbox-queue.ndjson lua scripts/verify/outbox_replay.lua
 
-local storage = require("ao.shared.storage")
-local cjson = require("cjson.safe")
+local storage = require "ao.shared.storage"
+local cjson = require "cjson.safe"
 
-local outbox_path = os.getenv("WRITE_OUTBOX_PATH")
-local queue_path = os.getenv("AO_QUEUE_PATH") or "dev/outbox-queue.ndjson"
+local outbox_path = os.getenv "WRITE_OUTBOX_PATH"
+local queue_path = os.getenv "AO_QUEUE_PATH" or "dev/outbox-queue.ndjson"
 
 if not outbox_path or outbox_path == "" then
-  io.stderr:write("WRITE_OUTBOX_PATH not set\n")
+  io.stderr:write "WRITE_OUTBOX_PATH not set\n"
   os.exit(1)
 end
 
@@ -20,14 +20,14 @@ if not ok then
   os.exit(1)
 end
 
-local outbox = storage.get("outbox_queue") or storage.get("outbox") or {}
+local outbox = storage.get "outbox_queue" or storage.get "outbox" or {}
 local f = assert(io.open(queue_path, "w"))
 local count = 0
 for _, entry in ipairs(outbox) do
   local ev = entry.event or entry
   if ev then
     f:write(cjson.encode(ev))
-    f:write("\n")
+    f:write "\n"
     count = count + 1
   end
 end

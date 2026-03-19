@@ -25,9 +25,13 @@ end
 -- Optional persistence helpers (no-op if cjson missing)
 function Storage.persist(path)
   local ok, cjson = pcall(require, "cjson")
-  if not ok then return false, "cjson_missing" end
+  if not ok then
+    return false, "cjson_missing"
+  end
   local f = io.open(path, "w")
-  if not f then return false, "open_failed" end
+  if not f then
+    return false, "open_failed"
+  end
   f:write(cjson.encode(kv))
   f:close()
   return true
@@ -35,11 +39,15 @@ end
 
 function Storage.load(path)
   local f = io.open(path, "r")
-  if not f then return false end
-  local content = f:read("*a")
+  if not f then
+    return false
+  end
+  local content = f:read "*a"
   f:close()
   local ok, cjson = pcall(require, "cjson")
-  if not ok then return false, "cjson_missing" end
+  if not ok then
+    return false, "cjson_missing"
+  end
   local decoded = cjson.decode(content)
   if type(decoded) == "table" then
     for k, v in pairs(decoded) do

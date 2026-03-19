@@ -11,27 +11,27 @@
 --   ]
 -- }
 
-local secret = os.getenv("TRUST_MANIFEST_HMAC")
+local secret = os.getenv "TRUST_MANIFEST_HMAC"
 if not secret or secret == "" then
-  io.stderr:write("TRUST_MANIFEST_HMAC not set\n")
+  io.stderr:write "TRUST_MANIFEST_HMAC not set\n"
   os.exit(1)
 end
 
 local path = arg[1]
 if not path then
-  io.stderr:write("usage: lua trust_manifest_sign.lua manifest.json\n")
+  io.stderr:write "usage: lua trust_manifest_sign.lua manifest.json\n"
   os.exit(1)
 end
 
 local ok_json, cjson = pcall(require, "cjson.safe")
 local ok_crypto, crypto = pcall(require, "ao.shared.crypto")
 if not (ok_json and ok_crypto) then
-  io.stderr:write("missing deps: cjson.safe, ao.shared.crypto\n")
+  io.stderr:write "missing deps: cjson.safe, ao.shared.crypto\n"
   os.exit(1)
 end
 
 local f = assert(io.open(path, "r"))
-local raw = f:read("*a")
+local raw = f:read "*a"
 f:close()
 local manifest, err = cjson.decode(raw)
 if not manifest then
@@ -42,7 +42,7 @@ end
 local payload = cjson.encode(manifest)
 local sig_hex = crypto.hmac_sha256_hex(payload, secret)
 if not sig_hex then
-  io.stderr:write("hmac failed: crypto backend missing\n")
+  io.stderr:write "hmac failed: crypto backend missing\n"
   os.exit(1)
 end
 
@@ -50,7 +50,7 @@ local signed = {
   manifest = manifest,
   signature = sig_hex,
   signed_at = os.time(),
-  signer = os.getenv("TRUST_MANIFEST_SIGNER") or "unknown",
+  signer = os.getenv "TRUST_MANIFEST_SIGNER" or "unknown",
 }
 
 print(cjson.encode(signed))

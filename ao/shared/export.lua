@@ -3,19 +3,32 @@
 
 local Export = {}
 
-local path = os.getenv("WRITE_OUTBOX_EXPORT_PATH") or os.getenv("AO_WEAVEDB_EXPORT_PATH")
+local path = os.getenv "WRITE_OUTBOX_EXPORT_PATH" or os.getenv "AO_WEAVEDB_EXPORT_PATH"
 local json_ok, cjson = pcall(require, "cjson.safe")
 
 local pii_keys = {
-  address = true, Address = true,
-  line1 = true, line2 = true, city = true, postal = true, region = true,
-  phone = true, email = true,
-  subject = true, ["Subject"] = true,
-  customerId = true, ["Customer-Id"] = true,
-  customerRef = true, ["Customer-Ref"] = true,
-  token = true, tokenHash = true, ["Token-Hash"] = true,
-  sessionHash = true, ["Session-Hash"] = true,
-  jwt = true, JWT = true,
+  address = true,
+  Address = true,
+  line1 = true,
+  line2 = true,
+  city = true,
+  postal = true,
+  region = true,
+  phone = true,
+  email = true,
+  subject = true,
+  ["Subject"] = true,
+  customerId = true,
+  ["Customer-Id"] = true,
+  customerRef = true,
+  ["Customer-Ref"] = true,
+  token = true,
+  tokenHash = true,
+  ["Token-Hash"] = true,
+  sessionHash = true,
+  ["Session-Hash"] = true,
+  jwt = true,
+  JWT = true,
 }
 
 local function scrub(value)
@@ -43,7 +56,7 @@ function Export.write(ev)
   local ok, encoded = pcall(cjson.encode, scrub(ev))
   if ok and encoded then
     f:write(encoded)
-    f:write("\n")
+    f:write "\n"
   end
   f:close()
 end

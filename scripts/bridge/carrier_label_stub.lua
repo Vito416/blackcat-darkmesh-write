@@ -11,4 +11,12 @@ local tracking = string.format("%s-%s-%s", carrier, service, shipmentId)
 local tracking_url = string.format("https://track.example/%s", tracking)
 
 print(label_url)
-io.stderr:write(string.format("carrier=%s service=%s tracking=%s url=%s\n", carrier, service, tracking, tracking_url))
+io.stderr:write(
+  string.format(
+    "carrier=%s service=%s tracking=%s url=%s\n",
+    carrier,
+    service,
+    tracking,
+    tracking_url
+  )
+)

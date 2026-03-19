@@ -13,15 +13,15 @@ local M = {}
 local crypto_ok, crypto = pcall(require, "ao.shared.crypto")
 
 local function api_base()
-  if os.getenv("GOPAY_SANDBOX") == "1" then
+  if os.getenv "GOPAY_SANDBOX" == "1" then
     return "https://gw.sandbox.gopay.com/api"
   end
-  return os.getenv("GOPAY_API_BASE") or "https://gate.gopay.com/api"
+  return os.getenv "GOPAY_API_BASE" or "https://gate.gopay.com/api"
 end
 
 local function curl_json(method, path, body)
-  local cid = os.getenv("GOPAY_CLIENT_ID")
-  local secret = os.getenv("GOPAY_CLIENT_SECRET")
+  local cid = os.getenv "GOPAY_CLIENT_ID"
+  local secret = os.getenv "GOPAY_CLIENT_SECRET"
   if not cid or not secret then
     return nil, "missing_credentials"
   end
@@ -31,16 +31,20 @@ local function curl_json(method, path, body)
     method,
     cid,
     secret,
-    os.getenv("GOPAY_TIMEOUT") or "10",
+    os.getenv "GOPAY_TIMEOUT" or "10",
     api_base(),
     path
   )
   local pipe = io.popen(cmd, "w")
-  if not pipe then return nil, "curl_failed" end
-  if body then pipe:write(body) end
-  local resp = pipe:read("*a") or ""
+  if not pipe then
+    return nil, "curl_failed"
+  end
+  if body then
+    pipe:write(body)
+  end
+  local resp = pipe:read "*a" or ""
   pipe:close()
-  local http_code = tonumber(resp:match("\n(%d+)%s*$") or "0")
+  local http_code = tonumber(resp:match "\n(%d+)%s*$" or "0")
   local json = resp:gsub("\n%d+%s*$", "")
   return json, http_code
 end
@@ -48,7 +52,8 @@ end
 function M.create_payment(opts)
   -- opts: orderId, amount, currency, returnUrl, description
   local amt = tonumber(opts.amount or 0) or 0
-  local payload = string.format([[{
+  local payload = string.format(
+    [[{
     "payer": { "allowed_payment_instruments": ["PAYMENT_CARD"] },
     "amount": %d,
     "currency": "%s",
@@ -61,13 +66,17 @@ function M.create_payment(opts)
     opts.currency or "EUR",
     opts.orderId or "",
     opts.returnUrl or "",
-    os.getenv("GOPAY_MERCHANT_ID") or "0",
+    os.getenv "GOPAY_MERCHANT_ID" or "0",
     opts.description or "order"
   )
   local body, code = curl_json("POST", "/payments/payment", payload)
   code = tonumber(code) or 0
-  if code == 0 then return nil, "curl_failed" end
-  if code >= 300 then return nil, "gopay_create_failed", code end
+  if code == 0 then
+    return nil, "curl_failed"
+  end
+  if code >= 300 then
+    return nil, "gopay_create_failed", code
+  end
   local ok, decoded = pcall(require("cjson").decode, body or "")
   if not ok or type(decoded) ~= "table" then
     return nil, "gopay_bad_json", code
@@ -80,44 +89,60 @@ end
 
 function M.capture(payment_id)
   local _, code = curl_json("POST", "/payments/payment/" .. payment_id .. "/capture", "{}")
-  if not code or code >= 300 then return false, "gopay_capture_failed", code end
+  if not code or code >= 300 then
+    return false, "gopay_capture_failed", code
+  end
   return true
 end
 
 function M.refund(payment_id, amount)
   local payload = string.format([[{ "amount": %d }]], math.floor((amount or 0) * 100))
   local _, code = curl_json("POST", "/payments/payment/" .. payment_id .. "/refund", payload)
-  if not code or code >= 300 then return false, "gopay_refund_failed", code end
+  if not code or code >= 300 then
+    return false, "gopay_refund_failed", code
+  end
   return true
 end
 
 function M.void(payment_id, reason)
   local payload = string.format([[{ "reason": "%s" }]], reason or "voided")
   local _, code = curl_json("POST", "/payments/payment/" .. payment_id .. "/void", payload)
-  if not code or code >= 300 then return false, "gopay_void_failed", code end
+  if not code or code >= 300 then
+    return false, "gopay_void_failed", code
+  end
   return true
 end
 
 -- Verify GoPay webhook signature (HMAC SHA256 hex) if crypto is available.
 function M.verify_signature(body, signature_header, secret)
-  if not (crypto_ok and crypto.hmac_sha256_hex) then return false, "crypto_missing" end
-  if not body or not signature_header or not secret then return false, "missing_inputs" end
+  if not (crypto_ok and crypto.hmac_sha256_hex) then
+    return false, "crypto_missing"
+  end
+  if not body or not signature_header or not secret then
+    return false, "missing_inputs"
+  end
   local calc = crypto.hmac_sha256_hex(body, secret)
   return calc and calc:lower() == tostring(signature_header):lower()
 end
 
 function M.verify_basic(auth_header)
-  if not auth_header then return false end
+  if not auth_header then
+    return false
+  end
   local prefix = "Basic "
-  if not auth_header:find(prefix) then return false end
+  if not auth_header:find(prefix) then
+    return false
+  end
   local b64 = auth_header:sub(#prefix + 1)
   local decoded
   if crypto_ok and crypto.base64_decode then
     decoded = crypto.base64_decode(b64)
   else
     local pipe = io.popen("printf %s " .. b64 .. " | base64 -d 2>/dev/null", "r")
-    decoded = pipe and pipe:read("*a")
-    if pipe then pipe:close() end
+    decoded = pipe and pipe:read "*a"
+    if pipe then
+      pipe:close()
+    end
   end
   return decoded
 end

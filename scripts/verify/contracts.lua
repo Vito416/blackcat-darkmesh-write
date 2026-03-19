@@ -18,23 +18,37 @@ end
 
 local tests = {
   function()
-    local resp = write.route(req("SaveDraftPage", { payload = { siteId = "s1", pageId = "home", blocks = {} } }))
+    local resp = write.route(
+      req("SaveDraftPage", { payload = { siteId = "s1", pageId = "home", blocks = {} } })
+    )
     assert(resp.status == "OK")
   end,
   function()
-    local resp = write.route(req("PublishPageVersion", { payload = { siteId = "s1", pageId = "home", versionId = "v1", manifestTx = "tx-1" } }))
+    local resp = write.route(
+      req(
+        "PublishPageVersion",
+        { payload = { siteId = "s1", pageId = "home", versionId = "v1", manifestTx = "tx-1" } }
+      )
+    )
     assert(resp.status == "OK")
   end,
   function()
-    local resp = write.route(req("UpsertRoute", { payload = { siteId = "s1", path = "/", target = { type = "page", id = "home" } } }))
+    local resp = write.route(
+      req(
+        "UpsertRoute",
+        { payload = { siteId = "s1", path = "/", target = { type = "page", id = "home" } } }
+      )
+    )
     assert(resp.status == "OK")
   end,
   function()
-    local resp = write.route(req("UpsertProduct", { payload = { siteId = "s1", sku = "sku1", name = "Prod" } }))
+    local resp = write.route(
+      req("UpsertProduct", { payload = { siteId = "s1", sku = "sku1", name = "Prod" } })
+    )
     assert(resp.status == "OK")
   end,
   function()
-    local resp = write.route(req("UnknownAction"))
+    local resp = write.route(req "UnknownAction")
     assert(resp.code == "UNKNOWN_ACTION")
   end,
 }
@@ -47,5 +61,5 @@ for i, t in ipairs(tests) do
   end
 end
 
-print("contracts: ok")
+print "contracts: ok"
 -- luacheck: max_line_length 200

@@ -1,5 +1,6 @@
-package.path = table.concat({ '?.lua', '?/init.lua', 'ao/?.lua', 'ao/?/init.lua', package.path }, ';')
-local write = require 'ao.write.process'
+package.path =
+  table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
+local write = require "ao.write.process"
 
 local function fail(msg)
   io.stderr:write(msg .. "\n")
@@ -7,7 +8,9 @@ local function fail(msg)
 end
 
 local function expect_ok(res, msg)
-  if not (res and res.status == 'OK') then fail(msg) end
+  if not (res and res.status == "OK") then
+    fail(msg)
+  end
   return res
 end
 
@@ -16,11 +19,11 @@ local function run_pair(action, payload1, payload2)
   local req_id = action .. "-idem"
   local req1 = {
     Action = action,
-    ['Request-Id'] = req_id,
-    ['Actor-Role'] = payload1.role or 'admin',
-    actor = payload1.actor or 'tester',
-    tenant = payload1.tenant or 't1',
-    nonce = payload1.nonce or ('nonce-' .. action),
+    ["Request-Id"] = req_id,
+    ["Actor-Role"] = payload1.role or "admin",
+    actor = payload1.actor or "tester",
+    tenant = payload1.tenant or "t1",
+    nonce = payload1.nonce or ("nonce-" .. action),
     ts = os.time(),
     payload = payload1.payload,
   }
@@ -29,11 +32,11 @@ local function run_pair(action, payload1, payload2)
 
   local req2 = {
     Action = action,
-    ['Request-Id'] = req_id,
-    ['Actor-Role'] = payload2.role or 'admin',
-    actor = payload2.actor or 'tester',
-    tenant = payload2.tenant or 't1',
-    nonce = payload2.nonce or ('nonce2-' .. action),
+    ["Request-Id"] = req_id,
+    ["Actor-Role"] = payload2.role or "admin",
+    actor = payload2.actor or "tester",
+    tenant = payload2.tenant or "t1",
+    nonce = payload2.nonce or ("nonce2-" .. action),
     ts = os.time(),
     payload = payload2.payload,
   }
@@ -42,7 +45,7 @@ local function run_pair(action, payload1, payload2)
     fail(action .. " idempotency returned different table reference")
   end
   local after = write._state()
-  if after ~= before and action == 'SaveDraftPage' then
+  if after ~= before and action == "SaveDraftPage" then
     local key = payload1.payload.siteId .. ":" .. payload1.payload.pageId
     local draft = after.drafts[key]
     if draft and draft.blocks and #draft.blocks ~= #payload1.payload.blocks then
@@ -51,9 +54,24 @@ local function run_pair(action, payload1, payload2)
   end
 end
 
-run_pair('SaveDraftPage',
-  { payload = { siteId = 's-idem', pageId = 'home', locale = 'en', blocks = { { type = 'text', value = 'first' } } } },
-  { payload = { siteId = 's-idem', pageId = 'home', locale = 'en', blocks = { { type = 'text', value = 'second' } } } }
+run_pair(
+  "SaveDraftPage",
+  {
+    payload = {
+      siteId = "s-idem",
+      pageId = "home",
+      locale = "en",
+      blocks = { { type = "text", value = "first" } },
+    },
+  },
+  {
+    payload = {
+      siteId = "s-idem",
+      pageId = "home",
+      locale = "en",
+      blocks = { { type = "text", value = "second" } },
+    },
+  }
 )
 
-print('idempotency_property: ok')
+print "idempotency_property: ok"

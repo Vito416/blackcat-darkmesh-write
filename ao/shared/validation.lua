@@ -198,10 +198,10 @@ function Validation.validate_envelope(cmd)
   cmd.siteId = cmd.siteId or cmd["Site-Id"] or cmd.SiteId
   cmd.gatewayId = cmd.gatewayId or cmd["Gateway-Id"] or cmd.gateway
 
-  local ok_tags, missing = Validation.require_tags({
+  local ok_tags, missing = Validation.require_tags {
     Action = cmd.action,
     ["Request-Id"] = cmd.requestId,
-  })
+  }
   if not ok_tags then
     return false, missing
   end
@@ -291,14 +291,26 @@ local validators = {
     return true
   end,
   CreateOrder = function(p)
-    if not p then return false, { "missing:payload" } end
+    if not p then
+      return false, { "missing:payload" }
+    end
     -- permit cart-driven flow (cartId required) or direct order payload (items + totals)
     local missing = {}
-    if not p.orderId then table.insert(missing, "orderId") end
-    if not p.siteId then table.insert(missing, "siteId") end
-    if not p.cartId and not p.items then table.insert(missing, "cartId|items") end
-    if not p.currency then table.insert(missing, "currency") end
-    if #missing > 0 then return false, { "missing:" .. table.concat(missing, ",") } end
+    if not p.orderId then
+      table.insert(missing, "orderId")
+    end
+    if not p.siteId then
+      table.insert(missing, "siteId")
+    end
+    if not p.cartId and not p.items then
+      table.insert(missing, "cartId|items")
+    end
+    if not p.currency then
+      table.insert(missing, "currency")
+    end
+    if #missing > 0 then
+      return false, { "missing:" .. table.concat(missing, ",") }
+    end
     if p.items then
       if type(p.items) ~= "table" or #p.items == 0 then
         return false, { "invalid:items" }
@@ -310,8 +322,12 @@ local validators = {
       end
     end
     if p.address then
-      if p.address.country and #p.address.country < 2 then return false, { "invalid:address:country" } end
-      if p.address.taxId and type(p.address.taxId) ~= "string" then return false, { "invalid:taxId" } end
+      if p.address.country and #p.address.country < 2 then
+        return false, { "invalid:address:country" }
+      end
+      if p.address.taxId and type(p.address.taxId) ~= "string" then
+        return false, { "invalid:taxId" }
+      end
     end
     return true
   end,
@@ -365,11 +381,15 @@ function Validation.validate_action(action, payload)
   local ok, errs
   if fn then
     ok, errs = fn(payload)
-    if not ok then return ok, errs end
+    if not ok then
+      return ok, errs
+    end
   end
   if ok_schema then
     local ok_s, s_errs = schema.validate_action(action, payload)
-    if not ok_s then return ok_s, s_errs end
+    if not ok_s then
+      return ok_s, s_errs
+    end
   end
   if not fn and not ok_schema then
     return false, { "unsupported_action" }

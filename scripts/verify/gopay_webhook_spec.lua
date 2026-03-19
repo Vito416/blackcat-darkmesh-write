@@ -1,4 +1,5 @@
-package.path = table.concat({ '?.lua', '?/init.lua', 'ao/?.lua', 'ao/?/init.lua', package.path }, ';')
+package.path =
+  table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
 
 math.randomseed(os.time())
 
@@ -6,7 +7,7 @@ local crypto_ok, crypto = pcall(require, "ao.shared.crypto")
 assert(crypto_ok and crypto.hmac_sha256_hex, "crypto.hmac_sha256_hex required")
 
 package.loaded["ao.write.process"] = nil -- fresh state
-local write = require("ao.write.process")
+local write = require "ao.write.process"
 
 local counter = 0
 local function req(action, payload)
@@ -18,15 +19,23 @@ local function req(action, payload)
     tenant = "t",
     requestId = string.format("req-%d", counter),
     nonce = string.format("nonce-%d", counter),
-    timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+    timestamp = os.date "!%Y-%m-%dT%H:%M:%SZ",
     payload = payload or {},
   }
 end
 
 local function assert_ok(res, ctx)
   if res.status ~= "OK" then
-    local cjson = require("cjson.safe")
-    error(string.format("%s failed: %s %s %s", ctx, res.code or "", res.message or "", cjson.encode(res.details)))
+    local cjson = require "cjson.safe"
+    error(
+      string.format(
+        "%s failed: %s %s %s",
+        ctx,
+        res.code or "",
+        res.message or "",
+        cjson.encode(res.details)
+      )
+    )
   end
 end
 
@@ -70,4 +79,4 @@ local rres = write.route(webhook_risk)
 assert_ok(rres, "GoPay webhook RISK")
 assert(rres.payload.status == "risk_review", "expected risk_review status")
 
-print("gopay_webhook_spec: ok")
+print "gopay_webhook_spec: ok"

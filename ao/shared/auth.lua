@@ -7,25 +7,33 @@ local START_EPOCH = os_time()
 
 -- Allow WRITE_* aliases for ops/env parity
 local function getenv_multi(...)
-  for _, key in ipairs({...}) do
+  for _, key in ipairs { ... } do
     local val = os.getenv(key)
-    if val ~= nil then return val end
+    if val ~= nil then
+      return val
+    end
   end
   return nil
 end
 
-local NONCE_TTL = tonumber(getenv_multi("AUTH_NONCE_TTL_SECONDS", "WRITE_NONCE_TTL_SECONDS") or "300")
+local NONCE_TTL =
+  tonumber(getenv_multi("AUTH_NONCE_TTL_SECONDS", "WRITE_NONCE_TTL_SECONDS") or "300")
 local NONCE_MAX = tonumber(getenv_multi("AUTH_NONCE_MAX_ENTRIES", "WRITE_NONCE_MAX") or "2048")
 local REQUIRE_NONCE = getenv_multi("AUTH_REQUIRE_NONCE", "WRITE_REQUIRE_NONCE") ~= "0" -- default ON
 local REQUIRE_TS = getenv_multi("AUTH_REQUIRE_TIMESTAMP", "WRITE_REQUIRE_TIMESTAMP") ~= "0"
 local TS_DRIFT = tonumber(getenv_multi("AUTH_MAX_CLOCK_SKEW", "WRITE_MAX_CLOCK_SKEW") or "300")
-local RL_WINDOW = tonumber(getenv_multi("AUTH_RATE_LIMIT_WINDOW_SECONDS", "WRITE_RL_WINDOW_SECONDS") or "60")
-local RL_MAX = tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_REQUESTS", "WRITE_RL_MAX_REQUESTS") or "200")
-local RL_CALLER_MAX = tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_PER_CALLER", "WRITE_RL_CALLER_MAX") or "120")
+local RL_WINDOW =
+  tonumber(getenv_multi("AUTH_RATE_LIMIT_WINDOW_SECONDS", "WRITE_RL_WINDOW_SECONDS") or "60")
+local RL_MAX =
+  tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_REQUESTS", "WRITE_RL_MAX_REQUESTS") or "200")
+local RL_CALLER_MAX =
+  tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_PER_CALLER", "WRITE_RL_CALLER_MAX") or "120")
 local RL_BUCKET_TTL = tonumber(
-  getenv_multi("AUTH_RATE_BUCKET_TTL_SECONDS", "WRITE_RL_BUCKET_TTL_SECONDS") or tostring(RL_WINDOW * 4)
+  getenv_multi("AUTH_RATE_BUCKET_TTL_SECONDS", "WRITE_RL_BUCKET_TTL_SECONDS")
+    or tostring(RL_WINDOW * 4)
 )
-local RL_MAX_BUCKETS = tonumber(getenv_multi("AUTH_RATE_MAX_BUCKETS", "WRITE_RL_MAX_BUCKETS") or "4096")
+local RL_MAX_BUCKETS =
+  tonumber(getenv_multi("AUTH_RATE_MAX_BUCKETS", "WRITE_RL_MAX_BUCKETS") or "4096")
 
 local REQUIRE_SIGNATURE = getenv_multi("WRITE_REQUIRE_SIGNATURE", "AUTH_REQUIRE_SIGNATURE") == "1"
 local SIG_TYPE = getenv_multi("WRITE_SIG_TYPE", "AUTH_SIG_TYPE") or "ed25519"
@@ -41,19 +49,27 @@ local jwt_ok, jwt = pcall(require, "ao.shared.jwt")
 local cjson_ok, cjson = pcall(require, "cjson")
 local metrics_ok, metrics = pcall(require, "ao.shared.metrics")
 local function m_counter(name, value)
-  if metrics_ok and metrics and metrics.counter then metrics.counter(name, value or 1) end
+  if metrics_ok and metrics and metrics.counter then
+    metrics.counter(name, value or 1)
+  end
 end
 
 local nonce_store = {}
 local rate_store = {}
 
 local function load_rate_store()
-  if not RATE_STORE_PATH or RATE_STORE_PATH == "" then return end
+  if not RATE_STORE_PATH or RATE_STORE_PATH == "" then
+    return
+  end
   local f = io.open(RATE_STORE_PATH, "r")
-  if not f then return end
-  local content = f:read("*a")
+  if not f then
+    return
+  end
+  local content = f:read "*a"
   f:close()
-  if not cjson_ok then return end
+  if not cjson_ok then
+    return
+  end
   local ok, decoded = pcall(cjson.decode, content)
   if ok and type(decoded) == "table" then
     rate_store = decoded
@@ -61,11 +77,17 @@ local function load_rate_store()
 end
 
 local function persist_rate_store()
-  if not RATE_STORE_PATH or RATE_STORE_PATH == "" then return end
-  if not cjson_ok then return end
+  if not RATE_STORE_PATH or RATE_STORE_PATH == "" then
+    return
+  end
+  if not cjson_ok then
+    return
+  end
   local tmp = RATE_STORE_PATH .. ".tmp"
   local f = io.open(tmp, "w")
-  if not f then return end
+  if not f then
+    return
+  end
   f:write(cjson.encode(rate_store))
   f:close()
   os.rename(tmp, RATE_STORE_PATH)
@@ -82,13 +104,19 @@ local function trim_rate_store(now)
   end
   -- size bound
   local count = 0
-  for _ in pairs(rate_store) do count = count + 1 end
-  if count <= RL_MAX_BUCKETS then return end
+  for _ in pairs(rate_store) do
+    count = count + 1
+  end
+  if count <= RL_MAX_BUCKETS then
+    return
+  end
   local items = {}
   for k, v in pairs(rate_store) do
-    items[#items+1] = {k = k, updated = v.updated or v.reset or 0}
+    items[#items + 1] = { k = k, updated = v.updated or v.reset or 0 }
   end
-  table.sort(items, function(a,b) return a.updated < b.updated end)
+  table.sort(items, function(a, b)
+    return a.updated < b.updated
+  end)
   local to_drop = count - RL_MAX_BUCKETS
   for i = 1, to_drop do
     rate_store[items[i].k] = nil
@@ -99,11 +127,17 @@ load_rate_store()
 trim_rate_store(START_EPOCH)
 
 local function load_nonce_store()
-  if not NONCE_STORE_PATH or NONCE_STORE_PATH == "" then return end
-  if not cjson_ok then return end
+  if not NONCE_STORE_PATH or NONCE_STORE_PATH == "" then
+    return
+  end
+  if not cjson_ok then
+    return
+  end
   local f = io.open(NONCE_STORE_PATH, "r")
-  if not f then return end
-  local content = f:read("*a")
+  if not f then
+    return
+  end
+  local content = f:read "*a"
   f:close()
   local ok, decoded = pcall(cjson.decode, content)
   if ok and type(decoded) == "table" then
@@ -112,11 +146,17 @@ local function load_nonce_store()
 end
 
 local function persist_nonce_store()
-  if not NONCE_STORE_PATH or NONCE_STORE_PATH == "" then return end
-  if not cjson_ok then return end
+  if not NONCE_STORE_PATH or NONCE_STORE_PATH == "" then
+    return
+  end
+  if not cjson_ok then
+    return
+  end
   local tmp = NONCE_STORE_PATH .. ".tmp"
   local f = io.open(tmp, "w")
-  if not f then return end
+  if not f then
+    return
+  end
   f:write(cjson.encode(nonce_store))
   f:close()
   os.rename(tmp, NONCE_STORE_PATH)
@@ -125,10 +165,14 @@ end
 load_nonce_store()
 
 local function parse_iso8601(ts)
-  if type(ts) ~= "string" then return nil end
-  local y, m, d, H, M, S = ts:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)Z$")
-  if not y then return nil end
-  return os_time({ year = y, month = m, day = d, hour = H, min = M, sec = S, isdst = false })
+  if type(ts) ~= "string" then
+    return nil
+  end
+  local y, m, d, H, M, S = ts:match "^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)Z$"
+  if not y then
+    return nil
+  end
+  return os_time { year = y, month = m, day = d, hour = H, min = M, sec = S, isdst = false }
 end
 
 -- Accept all for now; upstream caller controls trust.
@@ -192,7 +236,7 @@ local function verify_jwt(msg)
   end
   local ok, payload_or_err = jwt.verify_hs256(token, JWT_SECRET)
   if not ok then
-    m_counter("write_auth_jwt_invalid_total")
+    m_counter "write_auth_jwt_invalid_total"
     return false, payload_or_err or "jwt_invalid"
   end
   local claims = payload_or_err
@@ -200,17 +244,17 @@ local function verify_jwt(msg)
     local now = os_time()
     local exp = tonumber(claims.exp)
     if exp and (now - TS_DRIFT) > exp then
-      m_counter("write_auth_jwt_expired_total")
+      m_counter "write_auth_jwt_expired_total"
       return false, "jwt_expired"
     end
     local nbf = tonumber(claims.nbf)
     if nbf and (now + TS_DRIFT) < nbf then
-      m_counter("write_auth_jwt_not_before_total")
+      m_counter "write_auth_jwt_not_before_total"
       return false, "jwt_not_before"
     end
     local iat = tonumber(claims.iat)
     if iat and math.abs(now - iat) > TS_DRIFT then
-      m_counter("write_auth_jwt_skew_total")
+      m_counter "write_auth_jwt_skew_total"
       return false, "jwt_iat_skew"
     end
   end
@@ -219,7 +263,9 @@ end
 
 function Auth.consume_jwt(msg)
   local ok, claims = verify_jwt(msg)
-  if not ok then return ok, claims end
+  if not ok then
+    return ok, claims
+  end
   -- map JWT claims onto envelope if caller didn't already supply them
   if type(claims) == "table" then
     local mapped = Auth.actor_from_jwt(claims)
@@ -229,15 +275,15 @@ function Auth.consume_jwt(msg)
       local env_tenant = msg.tenant or msg.Tenant
       local env_role = msg["Actor-Role"] or msg.actorRole
       if mapped.actor and env_actor and tostring(env_actor) ~= tostring(mapped.actor) then
-        m_counter("write_auth_jwt_actor_mismatch_total")
+        m_counter "write_auth_jwt_actor_mismatch_total"
         return false, "jwt_actor_mismatch"
       end
       if mapped.tenant and env_tenant and tostring(env_tenant) ~= tostring(mapped.tenant) then
-        m_counter("write_auth_jwt_tenant_mismatch_total")
+        m_counter "write_auth_jwt_tenant_mismatch_total"
         return false, "jwt_tenant_mismatch"
       end
       if mapped.role and env_role and tostring(env_role) ~= tostring(mapped.role) then
-        m_counter("write_auth_jwt_role_mismatch_total")
+        m_counter "write_auth_jwt_role_mismatch_total"
         return false, "jwt_role_mismatch"
       end
     end
@@ -255,7 +301,9 @@ end
 
 local function trim_nonce(now)
   local count = 0
-  for _ in pairs(nonce_store) do count = count + 1 end
+  for _ in pairs(nonce_store) do
+    count = count + 1
+  end
   -- purge expired entries first
   if now then
     for key, ts in pairs(nonce_store) do
@@ -265,12 +313,18 @@ local function trim_nonce(now)
       end
     end
   end
-  if count <= NONCE_MAX then return end
+  if count <= NONCE_MAX then
+    return
+  end
   -- drop oldest half of remaining
   local items = {}
-  for n, ts in pairs(nonce_store) do table.insert(items, {n, ts}) end
-  table.sort(items, function(a,b) return a[2] < b[2] end)
-  for i=1, math.floor(#items/2) do
+  for n, ts in pairs(nonce_store) do
+    table.insert(items, { n, ts })
+  end
+  table.sort(items, function(a, b)
+    return a[2] < b[2]
+  end)
+  for i = 1, math.floor(#items / 2) do
     nonce_store[items[i][1]] = nil
   end
 end
@@ -278,7 +332,9 @@ end
 trim_nonce(START_EPOCH)
 
 function Auth.require_nonce(msg)
-  if not REQUIRE_NONCE then return true end
+  if not REQUIRE_NONCE then
+    return true
+  end
   local nonce = msg.nonce or msg.Nonce or msg["X-Nonce"]
   if not nonce or nonce == "" then
     return false, "missing_nonce"
@@ -289,7 +345,7 @@ function Auth.require_nonce(msg)
   local now = os_time()
   local seen = nonce_store[key]
   if seen and (now - seen) < NONCE_TTL then
-    m_counter("write_auth_nonce_replay_total")
+    m_counter "write_auth_nonce_replay_total"
     return false, "replay_nonce"
   end
   nonce_store[key] = now
@@ -301,7 +357,9 @@ end
 local function pick(...)
   for i = 1, select("#", ...) do
     local v = select(i, ...)
-    if v and v ~= "" then return v end
+    if v and v ~= "" then
+      return v
+    end
   end
   return ""
 end
@@ -330,20 +388,28 @@ local function outbox_hmac_payload(msg)
 end
 
 function Auth.compute_outbox_hmac(msg, secret)
-  secret = secret or os.getenv("OUTBOX_HMAC_SECRET")
-  if not secret or secret == "" then return nil, "missing_outbox_hmac_secret" end
-  if not crypto_ok or not crypto.hmac_sha256_hex then return nil, "crypto_missing" end
+  secret = secret or os.getenv "OUTBOX_HMAC_SECRET"
+  if not secret or secret == "" then
+    return nil, "missing_outbox_hmac_secret"
+  end
+  if not crypto_ok or not crypto.hmac_sha256_hex then
+    return nil, "crypto_missing"
+  end
   return crypto.hmac_sha256_hex(outbox_hmac_payload(msg), secret)
 end
 
 local function is_array(tbl)
   local count = 0
   for k in pairs(tbl) do
-    if type(k) ~= "number" then return false end
+    if type(k) ~= "number" then
+      return false
+    end
     count = count + 1
   end
   for i = 1, count do
-    if tbl[i] == nil then return false end
+    if tbl[i] == nil then
+      return false
+    end
   end
   return true
 end
@@ -360,8 +426,12 @@ local function canonical_json(value)
       return "[" .. table.concat(parts, ",") .. "]"
     else
       local keys = {}
-      for k in pairs(value) do keys[#keys + 1] = k end
-      table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+      for k in pairs(value) do
+        keys[#keys + 1] = k
+      end
+      table.sort(keys, function(a, b)
+        return tostring(a) < tostring(b)
+      end)
       local parts = {}
       for _, k in ipairs(keys) do
         local key_encoded
@@ -377,10 +447,16 @@ local function canonical_json(value)
   else
     if cjson_ok then
       local ok, encoded = pcall(cjson.encode, value)
-      if ok then return encoded end
+      if ok then
+        return encoded
+      end
     end
-    if value == nil then return "null" end
-    if t == "string" then return string.format("%q", value) end
+    if value == nil then
+      return "null"
+    end
+    if t == "string" then
+      return string.format("%q", value)
+    end
     return tostring(value)
   end
 end
@@ -388,7 +464,9 @@ end
 local function canonical_payload(msg)
   local payload = msg.payload or msg.Payload or {}
   local ok, encoded = pcall(canonical_json, payload)
-  if ok then return encoded end
+  if ok then
+    return encoded
+  end
   return tostring(payload)
 end
 
@@ -413,32 +491,44 @@ local function verify_sig(msg)
   local sig = msg.signature
   local sig_ref = msg.signatureRef or msg["Signature-Ref"]
   if not sig_ref or sig_ref == "" then
-    m_counter("write_auth_signature_missing_total")
+    m_counter "write_auth_signature_missing_total"
     return false, "missing_signature_ref"
   end
   if not sig or sig == "" then
-    m_counter("write_auth_signature_missing_total")
+    m_counter "write_auth_signature_missing_total"
     return false, "missing_signature"
   end
   if not crypto_ok then
-    m_counter("write_auth_signature_failed_total")
+    m_counter "write_auth_signature_failed_total"
     return false, "crypto_missing"
   end
   local payload = canonical_detached_message(msg)
   if SIG_TYPE == "hmac" then
-    if not SIG_SECRET or SIG_SECRET == "" then return false, "missing_sig_secret" end
+    if not SIG_SECRET or SIG_SECRET == "" then
+      return false, "missing_sig_secret"
+    end
     local ok = crypto.verify_hmac_sha256(payload, SIG_SECRET, sig)
-    if not ok then m_counter("write_auth_signature_failed_total") end
+    if not ok then
+      m_counter "write_auth_signature_failed_total"
+    end
     return ok
   elseif SIG_TYPE == "ecdsa" then
-    if not SIG_PUBLIC then return false, "missing_sig_public" end
+    if not SIG_PUBLIC then
+      return false, "missing_sig_public"
+    end
     local ok = crypto.verify_ecdsa_sha256(payload, sig, SIG_PUBLIC)
-    if not ok then m_counter("write_auth_signature_failed_total") end
+    if not ok then
+      m_counter "write_auth_signature_failed_total"
+    end
     return ok
   else -- default ed25519
-    if not SIG_PUBLIC then return false, "missing_sig_public" end
+    if not SIG_PUBLIC then
+      return false, "missing_sig_public"
+    end
     local ok = crypto.verify_ed25519(payload, sig, SIG_PUBLIC)
-    if not ok then m_counter("write_auth_signature_failed_total") end
+    if not ok then
+      m_counter "write_auth_signature_failed_total"
+    end
     return ok
   end
 end
@@ -451,15 +541,23 @@ function Auth.verify_detached(message, sig)
   if not REQUIRE_SIGNATURE then
     return true
   end
-  if not crypto_ok then return false, "crypto_missing" end
+  if not crypto_ok then
+    return false, "crypto_missing"
+  end
   if SIG_TYPE == "hmac" then
-    if not SIG_SECRET then return false, "missing_sig_secret" end
+    if not SIG_SECRET then
+      return false, "missing_sig_secret"
+    end
     return crypto.verify_hmac_sha256(message, SIG_SECRET, sig)
   elseif SIG_TYPE == "ecdsa" then
-    if not SIG_PUBLIC then return false, "missing_sig_public" end
+    if not SIG_PUBLIC then
+      return false, "missing_sig_public"
+    end
     return crypto.verify_ecdsa_sha256(message, sig, SIG_PUBLIC)
   else
-    if not SIG_PUBLIC then return false, "missing_sig_public" end
+    if not SIG_PUBLIC then
+      return false, "missing_sig_public"
+    end
     return crypto.verify_ed25519(message, sig, SIG_PUBLIC)
   end
 end
@@ -481,12 +579,16 @@ function Auth.require_nonce_and_timestamp(msg)
     return false, "timestamp_skew"
   end
   local ok, err = Auth.require_nonce(msg)
-  if not ok then return ok, err end
+  if not ok then
+    return ok, err
+  end
   return true
 end
 
 function Auth.actor_from_jwt(claims)
-  if type(claims) ~= "table" then return nil end
+  if type(claims) ~= "table" then
+    return nil
+  end
   return {
     actor = claims.sub or claims.subject,
     tenant = claims.tenant or claims.ten or claims.tid,
@@ -529,26 +631,40 @@ end
 
 local function caller_identity(msg)
   -- prefer verified identity (JWT subject), then signature reference, else envelope actor/gateway/ip
-  if msg._jwt_sub and msg._jwt_sub ~= "" then return "jwt:" .. tostring(msg._jwt_sub) end
+  if msg._jwt_sub and msg._jwt_sub ~= "" then
+    return "jwt:" .. tostring(msg._jwt_sub)
+  end
   local sig_ref = msg.signatureRef or msg["Signature-Ref"]
-  if sig_ref and sig_ref ~= "" then return "sig:" .. tostring(sig_ref) end
+  if sig_ref and sig_ref ~= "" then
+    return "sig:" .. tostring(sig_ref)
+  end
   if (not REQUIRE_SIGNATURE and not REQUIRE_JWT) and Auth.resolve_actor(msg) then
     return "actor:" .. tostring(Auth.resolve_actor(msg))
   end
-  if Auth.gateway_id(msg) then return "gw:" .. tostring(Auth.gateway_id(msg)) end
-  if msg.ip or msg.IP then return "ip:" .. tostring(msg.ip or msg.IP) end
+  if Auth.gateway_id(msg) then
+    return "gw:" .. tostring(Auth.gateway_id(msg))
+  end
+  if msg.ip or msg.IP then
+    return "ip:" .. tostring(msg.ip or msg.IP)
+  end
   return "anon"
 end
 
 function Auth.rate_limit_check(msg)
   local ok, err = bump_rate("global", RL_WINDOW, RL_MAX)
-  if not ok then return ok, err end
+  if not ok then
+    return ok, err
+  end
   local tenant = msg.tenant or msg.Tenant or msg["Tenant-Id"] or "global"
   local caller = caller_identity(msg)
   local key = string.format("tenant:%s:caller:%s", tenant, caller)
   local ok_caller, err_caller = bump_rate(key, RL_WINDOW, RL_CALLER_MAX)
-  if not ok_caller then metrics_counter("write_auth_rate_limited_total", 1) end
-  if not ok_caller then return ok_caller, err_caller end
+  if not ok_caller then
+    metrics_counter("write_auth_rate_limited_total", 1)
+  end
+  if not ok_caller then
+    return ok_caller, err_caller
+  end
   return true
 end
 
@@ -563,7 +679,7 @@ function Auth.verify_outbox_hmac(msg)
   end
   local provided = msg.hmac or msg.Hmac or msg.hMAC
   if not provided then
-    m_counter("write_outbox_hmac_missing_total")
+    m_counter "write_outbox_hmac_missing_total"
     return false, "missing_outbox_hmac"
   end
   local expected, err = Auth.compute_outbox_hmac(msg, secret)
@@ -571,7 +687,7 @@ function Auth.verify_outbox_hmac(msg)
     return false, err or "outbox_hmac_missing"
   end
   if expected:lower() ~= tostring(provided):lower() then
-    m_counter("write_outbox_hmac_mismatch_total")
+    m_counter "write_outbox_hmac_mismatch_total"
     return false, "outbox_hmac_mismatch"
   end
   return true

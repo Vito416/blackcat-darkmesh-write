@@ -1,7 +1,8 @@
 -- Minimal smoke: load write process and run a no-op command to ensure auth/idempotency plumbing works.
 -- luacheck: max_line_length 180
-package.path = table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
-local process = require("ao.write.process")
+package.path =
+  table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
+local process = require "ao.write.process"
 
 local function assert_ok(resp)
   if not resp or resp.status ~= "OK" then
@@ -31,7 +32,13 @@ local ship = {
   action = "ProviderShippingWebhook",
   actor = "smoke-admin",
   ["Actor-Role"] = "admin",
-  payload = { provider = "demo", eventId = "evt-smoke", shipmentId = "ship-123", orderId = "order-1", status = "shipped" },
+  payload = {
+    provider = "demo",
+    eventId = "evt-smoke",
+    shipmentId = "ship-123",
+    orderId = "order-1",
+    status = "shipped",
+  },
   gatewayId = "smoke-gw",
   nonce = "smoke-nonce-" .. tostring(math.random(1, 1e6)),
   ts = os.time(),
@@ -43,14 +50,17 @@ if first.status ~= "OK" and first.code ~= "REPLAY" then
 end
 local second = process.route(ship)
 if second.status ~= "ERROR" or second.code ~= "REPLAY" then
-  io.stderr:write("Replay window not enforced\n")
+  io.stderr:write "Replay window not enforced\n"
   os.exit(1)
 end
 
 -- ProviderWebhook replay + HMAC emit check
 -- luacheck: globals os.setenv
 if os.setenv then
-  os.setenv("OUTBOX_HMAC_SECRET", os.getenv("OUTBOX_HMAC_SECRET") or "0123456789abcdef0123456789abcdef")
+  os.setenv(
+    "OUTBOX_HMAC_SECRET",
+    os.getenv "OUTBOX_HMAC_SECRET" or "0123456789abcdef0123456789abcdef"
+  )
 end
 local pw = {
   requestId = "smoke-provider-" .. tostring(os.time()),
@@ -69,20 +79,20 @@ if p1.status ~= "OK" and p1.code ~= "REPLAY" then
 end
 local p2 = process.route(pw)
 if p2.code ~= "REPLAY" then
-  io.stderr:write("ProviderWebhook replay not enforced\n")
+  io.stderr:write "ProviderWebhook replay not enforced\n"
   os.exit(1)
 end
 
 local storage = require "ao.shared.storage"
-local q = storage.get("outbox_queue") or {}
+local q = storage.get "outbox_queue" or {}
 if #q == 0 then
-  io.stderr:write("Outbox empty after ProviderWebhook\n")
+  io.stderr:write "Outbox empty after ProviderWebhook\n"
   os.exit(1)
 end
 -- we only assert presence; full-event HMAC is validated by forwarder in prod
 local ev = q[#q].event
 if not ev.Hmac then
-  io.stderr:write("Outbox event missing HMAC\n")
+  io.stderr:write "Outbox event missing HMAC\n"
   os.exit(1)
 end
-print("ingest_smoke: OK")
+print "ingest_smoke: OK"

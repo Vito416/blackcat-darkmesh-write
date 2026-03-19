@@ -7,52 +7,57 @@
 --   AO_SITE_ID=... (optional tag)
 --   DRY_RUN=1 to log only
 
-local write = require("ao.write.process")
-local storage = require("ao.shared.storage")
+local write = require "ao.write.process"
+local storage = require "ao.shared.storage"
 
-local endpoint = os.getenv("AO_ENDPOINT")
+local endpoint = os.getenv "AO_ENDPOINT"
 if not endpoint or endpoint == "" then
-  io.stderr:write("AO_ENDPOINT is required\n")
+  io.stderr:write "AO_ENDPOINT is required\n"
   os.exit(1)
 end
-local api_key = os.getenv("AO_API_KEY")
-local site_id = os.getenv("AO_SITE_ID")
-local dry_run = os.getenv("DRY_RUN") == "1"
+local api_key = os.getenv "AO_API_KEY"
+local site_id = os.getenv "AO_SITE_ID"
+local dry_run = os.getenv "DRY_RUN" == "1"
 
 local function shell_escape(s)
   return string.format("'%s'", s:gsub("'", "'\"'\"'"))
 end
 
 local function http_post(json_body)
-  local headers = "-H \"Content-Type: application/json\""
+  local headers = '-H "Content-Type: application/json"'
   if api_key and api_key ~= "" then
-    headers = headers .. " -H \"Authorization: Bearer " .. api_key .. "\""
+    headers = headers .. ' -H "Authorization: Bearer ' .. api_key .. '"'
   end
-  local cmd = string.format("printf %%s %s | curl -s -o /tmp/ao-forward.log -w \"%%{http_code}\" %s -X POST %s --data-binary @-",
+  local cmd = string.format(
+    'printf %%s %s | curl -s -o /tmp/ao-forward.log -w "%%{http_code}" %s -X POST %s --data-binary @-',
     shell_escape(json_body),
     headers,
     shell_escape(endpoint)
   )
   local p = io.popen(cmd, "r")
-  if not p then return nil, "curl_failed" end
-  local status = p:read("*a")
+  if not p then
+    return nil, "curl_failed"
+  end
+  local status = p:read "*a"
   p:close()
   return tonumber(status), nil
 end
 
 -- refresh outbox mirror
 write._outbox()
-local events = storage.all("outbox")
+local events = storage.all "outbox"
 
 local ok, cjson = pcall(require, "cjson")
 if not ok then
-  io.stderr:write("cjson required for forward_outbox_http\n")
+  io.stderr:write "cjson required for forward_outbox_http\n"
   os.exit(1)
 end
 
 local sent, failed = 0, 0
 for _, ev in ipairs(events) do
-  if site_id and not ev.siteId then ev.siteId = site_id end
+  if site_id and not ev.siteId then
+    ev.siteId = site_id
+  end
   local body = cjson.encode(ev)
   if dry_run then
     print("[dry-run] would POST: " .. body)

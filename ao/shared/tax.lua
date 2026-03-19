@@ -33,7 +33,7 @@ end
 
 function Tax.total_with_vat(net, vatRate, mode)
   local gross = (net or 0) * (1 + (vatRate or 0))
-  return Tax.round(gross, mode or os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2)
+  return Tax.round(gross, mode or os.getenv "CURRENCY_ROUND_MODE" or "half-up", 2)
 end
 
 return Tax
