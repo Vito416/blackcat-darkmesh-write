@@ -18,10 +18,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Lua 5.4
+      - name: Install Lua 5.4 + build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y lua5.4 luarocks
+          sudo apt-get install -y \
+            build-essential \
+            lua5.4 liblua5.4-dev luarocks \
+            libssl-dev libsodium-dev libsqlite3-dev
 
       - name: Install rocks from lockfile
         run: |
