@@ -117,7 +117,9 @@ LUA
   fi
   if [ "${RUN_BATCH:-1}" -eq 1 ]; then
     echo "[verify] fixtures batch run"
-    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 "$ROOT_DIR/scripts/cli/batch_run.lua"
+    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
+    LUA_CPATH="${ROCKS_LUA_CPATH}" \
+      lua5.4 "$ROOT_DIR/scripts/cli/batch_run.lua"
   fi
   if [ "${RUN_CHECKSUM_ALERT:-0}" -eq 1 ]; then
     echo "[verify] checksum alert"
