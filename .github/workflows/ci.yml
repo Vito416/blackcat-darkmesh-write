@@ -83,11 +83,15 @@ jobs:
         run: bash scripts/verify/preflight.sh
 
       - name: Arweave hash verify (enforced on release)
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/main') && env.ARWEAVE_VERIFY_FILE != '' && env.ARWEAVE_VERIFY_TX != ''
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/main')
         env:
           ARWEAVE_VERIFY_FILE: ${{ env.ARWEAVE_VERIFY_FILE }}
           ARWEAVE_VERIFY_TX: ${{ env.ARWEAVE_VERIFY_TX }}
         run: |
+          if [ -z "${ARWEAVE_VERIFY_FILE:-}" ] || [ -z "${ARWEAVE_VERIFY_TX:-}" ]; then
+            echo "::error::ARWEAVE_VERIFY_* missing on main push; failing release hash gate"
+            exit 1
+          fi
           scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
 
       - name: Arweave hash verify (optional)
