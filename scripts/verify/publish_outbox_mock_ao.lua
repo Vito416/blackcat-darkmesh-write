@@ -26,3 +26,4 @@ for _, entry in ipairs(queue) do
   end
 end
 print('publish_outbox_mock_ao: ok')
+-- luacheck: max_line_length 260

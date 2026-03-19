@@ -75,3 +75,4 @@ local ok_mis, err_mis = auth.consume_jwt(msg)
 assert(not ok_mis and err_mis == "jwt_actor_mismatch", "expected jwt_actor_mismatch, got " .. tostring(err_mis))
 
 print("jwt_expiry_spec: ok")
+-- luacheck: max_line_length 200

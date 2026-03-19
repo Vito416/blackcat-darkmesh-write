@@ -25,6 +25,7 @@ local paypal_ok, paypal = pcall(require, "ao.shared.paypal")
 local tax = require("ao.shared.tax")
 local ok_mime, mime = pcall(require, "mime")
 local ok_json, cjson = pcall(require, "cjson.safe")
+local err -- forward declare
 
 local OUTBOX_PATH = os.getenv("WRITE_OUTBOX_PATH")
 local WAL_PATH = os.getenv("WRITE_WAL_PATH")
@@ -46,6 +47,10 @@ local function gauge(name, value)
 end
 local function counter(name, delta)
   if metrics and metrics.counter then metrics.counter(name, delta or 1) end
+end
+
+local function err(req_id, code, msg, details)
+  return { status = "ERROR", code = code, message = msg, requestId = req_id, details = details }
 end
 
 local function enqueue_event(ev)
@@ -1311,10 +1316,10 @@ function handlers.RefundPayment(cmd)
       return err(cmd.requestId, "PROVIDER_ERROR", perr or "stripe refund failed")
     end
   elseif payment.provider == "paypal" and paypal_ok and payment.providerPaymentId then
-    local ok_refund, perr = paypal.refund and paypal.refund(payment.providerPaymentId, cmd.payload.amount) or true
+    local ok_refund, perr_paypal = paypal.refund and paypal.refund(payment.providerPaymentId, cmd.payload.amount) or true
     if ok_refund == false then
       breaker_note(payment.provider, false)
-      return err(cmd.requestId, "PROVIDER_ERROR", perr or "paypal refund failed")
+      return err(cmd.requestId, "PROVIDER_ERROR", perr_paypal or "paypal refund failed")
     end
   end
   set_payment_status(cmd.payload.paymentId, "refunded", "refunded", cmd.requestId)

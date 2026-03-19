@@ -47,3 +47,4 @@ for i, t in ipairs(tests) do
 end
 
 print("contracts: ok")
+-- luacheck: max_line_length 200

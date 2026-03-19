@@ -14,3 +14,4 @@ assert(msg.actor == "jwt-editor-1", "actor not mapped")
 assert(msg.tenant == "jwt-tenant-1", "tenant not mapped")
 assert(msg["Actor-Role"] == "editor", "role not mapped")
 print("jwt_actor_spec: ok")
+-- luacheck: max_line_length 200

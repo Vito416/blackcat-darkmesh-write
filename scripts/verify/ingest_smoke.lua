@@ -47,6 +47,7 @@ if second.status ~= "ERROR" or second.code ~= "REPLAY" then
 end
 
 -- ProviderWebhook replay + HMAC emit check
+-- luacheck: globals os.setenv
 if os.setenv then
   os.setenv("OUTBOX_HMAC_SECRET", os.getenv("OUTBOX_HMAC_SECRET") or "0123456789abcdef0123456789abcdef")
 end
@@ -72,7 +73,6 @@ if p2.code ~= "REPLAY" then
 end
 
 local storage = require "ao.shared.storage"
-local crypto = require "ao.shared.crypto"
 local q = storage.get("outbox_queue") or {}
 if #q == 0 then
   io.stderr:write("Outbox empty after ProviderWebhook\n")

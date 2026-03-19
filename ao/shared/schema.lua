@@ -144,7 +144,9 @@ local function validate_properties(value, schema, path, errors)
           actual_type = "array"
         end
         if next(expected_types) and not expected_types[actual_type] then
-          local accepts_int = expected_types["integer"] and actual_type == "number" and math.floor(value[name]) == value[name]
+          local accepts_int = expected_types["integer"]
+            and actual_type == "number"
+            and math.floor(value[name]) == value[name]
           if not accepts_int then
             local exp_list = table.concat(
               (function(t)

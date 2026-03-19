@@ -17,3 +17,4 @@ assert(ok_return.status == 'OK', 'UpsertReturnStatus should pass')
 
 print('action_validation_shipping: ok')
 -- luacheck: max_line_length 260
+-- luacheck: max_line_length 260

@@ -23,10 +23,9 @@ if not path then
 end
 
 local ok_json, cjson = pcall(require, "cjson.safe")
-local ok_mime, mime = pcall(require, "mime")
 local ok_crypto, crypto = pcall(require, "ao.shared.crypto")
-if not (ok_json and ok_mime and ok_crypto) then
-  io.stderr:write("missing deps: cjson.safe, mime, ao.shared.crypto\n")
+if not (ok_json and ok_crypto) then
+  io.stderr:write("missing deps: cjson.safe, ao.shared.crypto\n")
   os.exit(1)
 end
 
