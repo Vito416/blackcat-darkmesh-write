@@ -106,7 +106,21 @@ local function verify_jwt(msg)
 end
 
 function Auth.consume_jwt(msg)
-  return verify_jwt(msg)
+  local ok, claims = verify_jwt(msg)
+  if not ok then return ok, claims end
+  -- map JWT claims onto envelope if caller didn't already supply them
+  if type(claims) == "table" then
+    local mapped = Auth.actor_from_jwt(claims)
+    if mapped then
+      msg.actor = msg.actor or msg.Actor or mapped.actor
+      msg.Actor = msg.Actor or msg.actor
+      msg.tenant = msg.tenant or msg.Tenant or mapped.tenant
+      msg.Tenant = msg.Tenant or msg.tenant
+      msg["Actor-Role"] = msg["Actor-Role"] or msg.actorRole or mapped.role
+      msg.actorRole = msg.actorRole or msg["Actor-Role"]
+    end
+  end
+  return ok, claims
 end
 
 local function trim_nonce()
@@ -239,8 +253,13 @@ function Auth.require_nonce_and_timestamp(msg)
   return true
 end
 
-function Auth.actor_from_jwt(_claims)
-  return nil
+function Auth.actor_from_jwt(claims)
+  if type(claims) ~= "table" then return nil end
+  return {
+    actor = claims.sub or claims.subject,
+    tenant = claims.tenant or claims.ten or claims.tid,
+    role = claims.role or claims.r,
+  }
 end
 
 function Auth.gateway_id(msg)
