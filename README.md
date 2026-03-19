@@ -132,6 +132,14 @@ scripts/cli/       # local helpers (run command)
 - All comments and docs remain in English.
 
 ## License
-Blackcat Darkmesh Write Proprietary License (see `LICENSE`). External contributions require written permission from Black Cat Academy s. r. o.
+Blackcat Darkmesh Write is licensed under `BFNL-1.0` (see `LICENSE`). Contribution and relicensing rules are governed by the companion documents in `blackcat-darkmesh-ao/docs/`.
 
-Planned umbrella licensing note: this repository is intended to be one official component of the Blackcat `Covered System`, not a separately monetized silo. Under the planned BFNL bundle, official Blackcat repositories and future mandatory internal components are treated as one integrated licensing surface for ordinary deployment classes. Repository separation exists for maintenance, safety, and delivery, not to trigger a separate founder fee or future steward/development fee for each repository. The draft licensing bundle currently lives in the `blackcat-darkmesh-ao` repository under `docs/`.
+
+## Licensing
+
+This repository is an official component of the Blackcat Covered System. It is licensed under `BFNL-1.0`, and repository separation inside `BLACKCAT_MESH_NEXUS` exists for maintenance, safety, auditability, delivery, and architectural clarity. It does not by itself create a separate unavoidable founder-fee or steward/development-fee event for the same ordinary covered deployment.
+
+Canonical licensing bundle:
+- BFNL 1.0: https://github.com/Vito416/blackcat-darkmesh-ao/blob/main/docs/BFNL-1.0.md
+- Founder Fee Policy: https://github.com/Vito416/blackcat-darkmesh-ao/blob/main/docs/FEE_POLICY.md
+- Covered-System Notice: https://github.com/Vito416/blackcat-darkmesh-ao/blob/main/docs/LICENSING_SYSTEM_NOTICE.md
