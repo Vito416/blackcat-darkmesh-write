@@ -62,6 +62,7 @@ scripts/cli/       # local helpers (run command)
 3) Run checks: `RUN_DEPS_CHECK=1 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" LUA_CPATH="$HOME/.luarocks/lib/lua/5.4/?.so" scripts/verify/preflight.sh`.
 4) Fixtures: `RUN_BATCH=1 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/cli/batch_run.lua` (uses the env from step 2; hashes/nonce/signature checks can be relaxed via `WRITE_REQUIRE_*` env).
 5) Outbox/queue paths in the template default to `/var/lib/ao/...`; for dev you can override to `dev/*` paths next to the repo.
+6) Optional specs: `RUN_JWT_SPEC=1 lua5.4 scripts/verify/jwt_actor_spec.lua`; `RUN_RATE_SPEC=1 WRITE_RATE_STORE_PATH=dev/write-rate-store.json lua5.4 scripts/verify/rate_store_spec.lua`.
 
 ## Env toggles (write process)
 - `WRITE_REQUIRE_SIGNATURE=1` — reject commands without `signatureRef`.
@@ -92,6 +93,12 @@ scripts/cli/       # local helpers (run command)
   `AO_QUEUE_PATH=dev/outbox-queue.ndjson AO_QUEUE_LOG_PATH=dev/queue-log.ndjson AO_QUEUE_MAX_RETRIES=5 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/bridge/queue_forward.lua`
 - Health snapshot (write-side files & deps):  
   `WRITE_WAL_PATH=... WRITE_OUTBOX_PATH=... AO_QUEUE_PATH=... LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/verify/health.lua`
+
+## Prod hardening checklist
+- Set `WRITE_STRICT_OUTBOX_HMAC=1` and ensure every emitted event includes `hmac`.
+- Keep signature/JWT verification on (WRITE_REQUIRE_SIGNATURE/WRITE_REQUIRE_JWT) and rotate keys regularly.
+- Persist idempotency/rate buckets/outbox where applicable (`WRITE_IDEM_PATH`, `WRITE_RATE_STORE_PATH`, `WRITE_OUTBOX_PATH`) and back them up.
+- Monitor `/metrics` (bearer from METRICS_BEARER_TOKEN) for `rate_limited`, `replay_nonce`, and outbox HMAC counters; alert on sustained errors.
 
 ## Bridge (stub)
 - `scripts/bridge/forward_outbox.lua` reads the in-memory outbox (`write._storage_outbox()`) and logs events you would forward to `blackcat-darkmesh-ao`. Replace `forward_event` with signed POST to AO endpoint (registry/site process) in production.
