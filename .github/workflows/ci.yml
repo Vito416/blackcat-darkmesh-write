@@ -26,7 +26,10 @@ jobs:
       - name: Install rocks from lockfile
         run: |
           if [ -f ops/rocks.lock ]; then
-            luarocks install --local --only-deps ops/rocks.lock || true
+            while read -r name version; do
+              case "$name" in \#*|"") continue ;; esac
+              luarocks install --local "$name" "$version"
+            done < ops/rocks.lock
             echo "$HOME/.luarocks/bin" >> $GITHUB_PATH
           else
             echo "ops/rocks.lock missing" >&2
