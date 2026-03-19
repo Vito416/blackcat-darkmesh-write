@@ -41,9 +41,21 @@ local function run_fixture(path)
   local expected_str = read_file(expected_path)
   if expected_str then
     local expected = cjson.decode(expected_str)
-    if cjson.encode(resp) ~= cjson.encode(expected) then
-      return false, "mismatch"
+    local function same(a, b)
+      if type(a) ~= type(b) then return false end
+      if type(a) ~= "table" then return a == b end
+      -- compare keys/values disregarding table iteration order
+      local seen = {}
+      for k, v in pairs(a) do
+        if not same(v, b[k]) then return false end
+        seen[k] = true
+      end
+      for k in pairs(b) do
+        if not seen[k] then return false end
+      end
+      return true
     end
+    if not same(resp, expected) then return false, "mismatch" end
   end
   return true
 end
