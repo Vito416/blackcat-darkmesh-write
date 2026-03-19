@@ -79,6 +79,15 @@ local function stable_encode(val)
   return "null"
 end
 
+local function stable_encode_without_hmac(ev)
+  if type(ev) ~= "table" then return stable_encode(ev) end
+  local copy = {}
+  for k, v in pairs(ev) do
+    if k ~= "hmac" then copy[k] = v end
+  end
+  return stable_encode(copy)
+end
+
 local function append_log(entry)
   ensure_dir(log_path)
   local f = io.open(log_path, "a")
@@ -126,7 +135,7 @@ for _, ev in ipairs(queue) do
       if outbox_hmac_mode == "legacy" then
         msg = (ev.siteId or "") .. "|" .. (ev.pageId or ev.orderId or "") .. "|" .. (ev.versionId or ev.amount or "")
       else
-        msg = stable_encode(ev)
+        msg = stable_encode_without_hmac(ev)
       end
       local expected = crypto.hmac_sha256_hex(msg, outbox_hmac_secret)
       if expected and expected:lower() ~= tostring(ev.hmac):lower() then
