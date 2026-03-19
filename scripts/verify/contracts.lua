@@ -21,7 +21,7 @@ local tests = {
     assert(resp.status == "OK")
   end,
   function()
-    local resp = write.route(req("PublishPageVersion", { payload = { siteId = "s1", pageId = "home", versionId = "v1" } }))
+    local resp = write.route(req("PublishPageVersion", { payload = { siteId = "s1", pageId = "home", versionId = "v1", manifestTx = "tx-1" } }))
     assert(resp.status == "OK")
   end,
   function()
