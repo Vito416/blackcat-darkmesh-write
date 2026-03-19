@@ -2,6 +2,7 @@
   "action": "PublishPageVersion",
   "requestId": "rid-sample-publish-001",
   "actor": "publisher-1",
+  "Actor-Role": "editor",
   "tenant": "site-1",
   "timestamp": "2026-03-15T00:01:00Z",
   "nonce": "nonce-sample-publish-001",
