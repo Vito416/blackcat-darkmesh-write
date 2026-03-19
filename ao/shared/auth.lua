@@ -3,6 +3,7 @@
 
 local Auth = {}
 local os_time = os.time
+local START_EPOCH = os_time()
 
 -- Allow WRITE_* aliases for ops/env parity
 local function getenv_multi(...)
@@ -21,6 +22,8 @@ local TS_DRIFT = tonumber(getenv_multi("AUTH_MAX_CLOCK_SKEW", "WRITE_MAX_CLOCK_S
 local RL_WINDOW = tonumber(getenv_multi("AUTH_RATE_LIMIT_WINDOW_SECONDS", "WRITE_RL_WINDOW_SECONDS") or "60")
 local RL_MAX = tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_REQUESTS", "WRITE_RL_MAX_REQUESTS") or "200")
 local RL_CALLER_MAX = tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_PER_CALLER", "WRITE_RL_CALLER_MAX") or "120")
+local RL_BUCKET_TTL = tonumber(getenv_multi("AUTH_RATE_BUCKET_TTL_SECONDS", "WRITE_RL_BUCKET_TTL_SECONDS") or tostring(RL_WINDOW * 4))
+local RL_MAX_BUCKETS = tonumber(getenv_multi("AUTH_RATE_MAX_BUCKETS", "WRITE_RL_MAX_BUCKETS") or "4096")
 
 local REQUIRE_SIGNATURE = getenv_multi("WRITE_REQUIRE_SIGNATURE", "AUTH_REQUIRE_SIGNATURE") == "1"
 local SIG_TYPE = getenv_multi("WRITE_SIG_TYPE", "AUTH_SIG_TYPE") or "ed25519"
@@ -70,7 +73,32 @@ local function persist_rate_store()
   os.rename(tmp, RATE_STORE_PATH)
 end
 
+local function trim_rate_store(now)
+  now = now or os_time()
+  -- drop stale buckets beyond TTL or process start
+  for key, bucket in pairs(rate_store) do
+    local updated = bucket.updated or bucket.reset or 0
+    if (now - updated) > RL_BUCKET_TTL or updated < START_EPOCH then
+      rate_store[key] = nil
+    end
+  end
+  -- size bound
+  local count = 0
+  for _ in pairs(rate_store) do count = count + 1 end
+  if count <= RL_MAX_BUCKETS then return end
+  local items = {}
+  for k, v in pairs(rate_store) do
+    items[#items+1] = {k = k, updated = v.updated or v.reset or 0}
+  end
+  table.sort(items, function(a,b) return a.updated < b.updated end)
+  local to_drop = count - RL_MAX_BUCKETS
+  for i = 1, to_drop do
+    rate_store[items[i].k] = nil
+  end
+end
+
 load_rate_store()
+trim_rate_store(START_EPOCH)
 
 local function load_nonce_store()
   if not NONCE_STORE_PATH or NONCE_STORE_PATH == "" then return end
@@ -97,6 +125,7 @@ local function persist_nonce_store()
 end
 
 load_nonce_store()
+trim_nonce(START_EPOCH)
 
 local function parse_iso8601(ts)
   if type(ts) ~= "string" then return nil end
@@ -471,7 +500,9 @@ local function bump_rate(key, window, max_allowed)
     bucket.reset = now + window
   end
   bucket.count = bucket.count + 1
+  bucket.updated = now
   rate_store[key] = bucket
+  trim_rate_store(now)
   persist_rate_store()
   if max_allowed and bucket.count > max_allowed then
     return false, "rate_limited"
