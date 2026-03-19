@@ -59,7 +59,17 @@ if command -v lua5.4 >/dev/null 2>&1; then
   fi
   if [ "${RUN_CONTRACTS:-1}" -eq 1 ]; then
     echo "[verify] contract smoke tests"
-    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 "$ROOT_DIR/scripts/verify/contracts.lua"
+    WRITE_REQUIRE_NONCE=0 \
+    WRITE_REQUIRE_TIMESTAMP=0 \
+    WRITE_REQUIRE_SIGNATURE=0 \
+    WRITE_REQUIRE_JWT=0 \
+    WRITE_RL_MAX_REQUESTS=100000 \
+    WRITE_RL_CALLER_MAX=100000 \
+    ALLOW_DEV_JWT=1 \
+    RUN_CONTRACTS=1 \
+    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
+    LUA_CPATH="${ROCKS_LUA_CPATH}" \
+      lua5.4 "$ROOT_DIR/scripts/verify/contracts.lua"
   fi
   if [ "${RUN_CONFLICTS:-1}" -eq 1 ]; then
     echo "[verify] conflict/security tests"
