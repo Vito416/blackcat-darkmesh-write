@@ -15,6 +15,7 @@
         "GrantEntitlement",
         "LinkDomain",
         "RotateKey",
+        "LockContent",
         "CreateReceipt",
         "IssueLoginToken",
         "ConfirmLoginToken",
@@ -83,6 +84,16 @@
         }
       },
       "required": ["orderId", "siteId", "currency"],
+      "additionalProperties": true
+    },
+    "LockContent": {
+      "type": "object",
+      "properties": {
+        "siteId": { "type": "string", "minLength": 1 },
+        "pageId": { "type": "string", "minLength": 1 },
+        "ttl": { "type": "number", "minimum": 1 }
+      },
+      "required": ["siteId", "pageId"],
       "additionalProperties": true
     },
     "RefundPayment": {
