@@ -134,6 +134,10 @@ LUA
     LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
     LUA_CPATH="${ROCKS_LUA_CPATH}" \
       lua5.4 "$ROOT_DIR/scripts/verify/rate_store_spec.lua"
+    echo "[verify] tenant-scoped rate limits"
+    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
+    LUA_CPATH="${ROCKS_LUA_CPATH}" \
+      lua5.4 "$ROOT_DIR/scripts/verify/rate_tenant_scope_spec.lua"
   fi
   if [ "${RUN_JWT_SPEC:-0}" -eq 1 ]; then
     echo "[verify] jwt actor mapping"
