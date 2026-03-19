@@ -24,6 +24,9 @@ end
 local req = {
   action = 'ProviderWebhook',
   requestId = 'replay-1',
+  actor = 'security-tester',
+  ['Actor-Role'] = 'admin',
+  tenant = 'tenant-1',
   gatewayId = 'gw1',
   ts = os.time(),
   nonce = 'n1',

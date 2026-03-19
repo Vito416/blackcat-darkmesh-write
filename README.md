@@ -62,7 +62,10 @@ scripts/cli/       # local helpers (run command)
 3) Run checks: `RUN_DEPS_CHECK=1 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" LUA_CPATH="$HOME/.luarocks/lib/lua/5.4/?.so" scripts/verify/preflight.sh`.
 4) Fixtures: `RUN_BATCH=1 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/cli/batch_run.lua` (uses the env from step 2; hashes/nonce/signature checks can be relaxed via `WRITE_REQUIRE_*` env).
 5) Outbox/queue paths in the template default to `/var/lib/ao/...`; for dev you can override to `dev/*` paths next to the repo.
-6) Optional specs: `RUN_JWT_SPEC=1 lua5.4 scripts/verify/jwt_actor_spec.lua` + `scripts/verify/jwt_expiry_spec.lua`; `RUN_RATE_SPEC=1 WRITE_RATE_STORE_PATH=dev/write-rate-store.json lua5.4 scripts/verify/rate_store_spec.lua`.
+6) Optional specs:  
+   - JWT: `RUN_JWT_SPEC=1 lua5.4 scripts/verify/jwt_actor_spec.lua` + `scripts/verify/jwt_expiry_spec.lua`  
+   - Rate/nonce: `RUN_RATE_SPEC=1 WRITE_RATE_STORE_PATH=dev/write-rate-store.json lua5.4 scripts/verify/rate_store_spec.lua`; `RUN_RATE_SPEC=1 lua5.4 scripts/verify/rate_tenant_scope_spec.lua`  
+   - Outbox HMAC: `RUN_OUTBOX_SPEC=1 lua5.4 scripts/verify/outbox_hmac_spec.lua`
 
 ## Env toggles (write process)
 - `WRITE_REQUIRE_SIGNATURE=1` — reject commands without `signatureRef`.
@@ -100,6 +103,16 @@ scripts/cli/       # local helpers (run command)
 - Keep signature/JWT verification on (WRITE_REQUIRE_SIGNATURE/WRITE_REQUIRE_JWT) and rotate keys regularly.
 - Persist idempotency/rate buckets/outbox where applicable (`WRITE_IDEM_PATH`, `WRITE_RATE_STORE_PATH`, `WRITE_OUTBOX_PATH`) and back them up.
 - Monitor `/metrics` (bearer from METRICS_BEARER_TOKEN) for `rate_limited`, `replay_nonce`, and outbox HMAC counters; alert on sustained errors.
+
+## Monitoring
+- Expose Prom-style `/metrics` via `ao.shared.metrics` (see `METRICS_PROM_PATH`, `METRICS_LOG`, `METRICS_BEARER_TOKEN`).
+- Key counters:
+  - `write_auth_signature_failed_total`, `write_auth_signature_missing_total`
+  - `write_auth_jwt_invalid_total`, `write_auth_jwt_expired_total`, `write_auth_jwt_not_before_total`, `write_auth_jwt_skew_total`, `write_auth_jwt_*_mismatch_total`
+  - `write_auth_nonce_replay_total`
+  - `write_auth_rate_limited_total`
+  - `write_outbox_hmac_missing_total`, `write_outbox_hmac_mismatch_total`
+- Add alerts on rising trends; log/Prom output controlled by `METRICS_*` envs in `ao/shared/metrics.lua`.
 
 ## Bridge (stub)
 - `scripts/bridge/forward_outbox.lua` reads the in-memory outbox (`write._storage_outbox()`) and logs events you would forward to `blackcat-darkmesh-ao`. Replace `forward_event` with signed POST to AO endpoint (registry/site process) in production.

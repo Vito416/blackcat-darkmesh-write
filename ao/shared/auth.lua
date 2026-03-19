@@ -189,6 +189,7 @@ function Auth.consume_jwt(msg)
   -- map JWT claims onto envelope if caller didn't already supply them
   if type(claims) == "table" then
     local mapped = Auth.actor_from_jwt(claims)
+    msg._jwt_sub = claims.sub or claims.subj or msg._jwt_sub
     if REQUIRE_JWT and mapped then
       local env_actor = msg.actor or msg.Actor
       local env_tenant = msg.tenant or msg.Tenant
@@ -482,7 +483,7 @@ function Auth.rate_limit_check(msg)
   local caller = caller_identity(msg)
   local key = string.format("tenant:%s:caller:%s", tenant, caller)
   local ok_caller, err_caller = bump_rate(key, RL_WINDOW, RL_CALLER_MAX)
-  if not ok_caller then metrics_counter("write.rate_limited", 1) end
+  if not ok_caller then m_counter("write_auth_rate_limited_total", 1) end
   if not ok_caller then return ok_caller, err_caller end
   return true
 end
@@ -498,6 +499,7 @@ function Auth.verify_outbox_hmac(msg)
   end
   local provided = msg.hmac or msg.Hmac or msg.hMAC
   if not provided then
+    m_counter("write_outbox_hmac_missing_total")
     return false, "missing_outbox_hmac"
   end
   local expected, err = Auth.compute_outbox_hmac(msg, secret)
@@ -505,6 +507,7 @@ function Auth.verify_outbox_hmac(msg)
     return false, err or "outbox_hmac_missing"
   end
   if expected:lower() ~= tostring(provided):lower() then
+    m_counter("write_outbox_hmac_mismatch_total")
     return false, "outbox_hmac_mismatch"
   end
   return true
