@@ -262,6 +262,7 @@ local function mark_webhook_seen(key, ts)
   return true
 end
 
+local webhook_counter
 -- Shared GoPay webhook handling (also used by direct GoPayWebhook action)
 local function handle_gopay_webhook(cmd, schedule_retry)
   local replay_key = "gopay:" .. (cmd.payload.eventId or cmd.payload.paymentId or cmd.payload.orderId or cmd.requestId or "")
@@ -388,7 +389,7 @@ local function enqueue_webhook_retry(handler_name, cmd, attempt)
   counter("write.webhook.retry_scheduled", 1)
 end
 
-local function webhook_counter(provider, suffix)
+function webhook_counter(provider, suffix)
   provider = provider or "unknown"
   counter("write.webhook." .. provider .. "." .. suffix, 1)
 end

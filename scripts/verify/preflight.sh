@@ -91,6 +91,17 @@ if command -v lua5.4 >/dev/null 2>&1; then
     LUA_CPATH="${ROCKS_LUA_CPATH}" \
       lua5.4 "$ROOT_DIR/scripts/verify/schema_consistency.lua"
   fi
+  if [ "${RUN_GOPAY_SPEC:-1}" -eq 1 ]; then
+    echo "[verify] gopay webhook spec"
+    WRITE_REQUIRE_NONCE=0 \
+    WRITE_REQUIRE_TIMESTAMP=0 \
+    WRITE_REQUIRE_SIGNATURE=0 \
+    WRITE_REQUIRE_JWT=0 \
+    GOPAY_WEBHOOK_SECRET="${GOPAY_WEBHOOK_SECRET:-}" \
+    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
+    LUA_CPATH="${ROCKS_LUA_CPATH}" \
+      lua5.4 "$ROOT_DIR/scripts/verify/gopay_webhook_spec.lua"
+  fi
   if [ "${RUN_IDEM_PROPERTY:-1}" -eq 1 ]; then
     echo "[verify] idempotency property test"
     LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \

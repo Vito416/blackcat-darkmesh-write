@@ -121,6 +121,60 @@
       ],
       "additionalProperties": true
     },
+    "SaveDraftPage": {
+      "type": "object",
+      "properties": {
+        "siteId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pageId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locale": {
+          "type": "string"
+        },
+        "blocks": {
+          "type": [
+            "array",
+            "object"
+          ]
+        }
+      },
+      "required": [
+        "siteId",
+        "pageId",
+        "blocks"
+      ],
+      "additionalProperties": true
+    },
+    "PublishPageVersion": {
+      "type": "object",
+      "properties": {
+        "siteId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pageId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "versionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifestTx": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "siteId",
+        "pageId",
+        "versionId"
+      ],
+      "additionalProperties": true
+    },
     "CreateOrder": {
       "type": "object",
       "properties": {
@@ -202,6 +256,83 @@
       ],
       "additionalProperties": true
     },
+    "CreatePaymentIntent": {
+      "type": "object",
+      "properties": {
+        "paymentId": {
+          "type": "string"
+        },
+        "orderId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "amount": {
+          "type": "number"
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 3
+        },
+        "provider": {
+          "type": "string"
+        },
+        "returnUrl": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "paymentMethodToken": {
+          "type": "string"
+        },
+        "saveForFuture": {
+          "type": "boolean"
+        },
+        "providerMetadata": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "orderId",
+        "amount",
+        "currency"
+      ],
+      "additionalProperties": true
+    },
+    "ConfirmPayment": {
+      "type": "object",
+      "properties": {
+        "paymentId": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "providerPaymentId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "paymentId"
+      ],
+      "additionalProperties": true
+    },
+    "CapturePayment": {
+      "type": "object",
+      "properties": {
+        "paymentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "paymentId"
+      ],
+      "additionalProperties": true
+    },
     "LockContent": {
       "type": "object",
       "properties": {
@@ -264,6 +395,31 @@
       },
       "required": [
         "paymentId",
+        "amount",
+        "currency"
+      ],
+      "additionalProperties": true
+    },
+    "IssueRefund": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 3
+        },
+        "vatRate": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "orderId",
         "amount",
         "currency"
       ],
@@ -405,50 +561,6 @@
       ],
       "additionalProperties": true
     },
-    "CreatePaymentIntent": {
-      "type": "object",
-      "properties": {
-        "orderId": {
-          "type": "string"
-        },
-        "amount": {
-          "type": "number"
-        },
-        "currency": {
-          "type": "string",
-          "minLength": 3,
-          "maxLength": 3
-        },
-        "provider": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "orderId",
-        "amount",
-        "currency"
-      ],
-      "additionalProperties": true
-    },
-    "ConfirmPayment": {
-      "type": "object",
-      "properties": {
-        "paymentId": {
-          "type": "string"
-        },
-        "provider": {
-          "type": "string"
-        },
-        "returnUrl": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "paymentId",
-        "provider"
-      ],
-      "additionalProperties": true
-    },
     "AddDisputeEvidence": {
       "type": "object",
       "additionalProperties": true
@@ -565,10 +677,6 @@
       "type": "object",
       "additionalProperties": true
     },
-    "IssueRefund": {
-      "type": "object",
-      "additionalProperties": true
-    },
     "ApplyCoupon": {
       "type": "object",
       "additionalProperties": true
@@ -625,10 +733,6 @@
       "type": "object",
       "additionalProperties": true
     },
-    "CapturePayment": {
-      "type": "object",
-      "additionalProperties": true
-    },
     "PaymentReturn": {
       "type": "object",
       "additionalProperties": true
@@ -643,18 +747,98 @@
     },
     "CreateShippingLabel": {
       "type": "object",
+      "properties": {
+        "shipmentId": {
+          "type": "string"
+        },
+        "carrier": {
+          "type": "string"
+        },
+        "service": {
+          "type": "string"
+        },
+        "orderId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "shipmentId",
+        "carrier"
+      ],
       "additionalProperties": true
     },
     "UpdateShipmentTracking": {
       "type": "object",
+      "properties": {
+        "shipmentId": {
+          "type": "string"
+        },
+        "tracking": {
+          "type": "string"
+        },
+        "carrier": {
+          "type": "string"
+        },
+        "eta": {
+          "type": [
+            "string",
+            "number"
+          ]
+        }
+      },
+      "required": [
+        "shipmentId",
+        "tracking"
+      ],
       "additionalProperties": true
     },
     "ProviderWebhook": {
       "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "paymentId": {
+          "type": "string"
+        },
+        "eventId": {
+          "type": "string"
+        },
+        "eventType": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "raw": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "provider"
+      ],
       "additionalProperties": true
     },
     "CreateWebhook": {
       "type": "object",
+      "properties": {
+        "tenant": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "tenant",
+        "url"
+      ],
       "additionalProperties": true
     },
     "GetOpsHealth": {
@@ -663,6 +847,11 @@
     },
     "RunWebhookRetries": {
       "type": "object",
+      "properties": {
+        "limit": {
+          "type": "number"
+        }
+      },
       "additionalProperties": true
     }
   },

@@ -134,12 +134,20 @@ local function validate_properties(value, schema, path, errors)
       local v = value[name]
       if v ~= nil then
         local actual_type = type_of(v)
-        if prop.type == "array" and type(v) == "table" and next(v) == nil then
+        local expected_types = {}
+        if type(prop.type) == "table" then
+          for _, t in ipairs(prop.type) do expected_types[t] = true end
+        elseif prop.type then
+          expected_types[prop.type] = true
+        end
+        if expected_types["array"] and type(v) == "table" and next(v) == nil then
           actual_type = "array"
         end
-        if prop.type and actual_type ~= prop.type then
-          if not (prop.type == "integer" and actual_type == "number" and math.floor(value[name]) == value[name]) then
-            table.insert(errors, path .. name .. " expected " .. prop.type .. ", got " .. actual_type)
+        if next(expected_types) and not expected_types[actual_type] then
+          local accepts_int = expected_types["integer"] and actual_type == "number" and math.floor(value[name]) == value[name]
+          if not accepts_int then
+            local exp_list = table.concat((function(t) local r={} for k in pairs(t) do table.insert(r,k) end return r end)(expected_types), "|")
+            table.insert(errors, path .. name .. " expected " .. exp_list .. ", got " .. actual_type)
           end
         end
         if prop.enum then

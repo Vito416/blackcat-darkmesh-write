@@ -27,6 +27,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Setup Node 24 (for composite/JS actions)
+        uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.2
+        with:
+          node-version: 24
+          check-latest: true
+
       - name: Install Lua 5.4 + build deps
         run: |
           sudo apt-get update
