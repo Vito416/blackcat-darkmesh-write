@@ -45,6 +45,24 @@ scripts/cli/       # local helpers (run command)
 - Branches: `main` (releasable), `develop` (integration), `feature/*`, `adr/*`, `release/*`.
 - Message contracts and schemas are public API; prefer additive changes over breaking ones.
 
+### Quickstart (local dev)
+1) Install deps: `sudo apt-get install lua5.4 lua5.4-dev luarocks libsodium-dev`  
+   then install rocks from the lockfile:
+   ```bash
+   while read -r name ver; do
+     case "$name" in \#*|"") continue ;;
+     esac
+     luarocks --lua-version=5.4 install --local "$name" "$ver"
+   done < ops/rocks.lock
+   ```
+2) Copy env template: `cp ops/env.prod.example ops/.env.local` and fill secrets:  
+   - `OUTBOX_HMAC_SECRET` (required)  
+   - signature verifier (`WRITE_SIG_PUBLIC` or `WRITE_SIG_SECRET` when `WRITE_SIG_TYPE=hmac`)  
+   - optional `WRITE_JWT_HS_SECRET` if you turn on `WRITE_REQUIRE_JWT=1`.
+3) Run checks: `RUN_DEPS_CHECK=1 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" LUA_CPATH="$HOME/.luarocks/lib/lua/5.4/?.so" scripts/verify/preflight.sh`.
+4) Fixtures: `RUN_BATCH=1 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/cli/batch_run.lua` (uses the env from step 2; hashes/nonce/signature checks can be relaxed via `WRITE_REQUIRE_*` env).
+5) Outbox/queue paths in the template default to `/var/lib/ao/...`; for dev you can override to `dev/*` paths next to the repo.
+
 ## Env toggles (write process)
 - `WRITE_REQUIRE_SIGNATURE=1` — reject commands without `signatureRef`.
 - `WRITE_REQUIRE_NONCE=1` — reject commands without nonce and block replay.
