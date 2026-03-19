@@ -117,6 +117,13 @@ LUA
   fi
   if [ "${RUN_BATCH:-1}" -eq 1 ]; then
     echo "[verify] fixtures batch run"
+    WRITE_REQUIRE_NONCE=0 \
+    WRITE_REQUIRE_TIMESTAMP=0 \
+    WRITE_REQUIRE_SIGNATURE=0 \
+    WRITE_REQUIRE_JWT=0 \
+    WRITE_RL_MAX_REQUESTS=100000 \
+    WRITE_RL_CALLER_MAX=100000 \
+    ALLOW_DEV_JWT=1 \
     LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
     LUA_CPATH="${ROCKS_LUA_CPATH}" \
       lua5.4 "$ROOT_DIR/scripts/cli/batch_run.lua"
