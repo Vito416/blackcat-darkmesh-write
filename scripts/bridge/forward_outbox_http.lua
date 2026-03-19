@@ -68,3 +68,4 @@ for _, ev in ipairs(events) do
 end
 
 print(string.format("[forward-http] sent=%d failed=%d", sent, failed))
+-- luacheck: max_line_length 200

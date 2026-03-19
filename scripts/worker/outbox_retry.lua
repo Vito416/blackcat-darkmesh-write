@@ -6,6 +6,7 @@
 local storage = require("ao.shared.storage")
 local bridge = require("ao.shared.bridge")
 local cjson_ok, cjson = pcall(require, "cjson")
+local OUTBOX_PATH = os.getenv("OUTBOX_PATH") or os.getenv("WRITE_OUTBOX_PATH")
 
 local retry_limit = tonumber(os.getenv("RETRY_LIMIT") or "5")
 

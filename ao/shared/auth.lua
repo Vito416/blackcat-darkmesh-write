@@ -22,7 +22,9 @@ local TS_DRIFT = tonumber(getenv_multi("AUTH_MAX_CLOCK_SKEW", "WRITE_MAX_CLOCK_S
 local RL_WINDOW = tonumber(getenv_multi("AUTH_RATE_LIMIT_WINDOW_SECONDS", "WRITE_RL_WINDOW_SECONDS") or "60")
 local RL_MAX = tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_REQUESTS", "WRITE_RL_MAX_REQUESTS") or "200")
 local RL_CALLER_MAX = tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_PER_CALLER", "WRITE_RL_CALLER_MAX") or "120")
-local RL_BUCKET_TTL = tonumber(getenv_multi("AUTH_RATE_BUCKET_TTL_SECONDS", "WRITE_RL_BUCKET_TTL_SECONDS") or tostring(RL_WINDOW * 4))
+local RL_BUCKET_TTL = tonumber(
+  getenv_multi("AUTH_RATE_BUCKET_TTL_SECONDS", "WRITE_RL_BUCKET_TTL_SECONDS") or tostring(RL_WINDOW * 4)
+)
 local RL_MAX_BUCKETS = tonumber(getenv_multi("AUTH_RATE_MAX_BUCKETS", "WRITE_RL_MAX_BUCKETS") or "4096")
 
 local REQUIRE_SIGNATURE = getenv_multi("WRITE_REQUIRE_SIGNATURE", "AUTH_REQUIRE_SIGNATURE") == "1"
@@ -37,10 +39,6 @@ local NONCE_STORE_PATH = getenv_multi("WRITE_NONCE_STORE_PATH", "AUTH_NONCE_STOR
 local crypto_ok, crypto = pcall(require, "ao.shared.crypto")
 local jwt_ok, jwt = pcall(require, "ao.shared.jwt")
 local cjson_ok, cjson = pcall(require, "cjson")
-local metrics_ok, metrics = pcall(require, "ao.shared.metrics")
-local function m_counter(name, value)
-  if metrics_ok and metrics and metrics.counter then metrics.counter(name, value or 1) end
-end
 local metrics_ok, metrics = pcall(require, "ao.shared.metrics")
 local function m_counter(name, value)
   if metrics_ok and metrics and metrics.counter then metrics.counter(name, value or 1) end
@@ -311,7 +309,18 @@ end
 local function outbox_hmac_payload(msg)
   local parts = {
     pick(msg["Site-Id"], msg.siteId, msg.tenant, msg.tenantId, msg.gatewayId),
-    pick(msg["Page-Id"], msg.pageId, msg["Order-Id"], msg.orderId, msg.paymentId, msg["Payment-Id"], msg.key, msg["Key"], msg.resourceId, msg.shipmentId),
+    pick(
+      msg["Page-Id"],
+      msg.pageId,
+      msg["Order-Id"],
+      msg.orderId,
+      msg.paymentId,
+      msg["Payment-Id"],
+      msg.key,
+      msg["Key"],
+      msg.resourceId,
+      msg.shipmentId
+    ),
     pick(msg.Version, msg.version, msg.versionId, msg["Manifest-Tx"], msg.manifestTx),
     pick(msg.Amount, msg.amount, msg.Total, msg.totalAmount),
     pick(msg.currency, msg.Currency),

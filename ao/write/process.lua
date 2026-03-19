@@ -1,5 +1,5 @@
 -- luacheck: max_line_length 200
--- luacheck: ignore send_event OUTBOX_PATH role_policy bridge jwt ok ok_json cjson auth state content_key discount vat schedule_retry
+-- luacheck: ignore send_event OUTBOX_PATH role_policy bridge jwt ok ok_json cjson auth state content_key discount vat schedule_retry OUTBOX_HMAC_SECRET
 -- Entry point for the write command AO process.
 
 local validation = require("ao.shared.validation")
@@ -25,6 +25,21 @@ local paypal_ok, paypal = pcall(require, "ao.shared.paypal")
 local tax = require("ao.shared.tax")
 local ok_mime, mime = pcall(require, "mime")
 local ok_json, cjson = pcall(require, "cjson.safe")
+
+local OUTBOX_PATH = os.getenv("WRITE_OUTBOX_PATH")
+local WAL_PATH = os.getenv("WRITE_WAL_PATH")
+local OUTBOX_HMAC_SECRET = os.getenv("OUTBOX_HMAC_SECRET")
+local CART_STORE_PATH = os.getenv("WRITE_CART_STORE_PATH")
+local RATE_STORE_PATH = os.getenv("WRITE_RATE_STORE_PATH")
+local PSP_HOSTED_ONLY = os.getenv("WRITE_PSP_HOSTED_ONLY") ~= "0" -- default on (secrets live in Worker)
+local PSP_BREAKER_THRESHOLD = tonumber(os.getenv("WRITE_PSP_BREAKER_THRESHOLD") or "5")
+local PSP_BREAKER_COOLDOWN = tonumber(os.getenv("WRITE_PSP_BREAKER_COOLDOWN") or "300")
+local WEBHOOK_REPLAY_WINDOW = tonumber(os.getenv("WRITE_WEBHOOK_REPLAY_WINDOW") or "600")
+local WEBHOOK_RETRY_MAX = tonumber(os.getenv("WRITE_WEBHOOK_RETRY_MAX") or "5")
+local WEBHOOK_RETRY_BASE = tonumber(os.getenv("WRITE_WEBHOOK_RETRY_BASE_SECONDS") or "30")
+local WEBHOOK_RETRY_JITTER_PCT = tonumber(os.getenv("WRITE_WEBHOOK_RETRY_JITTER_PCT") or "20")
+local WEBHOOK_SEEN_PATH = os.getenv("WRITE_WEBHOOK_SEEN_PATH")
+local ok_schema, schema = pcall(require, "ao.shared.schema")
 
 local function gauge(name, value)
   if metrics and metrics.gauge then metrics.gauge(name, value) end
@@ -62,19 +77,6 @@ end
 local function send_event(ev)
   enqueue_event(ev)
 end
-local OUTBOX_PATH = os.getenv("WRITE_OUTBOX_PATH")
-local WAL_PATH = os.getenv("WRITE_WAL_PATH")
-local OUTBOX_HMAC_SECRET = os.getenv("OUTBOX_HMAC_SECRET")
-local CART_STORE_PATH = os.getenv("WRITE_CART_STORE_PATH")
-local RATE_STORE_PATH = os.getenv("WRITE_RATE_STORE_PATH")
-local PSP_HOSTED_ONLY = os.getenv("WRITE_PSP_HOSTED_ONLY") ~= "0" -- default on (secrets live in Worker)
-local PSP_BREAKER_THRESHOLD = tonumber(os.getenv("WRITE_PSP_BREAKER_THRESHOLD") or "5")
-local PSP_BREAKER_COOLDOWN = tonumber(os.getenv("WRITE_PSP_BREAKER_COOLDOWN") or "300")
-local WEBHOOK_REPLAY_WINDOW = tonumber(os.getenv("WRITE_WEBHOOK_REPLAY_WINDOW") or "600")
-local WEBHOOK_RETRY_MAX = tonumber(os.getenv("WRITE_WEBHOOK_RETRY_MAX") or "5")
-local WEBHOOK_RETRY_BASE = tonumber(os.getenv("WRITE_WEBHOOK_RETRY_BASE_SECONDS") or "30")
-local WEBHOOK_RETRY_JITTER_PCT = tonumber(os.getenv("WRITE_WEBHOOK_RETRY_JITTER_PCT") or "20")
-local WEBHOOK_SEEN_PATH = os.getenv("WRITE_WEBHOOK_SEEN_PATH")
 
 local M = {}
 
@@ -2552,9 +2554,9 @@ function M.route(command)
     return err(command.requestId, "UNAUTHORIZED", nonce_err or "nonce failed")
   end
 
-  local ok_rl, rl_err = auth.rate_limit_check(command)
-  if not ok_rl then
-    return err(command.requestId, "RATE_LIMITED", rl_err or "rate_limited")
+  local ok_rl_env, rl_err_env = auth.rate_limit_check(command)
+  if not ok_rl_env then
+    return err(command.requestId, "RATE_LIMITED", rl_err_env or "rate_limited")
   end
 
   _G.current_caller_id = command.callerId or command["Caller-Id"] or command.gatewayId or command["Gateway-Id"]
@@ -2582,9 +2584,9 @@ function M.route(command)
   if not ok_role then
     return err(command.requestId, "FORBIDDEN", role_err or "role denied")
   end
-  local ok_rl, rl_err = auth.check_rate_limit(command)
-  if not ok_rl then
-    return err(command.requestId, "RATE_LIMITED", rl_err)
+  local ok_rl_scope, rl_err_scope = auth.check_rate_limit(command)
+  if not ok_rl_scope then
+    return err(command.requestId, "RATE_LIMITED", rl_err_scope)
   end
 
   local ok_act, act_errs = validation.validate_action(command.action, command.payload)

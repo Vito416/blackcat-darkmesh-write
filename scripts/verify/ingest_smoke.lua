@@ -47,7 +47,9 @@ if second.status ~= "ERROR" or second.code ~= "REPLAY" then
 end
 
 -- ProviderWebhook replay + HMAC emit check
-os.setenv("OUTBOX_HMAC_SECRET", os.getenv("OUTBOX_HMAC_SECRET") or "0123456789abcdef0123456789abcdef")
+if os.setenv then
+  os.setenv("OUTBOX_HMAC_SECRET", os.getenv("OUTBOX_HMAC_SECRET") or "0123456789abcdef0123456789abcdef")
+end
 local pw = {
   requestId = "smoke-provider-" .. tostring(os.time()),
   action = "ProviderWebhook",

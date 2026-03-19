@@ -14,3 +14,4 @@ for _, ev in ipairs(outbox) do
 end
 
 print(string.format("[bridge] forwarded %d events", #outbox))
+-- luacheck: max_line_length 200

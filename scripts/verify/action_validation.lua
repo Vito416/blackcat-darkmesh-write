@@ -75,3 +75,4 @@ local bad_provider = write.route({
 assert(expect_error(bad_provider), 'provider webhook needs target ids')
 
 print('action_validation: ok')
+-- luacheck: max_line_length 200

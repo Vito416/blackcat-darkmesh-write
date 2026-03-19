@@ -16,3 +16,4 @@ local ok_return = write.route({ Action = 'UpsertReturnStatus', ['Request-Id'] = 
 assert(ok_return.status == 'OK', 'UpsertReturnStatus should pass')
 
 print('action_validation_shipping: ok')
+-- luacheck: max_line_length 260

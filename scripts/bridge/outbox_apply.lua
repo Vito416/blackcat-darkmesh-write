@@ -5,7 +5,6 @@
 --   lua scripts/bridge/outbox_apply.lua
 
 local ingest = require "ao.ingest.apply"
-local write = require "ao.write.process"
 local storage = require "ao.shared.storage"
 local path = os.getenv "WRITE_OUTBOX_PATH" or "dev/outbox.json"
 
