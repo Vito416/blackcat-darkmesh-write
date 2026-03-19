@@ -10,6 +10,7 @@ local max_retries = tonumber(os.getenv("AO_QUEUE_MAX_RETRIES") or "5")
 local outbox_path = os.getenv("WRITE_OUTBOX_PATH")
 local outbox_hmac_secret = os.getenv("OUTBOX_HMAC_SECRET")
 local strict_outbox_hmac = os.getenv("WRITE_STRICT_OUTBOX_HMAC") == "1"
+local outbox_hmac_mode = os.getenv("WRITE_OUTBOX_HMAC_MODE") or "full" -- full|legacy
 local crypto = require("ao.shared.crypto")
 
 local function ensure_dir(path)
@@ -38,6 +39,44 @@ local function sha256_str(str)
   if p then p:close() end
   os.remove(tmp)
   return out:match("^(%w+)")
+end
+
+local function is_array(tbl)
+  if type(tbl) ~= "table" then return false end
+  local max = 0
+  local count = 0
+  for k, _ in pairs(tbl) do
+    if type(k) ~= "number" then return false end
+    if k > max then max = k end
+    count = count + 1
+  end
+  return max == count
+end
+
+local function stable_encode(val)
+  local t = type(val)
+  if t == "nil" then return "null" end
+  if t == "boolean" or t == "number" then return tostring(val) end
+  if t == "string" then return cjson.encode(val) end -- reuse string escaping
+  if t == "table" then
+    if is_array(val) then
+      local parts = {}
+      for i = 1, #val do
+        table.insert(parts, stable_encode(val[i]))
+      end
+      return "[" .. table.concat(parts, ",") .. "]"
+    else
+      local keys = {}
+      for k in pairs(val) do table.insert(keys, k) end
+      table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+      local parts = {}
+      for _, k in ipairs(keys) do
+        table.insert(parts, cjson.encode(tostring(k)) .. ":" .. stable_encode(val[k]))
+      end
+      return "{" .. table.concat(parts, ",") .. "}"
+    end
+  end
+  return "null"
 end
 
 local function append_log(entry)
@@ -82,7 +121,12 @@ for _, ev in ipairs(queue) do
       goto skip
     end
     if ev.hmac then
-      local msg = (ev.siteId or "") .. "|" .. (ev.pageId or ev.orderId or "") .. "|" .. (ev.versionId or ev.amount or "")
+      local msg
+      if outbox_hmac_mode == "legacy" then
+        msg = (ev.siteId or "") .. "|" .. (ev.pageId or ev.orderId or "") .. "|" .. (ev.versionId or ev.amount or "")
+      else
+        msg = stable_encode(ev)
+      end
       local expected = crypto.hmac_sha256_hex(msg, outbox_hmac_secret)
       if expected and expected:lower() ~= tostring(ev.hmac):lower() then
         append_log({ ts = os.date("!%Y-%m-%dT%H:%M:%SZ"), requestId = ev.requestId, status = "hmac_mismatch" })
