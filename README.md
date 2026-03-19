@@ -103,6 +103,7 @@ scripts/cli/       # local helpers (run command)
 - Keep signature/JWT verification on (WRITE_REQUIRE_SIGNATURE/WRITE_REQUIRE_JWT) and rotate keys regularly.
 - Persist idempotency/rate buckets/outbox where applicable (`WRITE_IDEM_PATH`, `WRITE_RATE_STORE_PATH`, `WRITE_OUTBOX_PATH`) and back them up.
 - Monitor `/metrics` (bearer from METRICS_BEARER_TOKEN) for `rate_limited`, `replay_nonce`, and outbox HMAC counters; alert on sustained errors.
+- If Arweave verification is mandatory on all branches, set `ENFORCE_ARWEAVE_HASH=1` and provide `ARWEAVE_VERIFY_FILE/ARWEAVE_VERIFY_TX`; CI will fail-closed otherwise.
 
 ## Monitoring
 - Expose Prom-style `/metrics` via `ao.shared.metrics` (see `METRICS_PROM_PATH`, `METRICS_LOG`, `METRICS_BEARER_TOKEN`).
