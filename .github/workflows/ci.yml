@@ -29,7 +29,10 @@ jobs:
             LUA_VER=5.4
             while read -r name version; do
               case "$name" in \#*|"") continue ;; esac
-              luarocks --lua-version=$LUA_VER install --local "$name" "$version"
+              if ! luarocks --lua-version=$LUA_VER install --local "$name" "$version"; then
+                echo "lock install failed for $name $version; retrying latest" >&2
+                luarocks --lua-version=$LUA_VER install --local "$name"
+              fi
             done < ops/rocks.lock
             eval "$(luarocks --lua-version=$LUA_VER path)"
             echo "$HOME/.luarocks/bin" >> $GITHUB_PATH
