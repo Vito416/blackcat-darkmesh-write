@@ -12,6 +12,10 @@ local outbox_hmac_secret = os.getenv("OUTBOX_HMAC_SECRET")
 local strict_outbox_hmac = os.getenv("WRITE_STRICT_OUTBOX_HMAC") == "1"
 local outbox_hmac_mode = os.getenv("WRITE_OUTBOX_HMAC_MODE") or "full" -- full|legacy
 local crypto = require("ao.shared.crypto")
+local metrics_ok, metrics = pcall(require, "ao.shared.metrics")
+local function m_counter(name, value)
+  if metrics_ok and metrics and metrics.counter then metrics.counter(name, value or 1) end
+end
 
 local function ensure_dir(path)
   local dir = path:match("(.+)/[^/]+$")

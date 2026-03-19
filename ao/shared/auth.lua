@@ -38,6 +38,10 @@ local metrics_ok, metrics = pcall(require, "ao.shared.metrics")
 local function m_counter(name, value)
   if metrics_ok and metrics and metrics.counter then metrics.counter(name, value or 1) end
 end
+local metrics_ok, metrics = pcall(require, "ao.shared.metrics")
+local function m_counter(name, value)
+  if metrics_ok and metrics and metrics.counter then metrics.counter(name, value or 1) end
+end
 
 local nonce_store = {}
 local rate_store = {}
@@ -162,6 +166,7 @@ local function verify_jwt(msg)
   end
   local ok, payload_or_err = jwt.verify_hs256(token, JWT_SECRET)
   if not ok then
+    m_counter("write_auth_jwt_invalid_total")
     return false, payload_or_err or "jwt_invalid"
   end
   local claims = payload_or_err
@@ -169,14 +174,17 @@ local function verify_jwt(msg)
     local now = os_time()
     local exp = tonumber(claims.exp)
     if exp and (now - TS_DRIFT) > exp then
+      m_counter("write_auth_jwt_expired_total")
       return false, "jwt_expired"
     end
     local nbf = tonumber(claims.nbf)
     if nbf and (now + TS_DRIFT) < nbf then
+      m_counter("write_auth_jwt_not_before_total")
       return false, "jwt_not_before"
     end
     local iat = tonumber(claims.iat)
     if iat and math.abs(now - iat) > TS_DRIFT then
+      m_counter("write_auth_jwt_skew_total")
       return false, "jwt_iat_skew"
     end
   end
@@ -195,12 +203,15 @@ function Auth.consume_jwt(msg)
       local env_tenant = msg.tenant or msg.Tenant
       local env_role = msg["Actor-Role"] or msg.actorRole
       if mapped.actor and env_actor and tostring(env_actor) ~= tostring(mapped.actor) then
+        m_counter("write_auth_jwt_actor_mismatch_total")
         return false, "jwt_actor_mismatch"
       end
       if mapped.tenant and env_tenant and tostring(env_tenant) ~= tostring(mapped.tenant) then
+        m_counter("write_auth_jwt_tenant_mismatch_total")
         return false, "jwt_tenant_mismatch"
       end
       if mapped.role and env_role and tostring(env_role) ~= tostring(mapped.role) then
+        m_counter("write_auth_jwt_role_mismatch_total")
         return false, "jwt_role_mismatch"
       end
     end
@@ -250,6 +261,7 @@ function Auth.require_nonce(msg)
   local now = os_time()
   local seen = nonce_store[key]
   if seen and (now - seen) < NONCE_TTL then
+    m_counter("write_auth_nonce_replay_total")
     return false, "replay_nonce"
   end
   nonce_store[key] = now
@@ -362,24 +374,33 @@ local function verify_sig(msg)
   local sig = msg.signature
   local sig_ref = msg.signatureRef or msg["Signature-Ref"]
   if not sig_ref or sig_ref == "" then
+    m_counter("write_auth_signature_missing_total")
     return false, "missing_signature_ref"
   end
   if not sig or sig == "" then
+    m_counter("write_auth_signature_missing_total")
     return false, "missing_signature"
   end
   if not crypto_ok then
+    m_counter("write_auth_signature_failed_total")
     return false, "crypto_missing"
   end
   local payload = canonical_detached_message(msg)
   if SIG_TYPE == "hmac" then
     if not SIG_SECRET or SIG_SECRET == "" then return false, "missing_sig_secret" end
-    return crypto.verify_hmac_sha256(payload, SIG_SECRET, sig)
+    local ok = crypto.verify_hmac_sha256(payload, SIG_SECRET, sig)
+    if not ok then m_counter("write_auth_signature_failed_total") end
+    return ok
   elseif SIG_TYPE == "ecdsa" then
     if not SIG_PUBLIC then return false, "missing_sig_public" end
-    return crypto.verify_ecdsa_sha256(payload, sig, SIG_PUBLIC)
+    local ok = crypto.verify_ecdsa_sha256(payload, sig, SIG_PUBLIC)
+    if not ok then m_counter("write_auth_signature_failed_total") end
+    return ok
   else -- default ed25519
     if not SIG_PUBLIC then return false, "missing_sig_public" end
-    return crypto.verify_ed25519(payload, sig, SIG_PUBLIC)
+    local ok = crypto.verify_ed25519(payload, sig, SIG_PUBLIC)
+    if not ok then m_counter("write_auth_signature_failed_total") end
+    return ok
   end
 end
 
