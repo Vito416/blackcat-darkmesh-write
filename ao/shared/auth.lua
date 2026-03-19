@@ -29,6 +29,7 @@ local SIG_SECRET = getenv_multi("WRITE_SIG_SECRET", "AUTH_SIG_SECRET")
 local REQUIRE_JWT = getenv_multi("WRITE_REQUIRE_JWT", "AUTH_REQUIRE_JWT") == "1"
 local JWT_SECRET = getenv_multi("WRITE_JWT_HS_SECRET", "AUTH_JWT_HS_SECRET")
 local RATE_STORE_PATH = getenv_multi("WRITE_RATE_STORE_PATH", "AUTH_RATE_STORE_PATH")
+local NONCE_STORE_PATH = getenv_multi("WRITE_NONCE_STORE_PATH", "AUTH_NONCE_STORE_PATH")
 
 local crypto_ok, crypto = pcall(require, "ao.shared.crypto")
 local jwt_ok, jwt = pcall(require, "ao.shared.jwt")
@@ -53,13 +54,41 @@ end
 local function persist_rate_store()
   if not RATE_STORE_PATH or RATE_STORE_PATH == "" then return end
   if not cjson_ok then return end
-  local f = io.open(RATE_STORE_PATH, "w")
+  local tmp = RATE_STORE_PATH .. ".tmp"
+  local f = io.open(tmp, "w")
   if not f then return end
   f:write(cjson.encode(rate_store))
   f:close()
+  os.rename(tmp, RATE_STORE_PATH)
 end
 
 load_rate_store()
+
+local function load_nonce_store()
+  if not NONCE_STORE_PATH or NONCE_STORE_PATH == "" then return end
+  if not cjson_ok then return end
+  local f = io.open(NONCE_STORE_PATH, "r")
+  if not f then return end
+  local content = f:read("*a")
+  f:close()
+  local ok, decoded = pcall(cjson.decode, content)
+  if ok and type(decoded) == "table" then
+    nonce_store = decoded
+  end
+end
+
+local function persist_nonce_store()
+  if not NONCE_STORE_PATH or NONCE_STORE_PATH == "" then return end
+  if not cjson_ok then return end
+  local tmp = NONCE_STORE_PATH .. ".tmp"
+  local f = io.open(tmp, "w")
+  if not f then return end
+  f:write(cjson.encode(nonce_store))
+  f:close()
+  os.rename(tmp, NONCE_STORE_PATH)
+end
+
+load_nonce_store()
 
 local function parse_iso8601(ts)
   if type(ts) ~= "string" then return nil end
@@ -201,13 +230,17 @@ function Auth.require_nonce(msg)
   if not nonce or nonce == "" then
     return false, "missing_nonce"
   end
+  local tenant = msg.tenant or msg.Tenant or msg["Tenant-Id"] or "global"
+  local actor = Auth.resolve_actor(msg) or Auth.gateway_id(msg) or ""
+  local key = tenant .. ":" .. tostring(actor) .. ":" .. tostring(nonce)
   local now = os_time()
-  local seen = nonce_store[nonce]
+  local seen = nonce_store[key]
   if seen and (now - seen) < NONCE_TTL then
     return false, "replay_nonce"
   end
-  nonce_store[nonce] = now
+  nonce_store[key] = now
   trim_nonce()
+  persist_nonce_store()
   return true
 end
 
@@ -238,8 +271,27 @@ function Auth.compute_outbox_hmac(msg, secret)
   return crypto.hmac_sha256_hex(outbox_hmac_payload(msg), secret)
 end
 
+local function canonical_payload(msg)
+  local payload = msg.payload or msg.Payload or {}
+  if cjson_ok then
+    local ok, encoded = pcall(cjson.encode, payload)
+    if ok then return encoded end
+  end
+  return tostring(payload)
+end
+
 local function canonical_detached_message(msg)
-  return (msg.action or msg.Action or "") .. "|" .. (msg.tenant or msg.Tenant or msg["Tenant-Id"] or "") .. "|" .. (msg.requestId or msg["Request-Id"] or "")
+  -- sign the important envelope parts + payload hash to prevent tampering
+  local parts = {
+    msg.action or msg.Action or "",
+    pick(msg.tenant, msg.Tenant, msg["Tenant-Id"]),
+    pick(msg.actor, msg.Actor),
+    pick(msg.ts, msg.timestamp, msg["X-Timestamp"]),
+    pick(msg.nonce, msg.Nonce, msg["X-Nonce"]),
+    canonical_payload(msg),
+    msg.requestId or msg["Request-Id"] or "",
+  }
+  return table.concat(parts, "|")
 end
 
 local function verify_sig(msg)
@@ -348,9 +400,11 @@ end
 function Auth.rate_limit_check(msg)
   local ok, err = bump_rate("global", RL_WINDOW, RL_MAX)
   if not ok then return ok, err end
-  local caller = Auth.resolve_actor(msg) or Auth.gateway_id(msg) or msg.ip or msg.IP
-  if caller then
-    return bump_rate("caller:" .. tostring(caller), RL_WINDOW, RL_CALLER_MAX)
+  local tenant = msg.tenant or msg.Tenant or msg["Tenant-Id"] or "global"
+  local caller = Auth.resolve_actor(msg) or Auth.gateway_id(msg) or msg.ip or msg.IP or "anon"
+  local key = string.format("tenant:%s:caller:%s", tenant, caller)
+  if key then
+    return bump_rate(key, RL_WINDOW, RL_CALLER_MAX)
   end
   return true
 end
