@@ -262,6 +262,99 @@ local function mark_webhook_seen(key, ts)
   return true
 end
 
+-- Shared GoPay webhook handling (also used by direct GoPayWebhook action)
+local function handle_gopay_webhook(cmd, schedule_retry)
+  local replay_key = "gopay:" .. (cmd.payload.eventId or cmd.payload.paymentId or cmd.payload.orderId or cmd.requestId or "")
+  if replay_key ~= "" and not mark_webhook_seen(replay_key, cmd.timestamp) then
+    webhook_counter("gopay", "replay")
+    return err(cmd.requestId, "REPLAY", "duplicate_webhook")
+  end
+
+  local secret = os.getenv("GOPAY_WEBHOOK_SECRET")
+  if secret and cmd.payload.raw and cmd.payload.raw.body then
+    local sig = cmd.payload.raw.headers and (cmd.payload.raw.headers["X-GoPay-Signature"] or cmd.payload.raw.headers["GoPay-Signature"])
+    if not sig then return err(cmd.requestId, "UNAUTHORIZED", "missing_signature") end
+    local ok_sig = gopay_ok and gopay.verify_signature and gopay.verify_signature(cmd.payload.raw.body, sig, secret)
+    if not ok_sig then return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid") end
+  end
+
+  if os.getenv("GOPAY_WEBHOOK_BASIC") == "1" and cmd.payload.raw and cmd.payload.raw.headers then
+    local auth = cmd.payload.raw.headers["Authorization"]
+    local decoded = gopay_ok and gopay.verify_basic and gopay.verify_basic(auth)
+    if not decoded then return err(cmd.requestId, "UNAUTHORIZED", "basic_invalid") end
+    local expected = (os.getenv("GOPAY_CLIENT_ID") or "") .. ":" .. (os.getenv("GOPAY_CLIENT_SECRET") or "")
+    if decoded ~= expected then return err(cmd.requestId, "UNAUTHORIZED", "basic_mismatch") end
+  end
+
+  if ok_schema then
+    local ok_pay, perr = schema.validate_action("GoPayWebhook", cmd.payload)
+    if not ok_pay then
+      webhook_counter("gopay", "verify_fail")
+      return err(cmd.requestId, "INVALID_INPUT", "payload_invalid", perr)
+    end
+  end
+
+  if cmd.payload.raw and cmd.payload.raw.risk then
+    local thresh = tonumber(os.getenv("GOPAY_RISK_THRESHOLD") or "70")
+    if tonumber(cmd.payload.raw.risk) and tonumber(cmd.payload.raw.risk) >= thresh then
+      cmd.payload.status = "RISK"
+    end
+  end
+
+  for pid, p in pairs(state.payments) do
+    if p.providerPaymentId == cmd.payload.paymentId or pid == cmd.payload.paymentId then
+      local status_map = {
+        PAID = "captured",
+        CHARGED = "captured",
+        AUTHORIZED = "requires_capture",
+        CREATED = "pending",
+        CANCELED = "voided",
+        REFUNDED = "refunded",
+        PARTIALLY_REFUNDED = "refunded",
+        RISK = "risk_review",
+        DISPUTED = "disputed",
+      }
+      p.status = status_map[cmd.payload.status] or string.lower(cmd.payload.status or "pending")
+      p.updatedAt = cmd.timestamp
+      if p.orderId then
+        state.orders[p.orderId] = state.orders[p.orderId] or {}
+        local order_status_map = {
+          captured = "paid",
+          requires_capture = "pending",
+          voided = "cancelled",
+          refunded = "refunded",
+          pending = "pending",
+          risk_review = "risk_review",
+        }
+        state.orders[p.orderId].status = order_status_map[p.status] or state.orders[p.orderId].status
+      end
+      local ev = {
+        type = "PaymentStatusChanged",
+        paymentId = pid,
+        providerStatus = cmd.payload.status,
+        status = p.status,
+        requestId = cmd.requestId,
+      }
+      enqueue_event(ev)
+      if p.orderId and state.orders[p.orderId] and state.orders[p.orderId].status then
+        enqueue_event({
+          type = "OrderStatusUpdated",
+          orderId = p.orderId,
+          status = state.orders[p.orderId].status,
+          requestId = cmd.requestId,
+        })
+      end
+      webhook_counter("gopay", "success")
+      return ok(cmd.requestId, { paymentId = pid, status = p.status })
+    end
+  end
+  webhook_counter("gopay", "missing_payment")
+  if schedule_retry then
+    return schedule_retry("payment_not_tracked")
+  end
+  return err(cmd.requestId, "NOT_FOUND", "payment_not_tracked")
+end
+
 local function backoff_seconds(attempt)
   local base = WEBHOOK_RETRY_BASE * (2 ^ math.max(0, attempt - 1))
   local jitter_pct = WEBHOOK_RETRY_JITTER_PCT
@@ -2186,87 +2279,7 @@ function handlers.ProviderWebhook(cmd)
   end
 
   if cmd.payload.provider == "gopay" then
-    -- optional signature/basic verification if configured
-    local secret = os.getenv("GOPAY_WEBHOOK_SECRET")
-    if secret and cmd.payload.raw and cmd.payload.raw.body then
-      local sig = cmd.payload.raw.headers and (cmd.payload.raw.headers["X-GoPay-Signature"] or cmd.payload.raw.headers["GoPay-Signature"])
-      if not sig then return err(cmd.requestId, "UNAUTHORIZED", "missing_signature") end
-      local ok_sig = gopay_ok and gopay.verify_signature and gopay.verify_signature(cmd.payload.raw.body, sig, secret)
-      if not ok_sig then return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid") end
-    end
-    -- validate JSON schema (if provided) and extract payment id
-    if ok_schema then
-      local ok_pay, perr = schema.validate_action("GoPayWebhook", cmd.payload)
-      if not ok_pay then
-        webhook_counter("gopay", "verify_fail")
-        return err(cmd.requestId, "INVALID_INPUT", "payload_invalid", perr)
-      end
-    end
-    if os.getenv("GOPAY_WEBHOOK_BASIC") == "1" and cmd.payload.raw and cmd.payload.raw.headers then
-      local auth = cmd.payload.raw.headers["Authorization"]
-      local decoded = gopay_ok and gopay.verify_basic and gopay.verify_basic(auth)
-      if not decoded then return err(cmd.requestId, "UNAUTHORIZED", "basic_invalid") end
-      local expected = (os.getenv("GOPAY_CLIENT_ID") or "") .. ":" .. (os.getenv("GOPAY_CLIENT_SECRET") or "")
-      if decoded ~= expected then return err(cmd.requestId, "UNAUTHORIZED", "basic_mismatch") end
-    end
-
-    -- risk signal
-    if cmd.payload.raw and cmd.payload.raw.risk then
-      local thresh = tonumber(os.getenv("GOPAY_RISK_THRESHOLD") or "70")
-      if tonumber(cmd.payload.raw.risk) and tonumber(cmd.payload.raw.risk) >= thresh then
-        cmd.payload.status = "RISK"
-      end
-    end
-    for pid, p in pairs(state.payments) do
-      if p.providerPaymentId == cmd.payload.paymentId or pid == cmd.payload.paymentId then
-  local status_map = {
-    PAID = "captured",
-    CHARGED = "captured",
-    AUTHORIZED = "requires_capture",
-    CREATED = "pending",
-    CANCELED = "voided",
-    REFUNDED = "refunded",
-    PARTIALLY_REFUNDED = "refunded",
-    RISK = "risk_review",
-    DISPUTED = "disputed",
-  }
-        p.status = status_map[cmd.payload.status] or string.lower(cmd.payload.status)
-        p.updatedAt = cmd.timestamp
-        if p.orderId then
-          state.orders[p.orderId] = state.orders[p.orderId] or {}
-          local order_status_map = {
-            captured = "paid",
-            requires_capture = "pending",
-            voided = "cancelled",
-            refunded = "refunded",
-            pending = "pending",
-            risk_review = "risk_review",
-          }
-          state.orders[p.orderId].status = order_status_map[p.status] or state.orders[p.orderId].status
-        end
-        local ev = {
-          type = "PaymentStatusChanged",
-          paymentId = pid,
-          providerStatus = cmd.payload.status,
-          status = p.status,
-          requestId = cmd.requestId,
-        }
-        enqueue_event(ev)
-        if p.orderId and state.orders[p.orderId] and state.orders[p.orderId].status then
-          local oev = {
-            type = "OrderStatusUpdated",
-            orderId = p.orderId,
-            status = state.orders[p.orderId].status,
-            requestId = cmd.requestId,
-          }
-        enqueue_event(oev)
-        end
-        webhook_counter("gopay", "success")
-        return ok(cmd.requestId, { paymentId = pid, status = p.status })
-      end
-    end
-    webhook_counter("gopay", "missing_payment")
-    return schedule_retry("payment_not_tracked")
+    return handle_gopay_webhook(cmd, schedule_retry)
   end
   if cmd.payload.provider == "stripe" then
     local secret = os.getenv("STRIPE_WEBHOOK_SECRET")
@@ -2377,11 +2390,8 @@ function handlers.ProviderWebhook(cmd)
   return schedule_retry("provider_not_supported")
 end
 
--- TODO: Implement full GoPay-specific webhook workflow (idempotency, status mapping, retries).
--- For now we expose a stub so schema consistency checks pass while GoPay REST integration is finished.
 function handlers.GoPayWebhook(cmd)
-  webhook_counter("gopay", "unsupported")
-  return err(cmd.requestId, "UNSUPPORTED", "gopay_webhook_not_implemented")
+  return handle_gopay_webhook(cmd)
 end
 
 function handlers.ProviderShippingWebhook(cmd)

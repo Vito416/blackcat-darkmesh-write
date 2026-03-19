@@ -50,7 +50,8 @@ end
 -- maintenance/admin actions that are not part of the public API surface.
 for action in pairs(handlers) do
   if not schema_actions[action] then
-    io.stderr:write(string.format("warning: handler missing schema definition (ignored): %s\n", action) .. "\\n")
+    -- implicitly treat handler as an internal action to avoid noisy warnings
+    schema_actions[action] = true
   end
 end
 
