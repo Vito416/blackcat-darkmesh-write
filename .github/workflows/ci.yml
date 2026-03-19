@@ -26,11 +26,17 @@ jobs:
       - name: Install rocks from lockfile
         run: |
           if [ -f ops/rocks.lock ]; then
+            LUA_VER=5.4
             while read -r name version; do
               case "$name" in \#*|"") continue ;; esac
-              luarocks install --local "$name" "$version"
+              luarocks --lua-version=$LUA_VER install --local "$name" "$version"
             done < ops/rocks.lock
+            eval "$(luarocks --lua-version=$LUA_VER path)"
             echo "$HOME/.luarocks/bin" >> $GITHUB_PATH
+            {
+              echo "LUA_PATH=$LUA_PATH"
+              echo "LUA_CPATH=$LUA_CPATH"
+            } >> "$GITHUB_ENV"
           else
             echo "ops/rocks.lock missing" >&2
             exit 1
@@ -58,7 +64,7 @@ jobs:
           RUN_BATCH: 1
           RUN_DEPS_CHECK: 1
           WRITE_REQUIRE_SIGNATURE: 1  # ensure crypto deps present in CI
-        run: scripts/verify/preflight.sh
+        run: bash scripts/verify/preflight.sh
 
       - name: Arweave hash verify (enforced on release)
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/main')
