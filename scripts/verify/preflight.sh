@@ -47,9 +47,15 @@ echo "[verify] done"
 
 # optional contract smoke tests
 if command -v lua5.4 >/dev/null 2>&1; then
+  # capture luarocks paths (Lua 5.4) so optional deps can be resolved
+  ROCKS_LUA_PATH=$(luarocks --lua-version=5.4 path --lr-path 2>/dev/null || true)
+  ROCKS_LUA_CPATH=$(luarocks --lua-version=5.4 path --lr-cpath 2>/dev/null || true)
+
   if [ "${RUN_DEPS_CHECK:-0}" -eq 1 ]; then
     echo "[verify] deps check"
-    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 "$ROOT_DIR/scripts/verify/deps_check.lua"
+    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
+    LUA_CPATH="${ROCKS_LUA_CPATH}" \
+      lua5.4 "$ROOT_DIR/scripts/verify/deps_check.lua"
   fi
   if [ "${RUN_CONTRACTS:-1}" -eq 1 ]; then
     echo "[verify] contract smoke tests"
