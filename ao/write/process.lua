@@ -2759,6 +2759,7 @@ function handlers.GoPayWebhook(cmd)
 end
 
 function handlers.ProviderShippingWebhook(cmd)
+  -- debug hook for smoke tests
   local function schedule_retry(reason)
     cmd._attempts = (cmd._attempts or 0) + 1
     enqueue_webhook_retry("ProviderShippingWebhook", cmd, cmd._attempts)
