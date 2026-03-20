@@ -62,7 +62,9 @@ if first.status ~= "OK" and first.code ~= "REPLAY" then
   os.exit(1)
 end
 local ship_replay = {}
-for k, v in pairs(ship) do ship_replay[k] = v end
+for k, v in pairs(ship) do
+  ship_replay[k] = v
+end
 ship_replay.requestId = ship.requestId .. "-replay"
 ship_replay.nonce = ship.nonce .. "-2"
 local second = process.route(ship_replay)
