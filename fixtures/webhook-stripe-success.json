@@ -1,0 +1,18 @@
+{
+  "action": "ProviderWebhook",
+  "requestId": "rw-stripe-1",
+  "actor": "system",
+  "tenant": "t1",
+  "nonce": "n-stripe-1",
+  "timestamp": "2026-03-21T00:00:00Z",
+  "signatureRef": "sig",
+  "payload": {
+    "provider": "stripe",
+    "eventId": "evt_1",
+    "eventType": "payment_intent.succeeded",
+    "paymentId": "pi_123",
+    "raw": {
+      "body": "{\"id\":\"pi_123\",\"object\":\"payment_intent\"}"
+    }
+  }
+}

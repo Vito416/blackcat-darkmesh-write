@@ -1,0 +1,18 @@
+{
+  "action": "ProviderWebhook",
+  "requestId": "rw-replay-1",
+  "actor": "system",
+  "tenant": "t1",
+  "nonce": "n-replay-1",
+  "timestamp": "2026-03-21T00:00:00Z",
+  "signatureRef": "sig",
+  "payload": {
+    "provider": "stripe",
+    "eventId": "evt_replay",
+    "eventType": "payment_intent.succeeded",
+    "paymentId": "pi_replay",
+    "raw": {
+      "body": "{\"id\":\"pi_replay\",\"object\":\"payment_intent\"}"
+    }
+  }
+}

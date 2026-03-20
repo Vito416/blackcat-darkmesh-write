@@ -26,9 +26,13 @@ end
 local gopay_ok, gopay = pcall(require, "ao.shared.gopay")
 local stripe_ok, stripe = pcall(require, "ao.shared.stripe")
 local paypal_ok, paypal = pcall(require, "ao.shared.paypal")
+local psp_webhooks = require "ao.shared.psp_webhooks"
 local tax = require "ao.shared.tax"
 local ok_mime, mime = pcall(require, "mime")
 local ok_json, cjson = pcall(require, "cjson.safe")
+
+-- forward declarations
+local set_payment_status
 
 local OUTBOX_PATH = os.getenv "WRITE_OUTBOX_PATH"
 local WAL_PATH = os.getenv "WRITE_WAL_PATH"
@@ -300,110 +304,71 @@ local function mark_webhook_seen(key, ts)
 end
 
 local webhook_counter
--- Shared GoPay webhook handling (also used by direct GoPayWebhook action)
-local function handle_gopay_webhook(cmd, schedule_retry)
-  local replay_key = "gopay:"
-    .. (cmd.payload.eventId or cmd.payload.paymentId or cmd.payload.orderId or cmd.requestId or "")
+
+local function handle_psp_webhook(cmd, schedule_retry)
+  local provider = string.lower(cmd.payload.provider or "")
+  local spec = psp_webhooks.registry[provider]
+  if not spec then
+    webhook_counter(provider or "unknown", "unsupported")
+    return schedule_retry and schedule_retry "provider_not_supported"
+      or err(cmd.requestId, "INVALID_INPUT", "provider_not_supported")
+  end
+
+  local replay_key = spec.replay_key(cmd)
   if replay_key ~= "" and not mark_webhook_seen(replay_key, cmd.timestamp) then
-    webhook_counter("gopay", "replay")
+    webhook_counter(provider, "replay")
     return err(cmd.requestId, "REPLAY", "duplicate_webhook")
   end
 
-  local secret = os.getenv "GOPAY_WEBHOOK_SECRET"
-  if secret and cmd.payload.raw and cmd.payload.raw.body then
-    local sig = cmd.payload.raw.headers
-      and (
-        cmd.payload.raw.headers["X-GoPay-Signature"] or cmd.payload.raw.headers["GoPay-Signature"]
-      )
-    if not sig then
-      return err(cmd.requestId, "UNAUTHORIZED", "missing_signature")
-    end
-    local ok_sig = gopay_ok
-      and gopay.verify_signature
-      and gopay.verify_signature(cmd.payload.raw.body, sig, secret)
-    if not ok_sig then
-      return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid")
-    end
-  end
-
-  if os.getenv "GOPAY_WEBHOOK_BASIC" == "1" and cmd.payload.raw and cmd.payload.raw.headers then
-    local auth = cmd.payload.raw.headers["Authorization"]
-    local decoded = gopay_ok and gopay.verify_basic and gopay.verify_basic(auth)
-    if not decoded then
-      return err(cmd.requestId, "UNAUTHORIZED", "basic_invalid")
-    end
-    local expected = (os.getenv "GOPAY_CLIENT_ID" or "")
-      .. ":"
-      .. (os.getenv "GOPAY_CLIENT_SECRET" or "")
-    if decoded ~= expected then
-      return err(cmd.requestId, "UNAUTHORIZED", "basic_mismatch")
+  if spec.verify then
+    local okv, verr = spec.verify(cmd)
+    if not okv then
+      webhook_counter(provider, "verify_fail")
+      return err(cmd.requestId, "UNAUTHORIZED", verr or "signature_invalid")
     end
   end
 
   if ok_schema then
-    local ok_pay, perr = schema.validate_action("GoPayWebhook", cmd.payload)
+    local action_name = provider == "gopay" and "GoPayWebhook" or "ProviderPaymentWebhook"
+    local ok_pay, perr = schema.validate_action(action_name, cmd.payload)
     if not ok_pay then
-      webhook_counter("gopay", "verify_fail")
+      webhook_counter(provider, "verify_fail")
       return err(cmd.requestId, "INVALID_INPUT", "payload_invalid", perr)
     end
   end
 
-  if cmd.payload.raw and cmd.payload.raw.risk then
+  -- provider-specific status mapping
+  if cmd.payload.raw and cmd.payload.raw.risk and provider == "gopay" then
     local thresh = tonumber(os.getenv "GOPAY_RISK_THRESHOLD" or "70")
     if tonumber(cmd.payload.raw.risk) and tonumber(cmd.payload.raw.risk) >= thresh then
       cmd.payload.status = "RISK"
     end
   end
 
-  for pid, p in pairs(state.payments) do
-    if p.providerPaymentId == cmd.payload.paymentId or pid == cmd.payload.paymentId then
-      local status_map = {
-        PAID = "captured",
-        CHARGED = "captured",
-        AUTHORIZED = "requires_capture",
-        CREATED = "pending",
-        CANCELED = "voided",
-        REFUNDED = "refunded",
-        PARTIALLY_REFUNDED = "refunded",
-        RISK = "risk_review",
-        DISPUTED = "disputed",
-      }
-      p.status = status_map[cmd.payload.status] or string.lower(cmd.payload.status or "pending")
-      p.updatedAt = cmd.timestamp
-      if p.orderId then
-        state.orders[p.orderId] = state.orders[p.orderId] or {}
-        local order_status_map = {
-          captured = "paid",
-          requires_capture = "pending",
-          voided = "cancelled",
-          refunded = "refunded",
-          pending = "pending",
-          risk_review = "risk_review",
-        }
-        state.orders[p.orderId].status = order_status_map[p.status]
-          or state.orders[p.orderId].status
+  local new_status = spec.status and spec.status(cmd) or "pending"
+  local pid = cmd.payload.paymentId or cmd.payload.orderId or cmd.payload.eventId
+
+  if pid and state.payments[pid] then
+    set_payment_status(pid, new_status, cmd.payload.status or cmd.payload.eventType, cmd.requestId)
+    if spec.on_found then
+      spec.on_found(pid, state.payments[pid], cmd, state)
+    end
+    webhook_counter(provider, "success")
+    return ok(cmd.requestId, { paymentId = pid, status = new_status })
+  end
+
+  for ppid, p in pairs(state.payments) do
+    if p.provider == provider and p.providerPaymentId == pid then
+      set_payment_status(ppid, new_status, cmd.payload.status or cmd.payload.eventType, cmd.requestId)
+      if spec.on_found then
+        spec.on_found(ppid, state.payments[ppid], cmd, state)
       end
-      local ev = {
-        type = "PaymentStatusChanged",
-        paymentId = pid,
-        providerStatus = cmd.payload.status,
-        status = p.status,
-        requestId = cmd.requestId,
-      }
-      enqueue_event(ev)
-      if p.orderId and state.orders[p.orderId] and state.orders[p.orderId].status then
-        enqueue_event {
-          type = "OrderStatusUpdated",
-          orderId = p.orderId,
-          status = state.orders[p.orderId].status,
-          requestId = cmd.requestId,
-        }
-      end
-      webhook_counter("gopay", "success")
-      return ok(cmd.requestId, { paymentId = pid, status = p.status })
+      webhook_counter(provider, "success")
+      return ok(cmd.requestId, { paymentId = pid or ppid, status = state.payments[ppid].status })
     end
   end
-  webhook_counter("gopay", "missing_payment")
+
+  webhook_counter(provider, "missing_payment")
   if schedule_retry then
     return schedule_retry "payment_not_tracked"
   end
@@ -492,7 +457,7 @@ local function new_session_id()
   return string.format("sess_%d_%06d", os.time(), math.random(0, 999999))
 end
 
-local function set_payment_status(pid, new_status, provider_status, req_id)
+function set_payment_status(pid, new_status, provider_status, req_id)
   local p = state.payments[pid]
   if not p then
     return
@@ -2630,132 +2595,13 @@ function handlers.ProviderWebhook(cmd)
     return err(cmd.requestId, "RETRY_SCHEDULED", reason or "retry")
   end
 
-  if cmd.payload.provider == "gopay" then
-    return handle_gopay_webhook(cmd, schedule_retry)
-  end
-  if cmd.payload.provider == "stripe" then
-    local secret = os.getenv "STRIPE_WEBHOOK_SECRET"
-    if secret and cmd.payload.raw and cmd.payload.raw.body then
-      local sig = cmd.payload.raw.headers and cmd.payload.raw.headers["Stripe-Signature"]
-      local ok_sig = stripe_ok
-        and stripe.verify_webhook(
-          cmd.payload.raw.body,
-          sig,
-          secret,
-          tonumber(os.getenv "STRIPE_WEBHOOK_TOLERANCE" or "300")
-        )
-      if not ok_sig then
-        webhook_counter("stripe", "verify_fail")
-        return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid")
-      end
-    end
-    local status_map = {
-      ["payment_intent.succeeded"] = "captured",
-      ["payment_intent.payment_failed"] = "failed",
-      ["payment_intent.canceled"] = "voided",
-      ["charge.refunded"] = "refunded",
-      ["charge.refund.updated"] = "refunded",
-      ["payment_intent.processing"] = "pending",
-      ["payment_intent.requires_action"] = "requires_capture",
-      ["charge.dispute.created"] = "disputed",
-      ["charge.dispute.closed"] = "captured",
-      ["charge.dispute.funds_withdrawn"] = "disputed",
-      ["charge.dispute.funds_reinstated"] = "captured",
-      ["charge.dispute.accepted"] = "disputed",
-      ["charge.dispute.expired"] = "disputed",
-      ["charge.dispute.escalated"] = "disputed",
-    }
-    local new_status = status_map[cmd.payload.eventType] or "pending"
-    local replay_key = "stripe:" .. (cmd.payload.eventId or cmd.payload.paymentId or "")
-    if not mark_webhook_seen(replay_key, cmd.timestamp) then
-      webhook_counter("stripe", "replay")
-      return err(cmd.requestId, "REPLAY", "duplicate_webhook")
-    end
-    for pid, p in pairs(state.payments) do
-      if p.providerPaymentId == cmd.payload.paymentId or pid == cmd.payload.paymentId then
-        if cmd.payload.eventType:match "dispute" then
-          state.payment_disputes[pid] = state.payment_disputes[pid] or {}
-          state.payment_disputes[pid].status = new_status
-          state.payment_disputes[pid].reason = cmd.payload.reason
-          state.payment_disputes[pid].evidence = cmd.payload.evidence
-            or state.payment_disputes[pid].evidence
-        end
-        set_payment_status(pid, new_status, cmd.payload.eventType, cmd.requestId)
-        webhook_counter("stripe", "success")
-        return ok(cmd.requestId, { paymentId = pid, status = new_status })
-      end
-    end
-    webhook_counter("stripe", "missing_payment")
-    return schedule_retry "payment_not_tracked"
-  end
-  if cmd.payload.provider == "paypal" then
-    local secret = os.getenv "PAYPAL_WEBHOOK_SECRET"
-    local strict = os.getenv "PAYPAL_WEBHOOK_STRICT" == "1"
-    if (secret or strict) and cmd.payload.raw and cmd.payload.raw.body then
-      local headers = cmd.payload.raw.headers or {}
-      local sig = headers["PayPal-Transmission-Sig"] or headers["PP-Signature"]
-      if strict and not sig then
-        return err(cmd.requestId, "UNAUTHORIZED", "missing_signature")
-      end
-      local ok_sig = false
-      if paypal_ok then
-        if sig and secret then
-          ok_sig = paypal.verify_webhook(cmd.payload.raw.body, sig, secret)
-        end
-        if not ok_sig then
-          local remote_ok = select(1, paypal.verify_webhook_remote(cmd.payload.raw.body, headers))
-          ok_sig = remote_ok or ok_sig
-        end
-      end
-      if not ok_sig then
-        webhook_counter("paypal", "verify_fail")
-      end
-      if strict and not ok_sig then
-        return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid")
-      end
-    end
-    local status_map = {
-      ["PAYMENT.CAPTURE.COMPLETED"] = "captured",
-      ["PAYMENT.CAPTURE.DENIED"] = "failed",
-      ["PAYMENT.CAPTURE.REFUNDED"] = "refunded",
-      ["PAYMENT.CAPTURE.REVERSED"] = "voided",
-      ["CHECKOUT.ORDER.APPROVED"] = "requires_capture",
-      ["PAYMENT.CAPTURE.PENDING"] = "pending",
-      ["CUSTOMER.DISPUTE.CREATED"] = "disputed",
-      ["CUSTOMER.DISPUTE.UPDATED"] = "disputed",
-      ["CUSTOMER.DISPUTE.RESOLVED"] = "captured",
-      ["CUSTOMER.DISPUTE.EXPIRED"] = "disputed",
-      ["CUSTOMER.DISPUTE.ESCALATED"] = "disputed",
-    }
-    local new_status = status_map[cmd.payload.eventType] or "pending"
-    local replay_key = "paypal:" .. (cmd.payload.eventId or cmd.payload.paymentId or "")
-    if not mark_webhook_seen(replay_key, cmd.timestamp) then
-      webhook_counter("paypal", "replay")
-      return err(cmd.requestId, "REPLAY", "duplicate_webhook")
-    end
-    for pid, p in pairs(state.payments) do
-      if p.providerPaymentId == cmd.payload.paymentId or pid == cmd.payload.paymentId then
-        if cmd.payload.eventType:match "DISPUTE" then
-          state.payment_disputes[pid] = state.payment_disputes[pid] or {}
-          state.payment_disputes[pid].status = new_status
-          state.payment_disputes[pid].reason = cmd.payload.reason
-          state.payment_disputes[pid].evidence = cmd.payload.evidence
-            or state.payment_disputes[pid].evidence
-        end
-        set_payment_status(pid, new_status, cmd.payload.eventType, cmd.requestId)
-        webhook_counter("paypal", "success")
-        return ok(cmd.requestId, { paymentId = pid, status = new_status })
-      end
-    end
-    webhook_counter("paypal", "missing_payment")
-    return schedule_retry "payment_not_tracked"
-  end
-  webhook_counter(cmd.payload.provider, "unsupported")
-  return schedule_retry "provider_not_supported"
+  cmd.payload.provider = string.lower(cmd.payload.provider or "")
+  return handle_psp_webhook(cmd, schedule_retry)
 end
 
 function handlers.GoPayWebhook(cmd)
-  return handle_gopay_webhook(cmd)
+  cmd.payload.provider = "gopay"
+  return handle_psp_webhook(cmd)
 end
 
 function handlers.ProviderShippingWebhook(cmd)
