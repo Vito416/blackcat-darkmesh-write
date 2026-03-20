@@ -131,6 +131,7 @@ scripts/cli/       # local helpers (run command)
   - `max_over_time(outbox_queue_depth[5m]) > 100 or increase(webhook_retry_queue[5m]) > 20`
   - `increase(breaker_open[5m]) > 0`
 - Add alerts on rising trends; log/Prom output controlled by `METRICS_*` envs in `ao/shared/metrics.lua`.
+- More alert examples: `docs/ALERTS.md`.
 
 ## Bridge (stub)
 - `scripts/bridge/forward_outbox.lua` reads the in-memory outbox (`write._storage_outbox()`) and logs events you would forward to `blackcat-darkmesh-ao`. Replace `forward_event` with signed POST to AO endpoint (registry/site process) in production.
