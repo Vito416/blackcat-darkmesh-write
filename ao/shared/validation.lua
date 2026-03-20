@@ -368,6 +368,15 @@ local validators = {
     end
     return true
   end,
+  ProviderWebhook = function(p)
+    if not p or not p.provider then
+      return false, { "missing:provider" }
+    end
+    if not (p.paymentId or p.orderId or p.eventId) then
+      return false, { "missing:paymentId|orderId|eventId" }
+    end
+    return true
+  end,
   ConfirmPayment = function(p)
     if not p or not p.paymentId or not p.provider then
       return false, { "missing:paymentId,provider" }
