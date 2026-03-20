@@ -112,6 +112,16 @@ if command -v lua5.4 >/dev/null 2>&1; then
     LUA_CPATH="${ROCKS_LUA_CPATH}" \
       lua5.4 "$ROOT_DIR/scripts/verify/webhook_psp_spec.lua"
   fi
+  if [ "${RUN_ORDER_LIFECYCLE:-1}" -eq 1 ]; then
+    echo "[verify] order lifecycle spec"
+    WRITE_REQUIRE_NONCE=0 \
+    WRITE_REQUIRE_TIMESTAMP=0 \
+    WRITE_REQUIRE_SIGNATURE=0 \
+    WRITE_REQUIRE_JWT=0 \
+    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
+    LUA_CPATH="${ROCKS_LUA_CPATH}" \
+      lua5.4 "$ROOT_DIR/scripts/verify/order_lifecycle_spec.lua"
+  fi
   if [ "${RUN_IDEM_PROPERTY:-1}" -eq 1 ]; then
     echo "[verify] idempotency property test"
     WRITE_REQUIRE_SIGNATURE=0 \

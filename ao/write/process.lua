@@ -1346,6 +1346,7 @@ function handlers.UpsertOrderStatus(cmd)
     orderId = oid,
     status = order.status,
     version = order.version,
+    reason = order.reason,
     requestId = cmd.requestId,
   }
   return ok(cmd.requestId, {
