@@ -77,6 +77,4 @@ if #q == 0 then
   io.stderr:write "Outbox empty after webhook processing\n"
   os.exit(1)
 end
--- we only assert presence; full-event HMAC is validated by forwarder in prod
-local ev = q[#q].event
 print "ingest_smoke: OK"
