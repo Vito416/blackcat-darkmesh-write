@@ -479,6 +479,9 @@ function set_payment_status(pid, new_status, provider_status, req_id)
       voided = "cancelled",
       disputed = "disputed",
       failed = "payment_failed",
+      requires_capture = "pending",
+      returned = "returned",
+      fulfilled = "fulfilled",
       pending = state.orders[p.orderId].status,
     }
     local new_order_status = map[p.status]
@@ -499,7 +502,7 @@ end
 local allowed_order_transitions = {
   draft = { confirmed = true, cancelled = true },
   confirmed = { paid = true, cancelled = true },
-  paid = { fulfilled = true, refunded = true, cancelled = true },
+  paid = { fulfilled = true, returned = true, refunded = true, cancelled = true },
   fulfilled = { returned = true, refunded = true },
   returned = { refunded = true },
   refunded = {},
