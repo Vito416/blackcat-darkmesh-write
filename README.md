@@ -64,7 +64,6 @@ flowchart LR
   style Q fill:#0b7285,stroke:#0b7285,color:#fff
 ```
 
-```
 Legend: teal = queues/events, gray = WAL/audit paths.
 
 ### Interfaces at a glance

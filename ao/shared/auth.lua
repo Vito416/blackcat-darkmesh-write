@@ -395,7 +395,7 @@ function Auth.compute_outbox_hmac(msg, secret)
     return nil, "missing_outbox_hmac_secret"
   end
   -- Allow secrets provided as 64-char hex by decoding to 32 raw bytes for sodium
-  if type(secret) == "string" and #secret == 64 and secret:match("^[0-9a-fA-F]+$") then
+  if type(secret) == "string" and #secret == 64 and secret:match "^[0-9a-fA-F]+$" then
     secret = secret:gsub("..", function(cc)
       return string.char(tonumber(cc, 16))
     end)
