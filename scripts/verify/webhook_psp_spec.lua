@@ -8,6 +8,7 @@ local overrides = {
   METRICS_LOG = "dev/test-metrics.log",
 }
 
+-- luacheck: push ignore os
 local real_getenv = os.getenv
 os.getenv = function(key)
   if overrides[key] ~= nil then
@@ -45,11 +46,11 @@ local function run_webhook(name, payload, ts)
   then
     local ok, crypto = pcall(require, "ao.shared.crypto")
     if ok and crypto.hmac_sha256_hex then
-      local ts = tostring(os.time())
+      local ts_header = tostring(os.time())
       local secret = os.getenv "STRIPE_WEBHOOK_SECRET" or "whsec_test"
-      local sig = crypto.hmac_sha256_hex(ts .. "." .. payload.raw.body, secret)
+      local sig = crypto.hmac_sha256_hex(ts_header .. "." .. payload.raw.body, secret)
       if sig then
-        payload.raw.headers["Stripe-Signature"] = string.format("t=%s,v1=%s", ts, sig)
+        payload.raw.headers["Stripe-Signature"] = string.format("t=%s,v1=%s", ts_header, sig)
       else
         payload.raw.skip_verify = true
         overrides.STRIPE_WEBHOOK_SECRET = false
@@ -339,6 +340,7 @@ local remote_fail = run_webhook("rw-paypal-remote-500", {
 })
 paypal.verify_webhook_remote = original_remote
 os.getenv = original_getenv
+-- luacheck: pop
 
 assert(
   remote_fail.status == "ERROR" and remote_fail.code == "RETRY_SCHEDULED",

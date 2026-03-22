@@ -50,8 +50,6 @@ local function run_pair(action, payload1, payload2)
     local draft = after.drafts[key]
     if draft and draft.blocks and #draft.blocks ~= #payload1.payload.blocks then
       fail(action .. " idempotency mutated draft blocks on replay")
-    else
-      skip = true
     end
   end
 end

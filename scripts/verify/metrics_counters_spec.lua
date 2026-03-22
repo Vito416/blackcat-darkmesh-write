@@ -12,6 +12,7 @@ local overrides = {
   METRICS_FLUSH_EVERY = "0",
 }
 
+-- luacheck: push ignore os
 local real_getenv = os.getenv
 os.getenv = function(key)
   if overrides[key] ~= nil then
@@ -19,6 +20,7 @@ os.getenv = function(key)
   end
   return real_getenv(key)
 end
+-- luacheck: pop
 
 local metrics = require "ao.shared.metrics"
 

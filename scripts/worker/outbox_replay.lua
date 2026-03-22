@@ -91,7 +91,13 @@ if metrics_ok and metrics.gauge then
   metrics.gauge("outbox_queue_depth", written)
 end
 
-local msg = string.format("outbox_replay: wrote=%d skipped=%d source=%s dest=%s", written, skipped, outbox_path, queue_path)
+local msg = string.format(
+  "outbox_replay: wrote=%d skipped=%d source=%s dest=%s",
+  written,
+  skipped,
+  outbox_path,
+  queue_path
+)
 print(msg)
 if skipped > 0 then
   io.stderr:write(

@@ -1,9 +1,17 @@
 -- Unified PSP webhook helpers (Stripe / PayPal / GoPay).
 -- Provides per-provider verification, replay key, and status mapping.
 
-local ok_json, cjson = pcall(require, "cjson.safe")
-if not ok_json then
-  ok_json, cjson = pcall(require, "cjson")
+local cjson
+do
+  local ok, mod = pcall(require, "cjson.safe")
+  if ok then
+    cjson = mod
+  else
+    ok, mod = pcall(require, "cjson")
+    if ok then
+      cjson = mod
+    end
+  end
 end
 local stripe_ok, stripe = pcall(require, "ao.shared.stripe")
 local paypal_ok, paypal = pcall(require, "ao.shared.paypal")
@@ -135,7 +143,7 @@ M.registry = {
       }
       return status_map[cmd.payload.eventType] or "pending"
     end,
-    on_found = function(pid, p, cmd, state)
+    on_found = function(pid, _p, cmd, state)
       if cmd.payload.eventType and cmd.payload.eventType:match "dispute" then
         state.payment_disputes[pid] = state.payment_disputes[pid] or {}
         state.payment_disputes[pid].status = cmd.payload.eventType
@@ -200,7 +208,7 @@ M.registry = {
       }
       return status_map[cmd.payload.eventType] or "pending"
     end,
-    on_found = function(pid, p, cmd, state)
+    on_found = function(pid, _p, cmd, state)
       if cmd.payload.eventType and cmd.payload.eventType:match "DISPUTE" then
         state.payment_disputes[pid] = state.payment_disputes[pid] or {}
         state.payment_disputes[pid].status = cmd.payload.eventType
