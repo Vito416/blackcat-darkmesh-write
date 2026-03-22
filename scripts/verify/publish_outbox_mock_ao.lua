@@ -5,18 +5,16 @@ local write = require "ao.write.process"
 local crypto = require "ao.shared.crypto"
 local storage = require "ao.shared.storage"
 
--- test-local env override (works even without os.setenv)
 local overrides = {}
 local real_getenv = os.getenv
--- luacheck: push ignore os
-os.getenv = function(k)
+local function getenv(k)
   if overrides[k] ~= nil then
     return overrides[k]
   end
   return real_getenv(k)
 end
--- luacheck: pop
-overrides.OUTBOX_HMAC_SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+-- 32-byte raw secret (not hex) to satisfy libsodium crypto_auth key size
+overrides.OUTBOX_HMAC_SECRET = "0123456789abcdef0123456789abcdef"
 
 local function ok(res)
   return res and res.status == "OK"
@@ -65,12 +63,9 @@ assert(#queue > 0, "outbox empty")
 for _, entry in ipairs(queue) do
   local ev = entry.event
   if ev.Hmac then
-    local payload = (ev["Site-Id"] or ev.siteId or ev.tenant or "")
-      .. "|"
-      .. (ev["Page-Id"] or ev["Order-Id"] or ev.key or ev["Key"] or ev.resourceId or "")
-      .. "|"
-      .. (ev.Version or ev["Manifest-Tx"] or ev.Amount or ev.Total or ev.ts or ev.timestamp or "")
-    local expected = crypto.hmac_sha256_hex(payload, os.getenv "OUTBOX_HMAC_SECRET" or "")
+    local auth = require "ao.shared.auth"
+    local expected = auth.compute_outbox_hmac(ev, getenv "OUTBOX_HMAC_SECRET" or "")
+    assert(expected, "HMAC compute failed")
     assert(ev.Hmac == expected, "HMAC mismatch")
   end
 end
