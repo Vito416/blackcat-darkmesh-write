@@ -8,12 +8,14 @@ local storage = require "ao.shared.storage"
 -- test-local env override (works even without os.setenv)
 local overrides = {}
 local real_getenv = os.getenv
+-- luacheck: push ignore os
 os.getenv = function(k)
   if overrides[k] ~= nil then
     return overrides[k]
   end
   return real_getenv(k)
 end
+-- luacheck: pop
 overrides.OUTBOX_HMAC_SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 local function ok(res)
