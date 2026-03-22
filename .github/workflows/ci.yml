@@ -197,7 +197,7 @@ jobs:
         run: gitleaks detect --no-git -v
 
       - name: Checksum alert (wal/queue)
-        run: scripts/verify/checksum_alert.sh
+        run: bash scripts/verify/checksum_alert.sh
 
       - name: Upload bundle artifact
         if: always()
