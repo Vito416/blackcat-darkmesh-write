@@ -10,8 +10,31 @@ if [ ! -f "$FILE" ]; then
   echo "file not found: $FILE" >&2
   exit 1
 fi
-LOCAL_HASH=$(sha256sum "$FILE" | awk '{print $1}')
-REMOTE_HASH=$(curl --connect-timeout 5 --max-time 15 --max-filesize 52428800 -sL "https://arweave.net/${TXID}" | sha256sum | awk '{print $1}')
+
+hash_stream() {
+  local path_or_stream=$1
+  if [ "$path_or_stream" = "-" ]; then
+    # stdin
+    sha256sum | awk '{print $1}'
+  else
+    sha256sum "$path_or_stream" | awk '{print $1}'
+  fi
+}
+
+hash_gzip_or_plain() {
+  local src=$1
+  if file -b "$src" | grep -qi gzip; then
+    gzip -cd "$src" | sha256sum | awk '{print $1}'
+  else
+    sha256sum "$src" | awk '{print $1}'
+  fi
+}
+
+REMOTE_HASH=$(curl --connect-timeout 5 --max-time 15 --max-filesize 52428800 -sL "https://arweave.net/${TXID}" |
+  { if file -b /dev/stdin 2>/dev/null | grep -qi gzip; then gzip -cd; else cat; fi; } |
+  sha256sum | awk '{print $1}')
+
+LOCAL_HASH=$(hash_gzip_or_plain "$FILE")
 if [ "$LOCAL_HASH" = "$REMOTE_HASH" ]; then
   echo "hash match: $LOCAL_HASH"
   exit 0
