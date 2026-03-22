@@ -15,8 +15,8 @@ package.cpath = table.concat({
 }, ";")
 
 -- test-local env override without mutating os.getenv (luacheck-friendly)
--- expects OUTBOX_HMAC_SECRET to be a 32-byte raw string (matching prod hex after decode)
-local overrides = { OUTBOX_HMAC_SECRET = "0123456789abcdef0123456789abcdef" }
+-- expects OUTBOX_HMAC_SECRET to decode to 32 raw bytes; use 64-char hex here
+local overrides = { OUTBOX_HMAC_SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }
 local function getenv(k)
   if overrides[k] ~= nil then
     return overrides[k]
