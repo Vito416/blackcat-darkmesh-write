@@ -39,6 +39,6 @@ if [ "$LOCAL_HASH" = "$REMOTE_HASH" ]; then
   echo "hash match: $LOCAL_HASH"
   exit 0
 else
-  echo "hash mismatch! local=$LOCAL_HASH remote=$REMOTE_HASH" >&2
+  echo "hash mismatch! ref=$REF local=$LOCAL_HASH remote=$REMOTE_HASH" >&2
   exit 2
 fi
