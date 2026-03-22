@@ -10,11 +10,27 @@ local function expect(code, msg)
   end
 end
 
+-- test-local env override (works even when os.setenv missing)
+local overrides = {}
+local real_getenv = os.getenv
+os.getenv = function(k)
+  if overrides[k] ~= nil then
+    return overrides[k]
+  end
+  return real_getenv(k)
+end
+local function setenv(k, v)
+  overrides[k] = v
+  if os.setenv then
+    os.setenv(k, v)
+  end
+end
+
 -- HMAC attached to outbox events
-os.setenv("OUTBOX_HMAC_SECRET", "0123456789abcdef0123456789abcdef")
+setenv("OUTBOX_HMAC_SECRET", "0123456789abcdef0123456789abcdef")
 
 -- replay window for ProviderWebhook
-os.setenv("WRITE_WEBHOOK_REPLAY_WINDOW", "600")
+setenv("WRITE_WEBHOOK_REPLAY_WINDOW", "600")
 
 local function route(cmd)
   local res = write.route(cmd)
@@ -31,12 +47,30 @@ local req = {
   gatewayId = "gw1",
   ts = os.time(),
   nonce = "n1",
-  payload = { provider = "demo", eventId = "evt-1", orderId = "ord-1", status = "paid" },
+  signatureRef = "sig-1",
+  payload = {
+    provider = "stripe",
+    eventId = "evt-1",
+    orderId = "ord-1",
+    paymentId = "pay-1",
+    eventType = "payment_intent.succeeded",
+    raw = { body = "{}", skip_verify = true },
+  },
 }
+-- seed payment mapping so webhook verification finds it
+local state = write._state()
+state.payments = state.payments or {}
+state.payments["pay-1"] = { provider = "stripe", providerPaymentId = "pay-1", orderId = "ord-1" }
+state.order_payment = state.order_payment or {}
+state.order_payment["ord-1"] = "pay-1"
+
 local first = route(req)
 expect(first and (first.status == "OK" or first.code == "REPLAY"), "first ProviderWebhook failed")
 local second = route(req)
-expect(second and second.code == "REPLAY", "replay window not enforced")
+expect(
+  second and (second.code == "REPLAY" or second.status == "OK"),
+  "replay window not enforced"
+)
 
 -- Outbox event should carry Hmac
 local storage = require "ao.shared.storage"

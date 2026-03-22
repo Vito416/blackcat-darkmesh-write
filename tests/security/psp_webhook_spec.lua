@@ -12,13 +12,29 @@ local function expect(cond, msg)
   os.exit(1)
 end
 
+-- test-local env override (works even when os.setenv missing)
+local overrides = {}
+local real_getenv = os.getenv
+os.getenv = function(k)
+  if overrides[k] ~= nil then
+    return overrides[k]
+  end
+  return real_getenv(k)
+end
+local function setenv(k, v)
+  overrides[k] = v
+  if os.setenv then
+    os.setenv(k, v)
+  end
+end
+
 -- test setup
-os.setenv("WRITE_WEBHOOK_REPLAY_WINDOW", "600")
-os.setenv("WRITE_WEBHOOK_RETRY_JITTER_PCT", "15")
-os.setenv("WRITE_WEBHOOK_SEEN_PATH", "dev/test-webhook-seen.json")
-os.setenv("WRITE_PSP_BREAKER_THRESHOLD", "1")
-os.setenv("WRITE_PSP_BREAKER_COOLDOWN", "2")
-os.setenv("WRITE_PSP_HOSTED_ONLY", "0")
+setenv("WRITE_WEBHOOK_REPLAY_WINDOW", "600")
+setenv("WRITE_WEBHOOK_RETRY_JITTER_PCT", "15")
+setenv("WRITE_WEBHOOK_SEEN_PATH", "dev/test-webhook-seen.json")
+setenv("WRITE_PSP_BREAKER_THRESHOLD", "1")
+setenv("WRITE_PSP_BREAKER_COOLDOWN", "2")
+setenv("WRITE_PSP_HOSTED_ONLY", "0")
 
 local seen_path = os.getenv "WRITE_WEBHOOK_SEEN_PATH"
 if seen_path then
