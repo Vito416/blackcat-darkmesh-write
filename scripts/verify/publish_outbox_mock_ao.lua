@@ -14,14 +14,7 @@ os.getenv = function(k)
   end
   return real_getenv(k)
 end
-local function setenv(k, v)
-  overrides[k] = v
-  if os.setenv then
-    os.setenv(k, v)
-  end
-end
-
-setenv("OUTBOX_HMAC_SECRET", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+overrides.OUTBOX_HMAC_SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 local function ok(res)
   return res and res.status == "OK"
