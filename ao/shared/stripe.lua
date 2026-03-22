@@ -237,7 +237,12 @@ function Stripe.verify_webhook(body, sig_header, secret, tolerance_sec)
     end
     if os.getenv "WRITE_DEBUG" == "1" then
       io.stderr:write(
-        string.format("[stripe] webhook ts skew %s exceeds tolerance %s (sigs=%d)\n", skew, tol, signature_count)
+        string.format(
+          "[stripe] webhook ts skew %s exceeds tolerance %s (sigs=%d)\n",
+          skew,
+          tol,
+          signature_count
+        )
       )
     end
     return false

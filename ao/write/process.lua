@@ -43,7 +43,8 @@ local PSP_HOSTED_ONLY = os.getenv "WRITE_PSP_HOSTED_ONLY" ~= "0" -- default on (
 local PSP_BREAKER_THRESHOLD = tonumber(os.getenv "WRITE_PSP_BREAKER_THRESHOLD" or "5")
 local PSP_BREAKER_COOLDOWN = tonumber(os.getenv "WRITE_PSP_BREAKER_COOLDOWN" or "300")
 local WEBHOOK_REPLAY_WINDOW = tonumber(os.getenv "WRITE_WEBHOOK_REPLAY_WINDOW" or "600")
-local WEBHOOK_SEEN_TTL = tonumber(os.getenv "WRITE_WEBHOOK_SEEN_TTL" or tostring(WEBHOOK_REPLAY_WINDOW))
+local WEBHOOK_SEEN_TTL =
+  tonumber(os.getenv "WRITE_WEBHOOK_SEEN_TTL" or tostring(WEBHOOK_REPLAY_WINDOW))
 local WEBHOOK_RETRY_MAX = tonumber(os.getenv "WRITE_WEBHOOK_RETRY_MAX" or "5")
 local WEBHOOK_RETRY_BASE = tonumber(os.getenv "WRITE_WEBHOOK_RETRY_BASE_SECONDS" or "30")
 local WEBHOOK_RETRY_JITTER_PCT = tonumber(os.getenv "WRITE_WEBHOOK_RETRY_JITTER_PCT" or "20")
@@ -461,7 +462,8 @@ local function handle_psp_webhook(cmd, schedule_retry)
   end
 
   local headers = cmd.payload.raw and cmd.payload.raw.headers or {}
-  local sig = headers["Stripe-Signature"] or headers["stripe-signature"]
+  local sig = headers["Stripe-Signature"]
+    or headers["stripe-signature"]
     or headers["PayPal-Transmission-Sig"]
     or headers["PP-Signature"]
     or headers["X-GoPay-Signature"]
@@ -526,7 +528,9 @@ local function handle_psp_webhook(cmd, schedule_retry)
   if pid then
     local provider_status = cmd.payload.status or cmd.payload.eventType
     if new_status == "refunded" or new_status == "partially_refunded" then
-      local refund_amount = cmd.payload.refundAmount or cmd.payload.amount or cmd.payload.refundedAmount
+      local refund_amount = cmd.payload.refundAmount
+        or cmd.payload.amount
+        or cmd.payload.refundedAmount
       apply_refund(pid, refund_amount, provider_status, cmd.requestId, new_status)
     else
       set_payment_status(pid, new_status, provider_status, cmd.requestId)
@@ -571,7 +575,11 @@ local function enqueue_webhook_retry(handler_name, cmd, attempt)
     return
   end
   state.webhook_retry = state.webhook_retry or {}
-  if WEBHOOK_RETRY_MAX_QUEUE and WEBHOOK_RETRY_MAX_QUEUE > 0 and #state.webhook_retry >= WEBHOOK_RETRY_MAX_QUEUE then
+  if
+    WEBHOOK_RETRY_MAX_QUEUE
+    and WEBHOOK_RETRY_MAX_QUEUE > 0
+    and #state.webhook_retry >= WEBHOOK_RETRY_MAX_QUEUE
+  then
     state.dlq = state.dlq or {}
     table.insert(
       state.dlq,

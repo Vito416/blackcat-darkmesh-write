@@ -142,7 +142,7 @@ do
   }
   local replay_resp = write.route(replay)
   if not (replay_resp and replay_resp.status == "ERROR" and replay_resp.code == "REPLAY") then
-    fail("webhook replay inside window not deduped")
+    fail "webhook replay inside window not deduped"
   end
 
   -- outside window: same signatureRef/nonce accepted
@@ -166,7 +166,7 @@ do
   }
   local second_out_resp = write.route(second_out)
   if not (second_out_resp and second_out_resp.status == "OK") then
-    fail("webhook outside replay window should be accepted")
+    fail "webhook outside replay window should be accepted"
   end
 end
 

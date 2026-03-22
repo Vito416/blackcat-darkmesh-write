@@ -49,20 +49,20 @@ local function assert_contains(name)
   assert(contents:match(name), "missing metric: " .. name)
 end
 
-assert_contains("outbox_queue_depth")
-assert_contains("wal_apply_duration_seconds")
-assert_contains("wal_apply_duration")
-assert_contains("webhook_retry_lag_seconds")
-assert_contains("webhook_retry_lag")
-assert_contains("write_webhook_retry_queue")
-assert_contains("webhook_retry_queue")
-assert_contains("write_webhook_replay_cache_size")
-assert_contains("webhook_replay_cache_size")
-assert_contains("breaker_open")
-assert_contains("idempotency_collisions_total")
-assert_contains("idempotency_collisions")
-assert_contains("write_webhook_retry_overflow_total")
-assert_contains("write_webhook_replay_gc_evicted_total")
+assert_contains "outbox_queue_depth"
+assert_contains "wal_apply_duration_seconds"
+assert_contains "wal_apply_duration"
+assert_contains "webhook_retry_lag_seconds"
+assert_contains "webhook_retry_lag"
+assert_contains "write_webhook_retry_queue"
+assert_contains "webhook_retry_queue"
+assert_contains "write_webhook_replay_cache_size"
+assert_contains "webhook_replay_cache_size"
+assert_contains "breaker_open"
+assert_contains "idempotency_collisions_total"
+assert_contains "idempotency_collisions"
+assert_contains "write_webhook_retry_overflow_total"
+assert_contains "write_webhook_replay_gc_evicted_total"
 
 os.remove(tmp_prom)
 os.remove(tmp_log)

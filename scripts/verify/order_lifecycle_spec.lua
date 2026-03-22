@@ -10,7 +10,8 @@ end
 
 -- seed cart before any CreateOrder
 local state = process._state()
-state.carts["cart-1"] = { siteId = "s1", currency = "USD", items = { { sku = "s", qty = 1, price = 10 } } }
+state.carts["cart-1"] =
+  { siteId = "s1", currency = "USD", items = { { sku = "s", qty = 1, price = 10 } } }
 
 local res = process.route {
   action = "CreateOrder",

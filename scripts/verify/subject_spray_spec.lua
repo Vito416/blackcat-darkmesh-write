@@ -1,6 +1,6 @@
-local max = tonumber(os.getenv("WRITE_UNIQUE_SUBJECT_MAX_PER_IP") or "0")
+local max = tonumber(os.getenv "WRITE_UNIQUE_SUBJECT_MAX_PER_IP" or "0")
 if not max or max < 1 then
-  io.stderr:write("[skip] WRITE_UNIQUE_SUBJECT_MAX_PER_IP not set or <1\n")
+  io.stderr:write "[skip] WRITE_UNIQUE_SUBJECT_MAX_PER_IP not set or <1\n"
   os.exit(0)
 end
 package.loaded["ao.shared.auth"] = nil
@@ -21,4 +21,4 @@ local ok, err = Auth.rate_limit_check {
 }
 assert(ok == false, "expected rate limited on subject spray")
 assert(err == "rate_limited", "expected rate_limited, got " .. tostring(err))
-print("subject_spray_spec: ok")
+print "subject_spray_spec: ok"

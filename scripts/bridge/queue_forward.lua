@@ -124,7 +124,11 @@ for _, ev in ipairs(queue) do
         status = why or "hmac_failed",
       }
       io.stderr:write(
-        string.format("hmac %s for requestId=%s\n", tostring(why or "failed"), tostring(ev.requestId))
+        string.format(
+          "hmac %s for requestId=%s\n",
+          tostring(why or "failed"),
+          tostring(ev.requestId)
+        )
       )
       goto skip
     end

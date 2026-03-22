@@ -1,10 +1,13 @@
-package.path = table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
+package.path =
+  table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
 
 local write = require "ao.write.process"
 local storage = require "ao.shared.storage"
 
 local function expect(cond, msg)
-  if cond then return end
+  if cond then
+    return
+  end
   io.stderr:write((msg or "failed") .. "\n")
   os.exit(1)
 end
@@ -17,8 +20,10 @@ os.setenv("WRITE_PSP_BREAKER_THRESHOLD", "1")
 os.setenv("WRITE_PSP_BREAKER_COOLDOWN", "2")
 os.setenv("WRITE_PSP_HOSTED_ONLY", "0")
 
-local seen_path = os.getenv("WRITE_WEBHOOK_SEEN_PATH")
-if seen_path then os.remove(seen_path) end
+local seen_path = os.getenv "WRITE_WEBHOOK_SEEN_PATH"
+if seen_path then
+  os.remove(seen_path)
+end
 
 -- seed a payment so webhook can map status
 local create = {
@@ -79,7 +84,9 @@ expect(r_block and r_block.code == "PSP_UNAVAILABLE", "breaker did not block pro
 if seen_path then
   local f = io.open(seen_path, "r")
   expect(f ~= nil, "webhook seen file missing")
-  if f then f:close() end
+  if f then
+    f:close()
+  end
 end
 
-print("psp_webhook_spec: ok")
+print "psp_webhook_spec: ok"

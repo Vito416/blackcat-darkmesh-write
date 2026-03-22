@@ -67,7 +67,7 @@ local function run_webhook(name, payload, ts)
     tenant = "t1",
     role = "admin",
     nonce = name .. "-nonce",
-    timestamp = ts or os.date("!%Y-%m-%dT%H:%M:%SZ"),
+    timestamp = ts or os.date "!%Y-%m-%dT%H:%M:%SZ",
     signatureRef = "sig",
     payload = payload,
   }
@@ -129,7 +129,12 @@ if ok_crypto and crypto.hmac_sha256_hex then
       raw = {
         body = body_multi,
         headers = {
-          ["Stripe-Signature"] = string.format("t=%s,v1=%s,v1=%s", ts_multi, bad_sig_multi, sig_multi),
+          ["Stripe-Signature"] = string.format(
+            "t=%s,v1=%s,v1=%s",
+            ts_multi,
+            bad_sig_multi,
+            sig_multi
+          ),
         },
       },
     })
@@ -163,7 +168,10 @@ local paid = run_webhook("rw-paid-1", {
   raw = { body = '{"id":"pi_' .. order_id .. '","object":"payment_intent"}' },
 })
 assert(paid.status == "OK", ("paid webhook expected OK got %s"):format(paid.status))
-assert(state.payments[payment_id].status == "captured", "payment should be captured after paid webhook")
+assert(
+  state.payments[payment_id].status == "captured",
+  "payment should be captured after paid webhook"
+)
 assert(state.orders[order_id].status == "paid", "order should be paid after provider success")
 
 local refund = run_webhook("rw-refund-1", {
@@ -175,8 +183,14 @@ local refund = run_webhook("rw-refund-1", {
   raw = { body = '{"id":"ch_' .. order_id .. '","object":"charge"}' },
 })
 assert(refund.status == "OK", ("refund webhook expected OK got %s"):format(refund.status))
-assert(state.payments[payment_id].status == "refunded", "payment should be refunded after refund webhook")
-assert(state.orders[order_id].status == "refunded", "order should be refunded after provider refund")
+assert(
+  state.payments[payment_id].status == "refunded",
+  "payment should be refunded after refund webhook"
+)
+assert(
+  state.orders[order_id].status == "refunded",
+  "order should be refunded after provider refund"
+)
 
 -- Partial refunds adjust totals and order status.
 reset()
@@ -206,9 +220,18 @@ assert(
   state.payments[partial_payment].status == "partially_refunded",
   "payment should be partially refunded after partial refund"
 )
-assert(state.payments[partial_payment].refundedAmount == 40, "payment refundedAmount should track partial")
-assert(state.orders[partial_order].status == "partially_refunded", "order should become partially_refunded")
-assert(state.orders[partial_order].refundedAmount == 40, "order refundedAmount should track partial")
+assert(
+  state.payments[partial_payment].refundedAmount == 40,
+  "payment refundedAmount should track partial"
+)
+assert(
+  state.orders[partial_order].status == "partially_refunded",
+  "order should become partially_refunded"
+)
+assert(
+  state.orders[partial_order].refundedAmount == 40,
+  "order refundedAmount should track partial"
+)
 
 local final = run_webhook("rw-partial-2", {
   provider = "stripe",
@@ -220,10 +243,22 @@ local final = run_webhook("rw-partial-2", {
   raw = { body = '{"id":"ch_' .. partial_order .. '","object":"charge","amount_refunded":10000}' },
 })
 assert(final.status == "OK", ("final refund expected OK got %s"):format(final.status))
-assert(state.payments[partial_payment].status == "refunded", "payment should be fully refunded after second refund")
-assert(state.payments[partial_payment].refundedAmount == 100, "payment refundedAmount should cap at total")
-assert(state.orders[partial_order].status == "refunded", "order should be refunded after full amount returned")
-assert(state.orders[partial_order].refundedAmount == 100, "order refundedAmount should cap at total")
+assert(
+  state.payments[partial_payment].status == "refunded",
+  "payment should be fully refunded after second refund"
+)
+assert(
+  state.payments[partial_payment].refundedAmount == 100,
+  "payment refundedAmount should cap at total"
+)
+assert(
+  state.orders[partial_order].status == "refunded",
+  "order should be refunded after full amount returned"
+)
+assert(
+  state.orders[partial_order].refundedAmount == 100,
+  "order refundedAmount should cap at total"
+)
 
 -- Prevent conflicting payments for an order unless explicitly allowed.
 reset()
@@ -276,7 +311,10 @@ local allowed_resp = process.route {
     allowMultiplePayments = true,
   },
 }
-assert(allowed_resp.status == "OK", ("create payment with allow flag expected OK got %s"):format(allowed_resp.status))
+assert(
+  allowed_resp.status == "OK",
+  ("create payment with allow flag expected OK got %s"):format(allowed_resp.status)
+)
 
 -- Retry/backoff queue should grow delay exponentially.
 reset()
@@ -287,7 +325,10 @@ local missing = run_webhook("rw-missing-1", {
   paymentId = "pi_missing",
   raw = { body = '{"id":"pi_missing","object":"payment_intent"}' },
 })
-assert(missing.status == "ERROR" and missing.code == "RETRY_SCHEDULED", "missing payment should schedule retry")
+assert(
+  missing.status == "ERROR" and missing.code == "RETRY_SCHEDULED",
+  "missing payment should schedule retry"
+)
 local first_job = state.webhook_retry[1]
 assert(first_job and first_job.attempts == 1, "first retry should be recorded with attempt 1")
 local first_delay = first_job.nextAttempt - os.time()
@@ -371,7 +412,10 @@ for i = 1, PSP_BREAKER_THRESHOLD do
     paymentId = "pi_brk_" .. i,
     raw = { body = '{"id":"pi_brk_' .. i .. '","object":"payment_intent"}' },
   })
-  assert(resp.status == "ERROR" and resp.code == "RETRY_SCHEDULED", "provider failure should schedule retry")
+  assert(
+    resp.status == "ERROR" and resp.code == "RETRY_SCHEDULED",
+    "provider failure should schedule retry"
+  )
 end
 
 assert(
@@ -433,7 +477,7 @@ if f_metrics then
   f_metrics:close()
 end
 assert(
-  metrics_body:find("write.webhook.paypal.verify_unavailable"),
+  metrics_body:find "write.webhook.paypal.verify_unavailable",
   "verify_unavailable metric should be recorded for PayPal remote failures"
 )
 
@@ -456,7 +500,10 @@ end
 assert(#state.webhook_retry == RETRY_MAX_QUEUE, "retry queue should stop at configured cap")
 assert(
   #state.dlq == overflow_extra,
-  ("overflowed jobs should be routed to dlq (expected %d got %d)"):format(overflow_extra, #state.dlq)
+  ("overflowed jobs should be routed to dlq (expected %d got %d)"):format(
+    overflow_extra,
+    #state.dlq
+  )
 )
 assert(
   state.dlq[1] and state.dlq[1].reason == "retry_queue_overflow",
@@ -483,7 +530,7 @@ local seen_count = 0
 for _ in pairs(state.webhook_seen) do
   seen_count = seen_count + 1
 end
-if real_getenv("DEBUG_GC") == "1" then
+if real_getenv "DEBUG_GC" == "1" then
   print("debug_gc_seen_count", seen_count)
   for k in pairs(state.webhook_seen) do
     print("debug_gc_key", k)

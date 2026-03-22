@@ -236,7 +236,7 @@ function PayPal.verify_webhook_remote(body, headers)
   local raw = fh:read "*a" or ""
   local close_ok, exit_reason, exit_code = fh:close()
   raw = raw:gsub("\r", "")
-  local resp_body, http_status = raw:match("^(.*)\n(%d%d%d)\n$")
+  local resp_body, http_status = raw:match "^(.*)\n(%d%d%d)\n$"
   http_status = tonumber(http_status)
   if not resp_body then
     resp_body = raw
@@ -244,7 +244,8 @@ function PayPal.verify_webhook_remote(body, headers)
   local err
   local http_unavailable = false
   if not close_ok then
-    err = exit_reason == "exit" and tostring(exit_code) == "28" and "timeout" or "remote_unreachable"
+    err = exit_reason == "exit" and tostring(exit_code) == "28" and "timeout"
+      or "remote_unreachable"
   elseif not http_status then
     err = "remote_unreachable"
   elseif http_status == 429 then

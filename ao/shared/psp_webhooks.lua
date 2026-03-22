@@ -33,7 +33,13 @@ M.registry = {
   gopay = {
     replay_key = function(cmd)
       return "gopay:"
-        .. (cmd.payload.eventId or cmd.payload.paymentId or cmd.payload.orderId or cmd.requestId or "")
+        .. (
+          cmd.payload.eventId
+          or cmd.payload.paymentId
+          or cmd.payload.orderId
+          or cmd.requestId
+          or ""
+        )
     end,
     verify = function(cmd)
       if cmd.payload.raw and cmd.payload.raw.skip_verify then
@@ -42,7 +48,10 @@ M.registry = {
       local secret = os.getenv "GOPAY_WEBHOOK_SECRET"
       if secret and cmd.payload.raw and cmd.payload.raw.body then
         local sig = cmd.payload.raw.headers
-          and (cmd.payload.raw.headers["X-GoPay-Signature"] or cmd.payload.raw.headers["GoPay-Signature"])
+          and (
+            cmd.payload.raw.headers["X-GoPay-Signature"]
+            or cmd.payload.raw.headers["GoPay-Signature"]
+          )
         if not sig then
           return false, "missing_signature"
         end
@@ -63,7 +72,9 @@ M.registry = {
         if not decoded then
           return false, "basic_invalid"
         end
-        local expected = (os.getenv "GOPAY_CLIENT_ID" or "") .. ":" .. (os.getenv "GOPAY_CLIENT_SECRET" or "")
+        local expected = (os.getenv "GOPAY_CLIENT_ID" or "")
+          .. ":"
+          .. (os.getenv "GOPAY_CLIENT_SECRET" or "")
         if decoded ~= expected then
           return false, "basic_mismatch"
         end
@@ -148,7 +159,8 @@ M.registry = {
         state.payment_disputes[pid] = state.payment_disputes[pid] or {}
         state.payment_disputes[pid].status = cmd.payload.eventType
         state.payment_disputes[pid].reason = cmd.payload.reason
-        state.payment_disputes[pid].evidence = cmd.payload.evidence or state.payment_disputes[pid].evidence
+        state.payment_disputes[pid].evidence = cmd.payload.evidence
+          or state.payment_disputes[pid].evidence
       end
     end,
   },
@@ -179,8 +191,7 @@ M.registry = {
           end
         end
         if not ok_sig and paypal.verify_webhook_remote then
-          local remote_ok, remote_err =
-            paypal.verify_webhook_remote(cmd.payload.raw.body, headers)
+          local remote_ok, remote_err = paypal.verify_webhook_remote(cmd.payload.raw.body, headers)
           if remote_ok == nil then
             return nil, remote_err or "provider_unavailable"
           end
@@ -213,7 +224,8 @@ M.registry = {
         state.payment_disputes[pid] = state.payment_disputes[pid] or {}
         state.payment_disputes[pid].status = cmd.payload.eventType
         state.payment_disputes[pid].reason = cmd.payload.reason
-        state.payment_disputes[pid].evidence = cmd.payload.evidence or state.payment_disputes[pid].evidence
+        state.payment_disputes[pid].evidence = cmd.payload.evidence
+          or state.payment_disputes[pid].evidence
       end
     end,
   },

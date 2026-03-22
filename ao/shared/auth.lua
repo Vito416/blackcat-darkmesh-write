@@ -28,9 +28,8 @@ local RL_MAX =
   tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_REQUESTS", "WRITE_RL_MAX_REQUESTS") or "200")
 local RL_CALLER_MAX =
   tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_PER_CALLER", "WRITE_RL_CALLER_MAX") or "120")
-local UNIQUE_SUBJECT_MAX_PER_IP = tonumber(
-  getenv_multi("WRITE_UNIQUE_SUBJECT_MAX_PER_IP", "AUTH_UNIQUE_SUBJECT_MAX_PER_IP") or "0"
-)
+local UNIQUE_SUBJECT_MAX_PER_IP =
+  tonumber(getenv_multi("WRITE_UNIQUE_SUBJECT_MAX_PER_IP", "AUTH_UNIQUE_SUBJECT_MAX_PER_IP") or "0")
 local RL_BUCKET_TTL = tonumber(
   getenv_multi("AUTH_RATE_BUCKET_TTL_SECONDS", "WRITE_RL_BUCKET_TTL_SECONDS")
     or tostring(RL_WINDOW * 4)
