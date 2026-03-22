@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
-FILE="$1"
+FILE="$1" # kept for interface, not used for hashing
 TXID="$2"
 REF="${ARWEAVE_VERIFY_REF:-HEAD}"
-if [ -z "${FILE:-}" ] || [ -z "${TXID:-}" ]; then
-  echo "usage: $0 <local-file> <txid>" >&2
+if [ -z "${TXID:-}" ]; then
+  echo "usage: $0 <ignored-file> <txid>" >&2
   exit 1
 fi
 hash_stream() {
@@ -26,15 +26,14 @@ hash_gzip_or_plain() {
   fi
 }
 
-# Build local archive from ref (avoids gzip timestamp drift)
-TMP_LOCAL=$(mktemp)
-git archive --format=tar.gz -o "$TMP_LOCAL" "$REF"
-LOCAL_HASH=$(hash_gzip_or_plain "$TMP_LOCAL")
+# Build local tar (not gz) from ref for deterministic hash
+LOCAL_HASH=$(git archive --format=tar "$REF" | sha256sum | awk '{print $1}')
 
-# Hash remote (decompress if gzip)
-REMOTE_HASH=$(curl --connect-timeout 5 --max-time 15 --max-filesize 52428800 -sL "https://arweave.net/${TXID}" |
-  { if file -b /dev/stdin 2>/dev/null | grep -qi gzip; then gzip -cd; else cat; fi; } |
-  sha256sum | awk '{print $1}')
+# Hash remote; try gzip -cd, fallback to raw
+REMOTE_HASH=$(curl --connect-timeout 5 --max-time 15 --max-filesize 52428800 -sL "https://arweave.net/${TXID}" \
+  | (gzip -cd 2>/dev/null || cat) \
+  | sha256sum \
+  | awk '{print $1}')
 if [ "$LOCAL_HASH" = "$REMOTE_HASH" ]; then
   echo "hash match: $LOCAL_HASH"
   exit 0
