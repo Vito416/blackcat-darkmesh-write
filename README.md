@@ -62,9 +62,10 @@ flowchart LR
   Q -->|fetch PSP state| P[Process payment/update]
   P --> EV[emit event + HMAC]
   style Q fill:#0b7285,stroke:#0b7285,color:#fff
-
-Legend: teal = queues/events, gray = WAL/audit paths.
 ```
+
+```
+Legend: teal = queues/events, gray = WAL/audit paths.
 
 ### Interfaces at a glance
 
