@@ -1625,7 +1625,7 @@ function handlers.UpsertOrderStatus(cmd)
 end
 
 function handlers.IssueRefund(cmd)
-  local pid, payment = resolve_payment(cmd.payload.paymentId or cmd.payload.orderId)
+  local _, payment = resolve_payment(cmd.payload.paymentId or cmd.payload.orderId)
   if not payment then
     return err(cmd.requestId, "NOT_FOUND", "payment not found")
   end
