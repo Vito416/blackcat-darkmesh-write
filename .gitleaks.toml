@@ -1,0 +1,8 @@
+[allowlist]
+  description = "Test and preflight fixture secrets"
+  regexes = [
+    "0123456789abcdef0123456789abcdef",
+    "whsec_test_default_secret_32len!",
+    "paypal_webhook_secret_32len_key!",
+    "preflight-secret"
+  ]

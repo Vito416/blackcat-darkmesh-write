@@ -184,7 +184,8 @@ local ok, crypto = pcall(require, "ao.shared.crypto")
 if not ok or not crypto or not crypto.hmac_sha256_hex then
   os.exit(1)
 end
-local sig = crypto.hmac_sha256_hex("outbox_preflight", "secret")
+local secret = "0123456789abcdef0123456789abcdef"
+local sig = crypto.hmac_sha256_hex("outbox_preflight", secret)
 if not sig then
   os.exit(1)
 end
@@ -195,7 +196,7 @@ LUA
       tmpdir=$(mktemp -d)
       tmp_outbox="$tmpdir/outbox.json"
       tmp_queue="$tmpdir/outbox-queue.ndjson"
-      tmp_secret="preflight-secret"
+      tmp_secret="0123456789abcdef0123456789abcdef"
       LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
       LUA_CPATH="${ROCKS_LUA_CPATH}" \
       OUTBOX_HMAC_SECRET="$tmp_secret" \
