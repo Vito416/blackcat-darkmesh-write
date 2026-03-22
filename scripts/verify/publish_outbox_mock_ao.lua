@@ -19,6 +19,9 @@ package.cpath = table.concat({
 local overrides = {
   OUTBOX_HMAC_SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 }
+-- ensure early env lookups see the override
+_G.OUTBOX_HMAC_SECRET = overrides.OUTBOX_HMAC_SECRET
+
 local function getenv(k)
   if overrides[k] ~= nil then
     return overrides[k]
