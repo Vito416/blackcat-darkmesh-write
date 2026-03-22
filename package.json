@@ -1,0 +1,13 @@
+{
+  "name": "blackcat-darkmesh-write-ao",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:ao": "esbuild ao/handler.ts --bundle --platform=node --format=esm --outfile=dist/ao-write.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.2",
+    "typescript": "^5.4.5"
+  }
+}
