@@ -10,6 +10,10 @@ local req = {
   Action = "SaveDraftPage",
   ["Request-Id"] = "rid-1",
   ["Actor-Role"] = "editor",
+  actor = "conflict-tester",
+  tenant = "t-conflict",
+  nonce = "nonce-conf-1",
+  ts = os.time(),
   action = "SaveDraftPage",
   payload = { siteId = "s1", pageId = "home", blocks = {} },
 }
@@ -20,7 +24,15 @@ assert(first.status == "OK")
 local replay = call(req)
 assert(replay.status == "OK") -- idem cache returns same response
 
-local unknown = call { Action = "NotAllowed", ["Request-Id"] = "rid-2", ["Actor-Role"] = "editor" }
+local unknown = call {
+  Action = "NotAllowed",
+  ["Request-Id"] = "rid-2",
+  ["Actor-Role"] = "editor",
+  actor = "conflict-tester",
+  tenant = "t-conflict",
+  nonce = "nonce-conf-2",
+  ts = os.time(),
+}
 assert(unknown.code == "UNKNOWN_ACTION")
 
 print "conflicts: ok"
