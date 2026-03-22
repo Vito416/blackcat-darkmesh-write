@@ -119,6 +119,12 @@ if command -v lua5.4 >/dev/null 2>&1; then
     LUA_CPATH="${ROCKS_LUA_CPATH}" \
       lua5.4 "$ROOT_DIR/scripts/verify/webhook_psp_spec.lua"
   fi
+  if [ "${RUN_METRICS_COUNTERS:-0}" -eq 1 ]; then
+    echo "[verify] metrics counters snapshot"
+    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
+    LUA_CPATH="${ROCKS_LUA_CPATH}" \
+      lua5.4 "$ROOT_DIR/scripts/verify/metrics_counters_spec.lua"
+  fi
   if [ "${RUN_ORDER_LIFECYCLE:-1}" -eq 1 ]; then
     echo "[verify] order lifecycle spec"
     WRITE_REQUIRE_NONCE=0 \
@@ -168,6 +174,99 @@ local events = storage.all("outbox")
 if #events == 0 then error("outbox persistence missing") end
 os.remove(tmp)
 LUA
+  fi
+  if [ "${RUN_OUTBOX_REPLAY_SMOKE:-1}" -eq 1 ]; then
+    echo "[verify] outbox replay smoke"
+    if ! LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
+      LUA_CPATH="${ROCKS_LUA_CPATH}" \
+      lua5.4 - <<'LUA'
+local ok, crypto = pcall(require, "ao.shared.crypto")
+if not ok or not crypto or not crypto.hmac_sha256_hex then
+  os.exit(1)
+end
+local sig = crypto.hmac_sha256_hex("outbox_preflight", "secret")
+if not sig then
+  os.exit(1)
+end
+LUA
+    then
+      echo "[verify] outbox replay smoke skipped (crypto backend missing)"
+    else
+      tmpdir=$(mktemp -d)
+      tmp_outbox="$tmpdir/outbox.json"
+      tmp_queue="$tmpdir/outbox-queue.ndjson"
+      tmp_secret="preflight-secret"
+      LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
+      LUA_CPATH="${ROCKS_LUA_CPATH}" \
+      OUTBOX_HMAC_SECRET="$tmp_secret" \
+      WRITE_OUTBOX_PATH="$tmp_outbox" \
+        lua5.4 - <<'LUA'
+local storage = require "ao.shared.storage"
+local auth = require "ao.shared.auth"
+
+local secret = os.getenv("OUTBOX_HMAC_SECRET") or "secret"
+local now = os.time()
+
+local event_ok = {
+  type = "PublishPageVersion",
+  siteId = "site-preflight",
+  pageId = "home",
+  versionId = "v1",
+  manifestTx = "tx-preflight",
+  requestId = "req-preflight",
+}
+local hmac, herr = auth.compute_outbox_hmac(event_ok, secret)
+assert(hmac, "compute_outbox_hmac failed: " .. tostring(herr))
+event_ok.hmac = hmac
+event_ok.Hmac = hmac
+
+local event_missing_hmac = {
+  type = "PublishPageVersion",
+  siteId = "site-preflight",
+  pageId = "landing",
+  versionId = "v2",
+  manifestTx = "tx-missing",
+  requestId = "req-missing",
+}
+
+storage.put("outbox_queue", {
+  { event = event_ok, status = "pending", attempts = 0, nextAttempt = now },
+  { event = event_missing_hmac, status = "pending", attempts = 0, nextAttempt = now },
+})
+
+local persisted, perr = storage.persist(os.getenv("WRITE_OUTBOX_PATH"))
+assert(persisted, "persist failed: " .. tostring(perr))
+LUA
+
+      LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
+      LUA_CPATH="${ROCKS_LUA_CPATH}" \
+      OUTBOX_HMAC_SECRET="$tmp_secret" \
+      WRITE_OUTBOX_PATH="$tmp_outbox" \
+      AO_QUEUE_PATH="$tmp_queue" \
+      WRITE_STRICT_OUTBOX_HMAC=1 \
+        lua5.4 "$ROOT_DIR/scripts/worker/outbox_replay.lua" >/dev/null
+
+      queued=$(wc -l < "$tmp_queue")
+      if [ "$queued" -ne 1 ]; then
+        echo "outbox replay smoke failed: expected 1 queued event (strict HMAC); got ${queued}" >&2
+        exit 1
+      fi
+      if ! grep -q "req-preflight" "$tmp_queue"; then
+        echo "outbox replay smoke failed: queued event missing expected requestId" >&2
+        exit 1
+      fi
+      if grep -q "req-missing" "$tmp_queue"; then
+        echo "outbox replay smoke failed: HMAC-less event should have been skipped" >&2
+        exit 1
+      fi
+      rm -rf "$tmpdir"
+    fi
+  fi
+  if [ "${RUN_METRICS_SNAPSHOT:-1}" -eq 1 ]; then
+    echo "[verify] metrics snapshot"
+    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
+    LUA_CPATH="${ROCKS_LUA_CPATH}" \
+      lua5.4 "$ROOT_DIR/scripts/verify/metrics_counters_spec.lua"
   fi
   if [ "${RUN_BATCH:-1}" -eq 1 ]; then
     echo "[verify] fixtures batch run"

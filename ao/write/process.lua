@@ -31,8 +31,8 @@ local tax = require "ao.shared.tax"
 local ok_mime, mime = pcall(require, "mime")
 local ok_json, cjson = pcall(require, "cjson.safe")
 
--- forward declarations
 local set_payment_status
+local apply_refund
 
 local OUTBOX_PATH = os.getenv "WRITE_OUTBOX_PATH"
 local WAL_PATH = os.getenv "WRITE_WAL_PATH"
@@ -47,6 +47,8 @@ local WEBHOOK_SEEN_TTL = tonumber(os.getenv "WRITE_WEBHOOK_SEEN_TTL" or tostring
 local WEBHOOK_RETRY_MAX = tonumber(os.getenv "WRITE_WEBHOOK_RETRY_MAX" or "5")
 local WEBHOOK_RETRY_BASE = tonumber(os.getenv "WRITE_WEBHOOK_RETRY_BASE_SECONDS" or "30")
 local WEBHOOK_RETRY_JITTER_PCT = tonumber(os.getenv "WRITE_WEBHOOK_RETRY_JITTER_PCT" or "20")
+local WEBHOOK_RETRY_MAX_QUEUE = tonumber(os.getenv "WRITE_WEBHOOK_RETRY_MAX_QUEUE" or "1000")
+local WEBHOOK_SEEN_MAX = tonumber(os.getenv "WRITE_WEBHOOK_SEEN_MAX" or "10000")
 local WEBHOOK_SEEN_PATH = os.getenv "WRITE_WEBHOOK_SEEN_PATH"
 local ok_schema, schema = pcall(require, "ao.shared.schema")
 
@@ -282,19 +284,71 @@ local function breaker_note(provider, success)
   gauge("breaker_open", open_total)
 end
 
+local function webhook_seen_size()
+  local count = 0
+  for _ in pairs(state.webhook_seen or {}) do
+    count = count + 1
+  end
+  return count
+end
+
+local function trim_webhook_seen(now, current_size)
+  now = now or os.time()
+  state.webhook_seen = state.webhook_seen or {}
+  local size = current_size or webhook_seen_size()
+  if not (WEBHOOK_SEEN_MAX and WEBHOOK_SEEN_MAX > 0) or size <= WEBHOOK_SEEN_MAX then
+    return size, false
+  end
+  local items = {}
+  for key, entry in pairs(state.webhook_seen) do
+    local ts = 0
+    if type(entry) == "table" then
+      ts = tonumber(entry.ts)
+        or tonumber(entry.expiresAt and (entry.expiresAt - WEBHOOK_SEEN_TTL))
+        or 0
+    else
+      ts = tonumber(entry) or 0
+    end
+    if ts > now then
+      ts = now
+    end
+    items[#items + 1] = { key = key, ts = ts }
+  end
+  table.sort(items, function(a, b)
+    return a.ts < b.ts
+  end)
+  local to_drop = size - WEBHOOK_SEEN_MAX
+  for i = 1, to_drop do
+    local victim = items[i]
+    if victim and state.webhook_seen[victim.key] ~= nil then
+      state.webhook_seen[victim.key] = nil
+    end
+  end
+  if to_drop > 0 then
+    counter("write.webhook.replay_gc_evicted", to_drop)
+  end
+  return size - to_drop, to_drop > 0
+end
+
 local function prune_webhook_seen(now)
   now = now or os.time()
+  state.webhook_seen = state.webhook_seen or {}
   local changed
-  for k, v in pairs(state.webhook_seen or {}) do
+  for k, v in pairs(state.webhook_seen) do
     local expires = (type(v) == "table" and v.expiresAt) or ((tonumber(v) or 0) + WEBHOOK_SEEN_TTL)
     if not expires or expires <= now then
       state.webhook_seen[k] = nil
       changed = true
     end
   end
+  local size, trimmed = trim_webhook_seen(now)
+  changed = changed or trimmed
+  gauge("write.webhook.replay_cache_size", size)
+  gauge("webhook_replay_cache_size", size)
   if changed and WEBHOOK_SEEN_PATH then
     atomic_persist(WEBHOOK_SEEN_PATH, state.webhook_seen)
   end
+  return size
 end
 
 local function webhook_seen_recent(key, ts)
@@ -330,6 +384,7 @@ local function mark_webhook_seen(key, ts, signature)
     expiresAt = ts + WEBHOOK_SEEN_TTL,
     signature = signature,
   }
+  prune_webhook_seen(now)
   if WEBHOOK_SEEN_PATH then
     atomic_persist(WEBHOOK_SEEN_PATH, state.webhook_seen)
   end
@@ -446,12 +501,19 @@ local function handle_psp_webhook(cmd, schedule_retry)
   end
 
   local new_status = spec.status and spec.status(cmd) or "pending"
-  local hints = {
-    cmd.payload.paymentId,
-    cmd.payload.providerPaymentId,
-    cmd.payload.orderId,
-    cmd.payload.eventId,
-  }
+  local hints = {}
+  if cmd.payload.paymentId and cmd.payload.paymentId ~= "" then
+    table.insert(hints, cmd.payload.paymentId)
+  end
+  if cmd.payload.providerPaymentId and cmd.payload.providerPaymentId ~= "" then
+    table.insert(hints, cmd.payload.providerPaymentId)
+  end
+  if cmd.payload.orderId and cmd.payload.orderId ~= "" then
+    table.insert(hints, cmd.payload.orderId)
+  end
+  if cmd.payload.eventId and cmd.payload.eventId ~= "" then
+    table.insert(hints, cmd.payload.eventId)
+  end
   local pid, payment
   for _, h in ipairs(hints) do
     pid, payment = resolve_payment(h, provider)
@@ -461,7 +523,13 @@ local function handle_psp_webhook(cmd, schedule_retry)
   end
 
   if pid then
-    set_payment_status(pid, new_status, cmd.payload.status or cmd.payload.eventType, cmd.requestId)
+    local provider_status = cmd.payload.status or cmd.payload.eventType
+    if new_status == "refunded" or new_status == "partially_refunded" then
+      local refund_amount = cmd.payload.refundAmount or cmd.payload.amount or cmd.payload.refundedAmount
+      apply_refund(pid, refund_amount, provider_status, cmd.requestId, new_status)
+    else
+      set_payment_status(pid, new_status, provider_status, cmd.requestId)
+    end
     if spec.on_found then
       spec.on_found(pid, payment or state.payments[pid], cmd, state)
     end
@@ -502,6 +570,19 @@ local function enqueue_webhook_retry(handler_name, cmd, attempt)
     return
   end
   state.webhook_retry = state.webhook_retry or {}
+  if WEBHOOK_RETRY_MAX_QUEUE and WEBHOOK_RETRY_MAX_QUEUE > 0 and #state.webhook_retry >= WEBHOOK_RETRY_MAX_QUEUE then
+    state.dlq = state.dlq or {}
+    table.insert(
+      state.dlq,
+      { handler = handler_name, cmd = cmd, reason = "retry_queue_overflow", attempts = attempt }
+    )
+    counter("write.webhook.retry_overflow", 1)
+    counter("write.webhook.dlq", 1)
+    gauge("write.webhook.dlq_size", #state.dlq)
+    gauge("write.webhook.retry_queue", #state.webhook_retry)
+    gauge("webhook_retry_queue", #state.webhook_retry)
+    return
+  end
   table.insert(state.webhook_retry, {
     handler = handler_name,
     cmd = cmd,
@@ -585,7 +666,7 @@ function set_payment_status(pid, new_status, provider_status, req_id)
       succeeded = "paid",
       completed = "paid",
       refunded = "refunded",
-      partially_refunded = "refunded",
+      partially_refunded = "partially_refunded",
       voided = "cancelled",
       canceled = "cancelled",
       cancelled = "cancelled",
@@ -612,12 +693,82 @@ function set_payment_status(pid, new_status, provider_status, req_id)
   end
 end
 
+-- Track refund totals and derive partial/full refund status before syncing order state.
+function apply_refund(pid, amount, provider_status, req_id, status_hint)
+  local payment = state.payments[pid]
+  if not payment then
+    return
+  end
+
+  local delta = tonumber(amount)
+  if delta and delta < 0 then
+    delta = 0
+  end
+
+  payment.refundedAmount = payment.refundedAmount or 0
+  if delta and delta > 0 then
+    payment.refundedAmount = payment.refundedAmount + delta
+  end
+
+  local order = payment.orderId and state.orders[payment.orderId] or nil
+  if order then
+    order.refundedAmount = order.refundedAmount or 0
+    if delta and delta > 0 then
+      order.refundedAmount = order.refundedAmount + delta
+    end
+  end
+
+  local order_total = order and (order.totalAmount or (order.totals and order.totals.total))
+  local total = tonumber(payment.amount or order_total)
+  if not total and order_total then
+    total = tonumber(order_total)
+  end
+
+  if total and payment.refundedAmount > total then
+    payment.refundedAmount = total
+  end
+  if order and total and order.refundedAmount and order.refundedAmount > total then
+    order.refundedAmount = total
+  end
+
+  local status = status_hint or payment.status
+  if total then
+    if payment.refundedAmount >= total and payment.refundedAmount > 0 then
+      status = "refunded"
+      payment.refundedAmount = total
+      if order then
+        order.refundedAmount = total
+      end
+    elseif payment.refundedAmount > 0 then
+      status = "partially_refunded"
+    end
+  else
+    if delta and delta > 0 and status ~= "refunded" then
+      status = "partially_refunded"
+    end
+  end
+
+  -- Preserve explicit provider intent when totals are unknown.
+  if not total and status_hint then
+    status = status_hint
+  end
+
+  set_payment_status(pid, status, provider_status, req_id)
+end
+
 local allowed_order_transitions = {
   draft = { confirmed = true, cancelled = true },
   confirmed = { paid = true, cancelled = true },
-  paid = { fulfilled = true, returned = true, refunded = true, cancelled = true },
-  fulfilled = { returned = true, refunded = true },
-  returned = { refunded = true },
+  paid = {
+    fulfilled = true,
+    returned = true,
+    partially_refunded = true,
+    refunded = true,
+    cancelled = true,
+  },
+  fulfilled = { returned = true, partially_refunded = true, refunded = true },
+  returned = { partially_refunded = true, refunded = true },
+  partially_refunded = { refunded = true },
   refunded = {},
   cancelled = {},
 }
@@ -1538,7 +1689,7 @@ function handlers.RefundPayment(cmd)
   end
   -- Hosted-only mode short-circuits provider calls.
   if PSP_HOSTED_ONLY and payment.provider ~= "manual" then
-    set_payment_status(cmd.payload.paymentId, "refunded", "refunded", cmd.requestId)
+    apply_refund(cmd.payload.paymentId, cmd.payload.amount, "refunded", cmd.requestId, "refunded")
     breaker_note(payment.provider, true)
     return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = "refunded" })
   end
@@ -1564,7 +1715,7 @@ function handlers.RefundPayment(cmd)
       return err(cmd.requestId, "PROVIDER_ERROR", perr_paypal or "paypal refund failed")
     end
   end
-  set_payment_status(cmd.payload.paymentId, "refunded", "refunded", cmd.requestId)
+  apply_refund(cmd.payload.paymentId, cmd.payload.amount, "refunded", cmd.requestId, "refunded")
   breaker_note(payment.provider, true)
   return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = "refunded" })
 end
@@ -2172,6 +2323,24 @@ end
 function handlers.CreatePaymentIntent(cmd)
   local provider = cmd.payload.provider or os.getenv "PAYMENT_PROVIDER" or "manual"
   local pid = string.format("pay_%s", cmd.payload.orderId)
+  local existing_pid = state.order_payment and state.order_payment[cmd.payload.orderId]
+  if not existing_pid then
+    for p_id, p in pairs(state.payments) do
+      if p.orderId == cmd.payload.orderId then
+        existing_pid = p_id
+        break
+      end
+    end
+  end
+  local allow_multi = cmd.payload.allowMultiplePayments or cmd.payload.allowMultiple
+  if existing_pid and existing_pid ~= pid and not allow_multi then
+    return err(
+      cmd.requestId,
+      "CONFLICT",
+      "payment_already_linked",
+      { existingPaymentId = existing_pid }
+    )
+  end
   local providerPaymentId, gatewayUrl
   local status = "requires_capture"
   local ok_br, br_err = breaker_allows(provider)
@@ -2252,6 +2421,7 @@ function handlers.CreatePaymentIntent(cmd)
     currency = cmd.payload.currency,
     provider = provider,
     status = status,
+    refundedAmount = 0,
     risk = (os.getenv "PAYMENT_RISK_REQUIRED" == "1") and "review" or "pass",
     returnUrl = cmd.payload.returnUrl,
     description = cmd.payload.description,

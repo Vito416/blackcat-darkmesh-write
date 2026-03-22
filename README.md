@@ -59,7 +59,7 @@ scripts/cli/       # local helpers (run command)
    - `OUTBOX_HMAC_SECRET` (required)  
    - signature verifier (`WRITE_SIG_PUBLIC` or `WRITE_SIG_SECRET` when `WRITE_SIG_TYPE=hmac`)  
    - optional `WRITE_JWT_HS_SECRET` if you turn on `WRITE_REQUIRE_JWT=1`.
-3) Run checks: `RUN_DEPS_CHECK=1 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" LUA_CPATH="$HOME/.luarocks/lib/lua/5.4/?.so" scripts/verify/preflight.sh`.
+3) Run checks: `RUN_DEPS_CHECK=1 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" LUA_CPATH="$HOME/.luarocks/lib/lua/5.4/?.so" scripts/verify/preflight.sh` (or `make preflight RUN_DEPS_CHECK=1`).
 4) Fixtures: `RUN_BATCH=1 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/cli/batch_run.lua` (uses the env from step 2; hashes/nonce/signature checks can be relaxed via `WRITE_REQUIRE_*` env).
 5) Outbox/queue paths in the template default to `/var/lib/ao/...`; for dev you can override to `dev/*` paths next to the repo.
 6) Optional specs:  
@@ -86,6 +86,7 @@ scripts/cli/       # local helpers (run command)
 - `WRITE_RATE_STORE_PATH` — persist rate-limit buckets across restarts (optional; JSON file written atomically).
 - `WRITE_NONCE_STORE_PATH` — persist nonce cache (tenant+actor namespaced) to survive restarts.
 - Bridge/env for queue/HTTP: `AO_ENDPOINT=https://...` (optional); `AO_API_KEY`; `DRY_RUN=1` or `AO_BRIDGE_MODE=mock|off|http`; `AO_BRIDGE_RETRIES`/`AO_BRIDGE_BACKOFF_MS`; `AO_QUEUE_PATH` (persisted queue), `AO_QUEUE_LOG_PATH=/var/lib/ao/queue-log.ndjson`, `AO_QUEUE_MAX_RETRIES=5`, `AO_EXPECT_RESPONSE_HASH` to enforce downstream body hash.
+- PSP webhook hardening: set `STRIPE_WEBHOOK_SECRET` (32-byte secret from Stripe), `PAYPAL_WEBHOOK_STRICT=1` to require PayPal signatures, tune replay cache with `WRITE_WEBHOOK_REPLAY_WINDOW` / `WRITE_WEBHOOK_SEEN_TTL` (and optional `WRITE_WEBHOOK_SEEN_MAX`), and cap backlog with `WRITE_WEBHOOK_RETRY_MAX_QUEUE` alongside the existing `WRITE_WEBHOOK_RETRY_*` knobs.
 - Outbox HMAC enforcement: `WRITE_STRICT_OUTBOX_HMAC=1` rejects outbox events without `hmac` when `OUTBOX_HMAC_SECRET` is set (default off; forwarder still checks mismatches when `hmac` is present). HMAC input defaults to full canonical JSON of the event; set `WRITE_OUTBOX_HMAC_MODE=legacy` to use the older limited field hash.
 - Trust manifest signing (resolvers): set `TRUST_MANIFEST_HMAC` and run `lua scripts/cli/trust_manifest_sign.lua manifest.json > manifest.signed.json`; optionally set `TRUST_MANIFEST_SIGNER`.
 - Key management: keep public keys under `/etc/ao/keys`, record their `sha256sum` in ops docs, rotate on a schedule; never store private keys in repos, artifacts, or CI logs.
@@ -96,8 +97,8 @@ scripts/cli/       # local helpers (run command)
 - `RUN_BATCH=1 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/cli/batch_run.lua` — run all fixtures and enforce matches to `*.expected.json` (CI uses this).
 - Queue forwarder (persisted outbox → HTTP):  
   `AO_QUEUE_PATH=dev/outbox-queue.ndjson AO_QUEUE_LOG_PATH=dev/queue-log.ndjson AO_QUEUE_MAX_RETRIES=5 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/bridge/queue_forward.lua`
-- Outbox replay into a fresh queue:  
-  `WRITE_OUTBOX_PATH=dev/outbox.json AO_QUEUE_PATH=dev/outbox-queue.ndjson lua scripts/verify/outbox_replay.lua`
+- Outbox replay into a fresh queue (with HMAC verify):  
+  `OUTBOX_HMAC_SECRET=dev-secret WRITE_OUTBOX_PATH=dev/outbox.json AO_QUEUE_PATH=dev/outbox-queue.ndjson lua scripts/worker/outbox_replay.lua`
 - Health snapshot (write-side files & deps):  
   `WRITE_WAL_PATH=... WRITE_OUTBOX_PATH=... AO_QUEUE_PATH=... LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/verify/health.lua`
 - Export verifier (PII scrub check):  

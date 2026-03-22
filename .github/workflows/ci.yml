@@ -21,6 +21,7 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       RUN_JWT_SPEC: ${{ github.event_name == 'schedule' && '1' || '' }}
       RUN_RATE_SPEC: ${{ github.event_name == 'schedule' && '1' || '' }}
+      RUN_SCHEMA_MANIFEST: 1
       WRITE_RATE_STORE_PATH: ${{ github.event_name == 'schedule' && 'dev/write-rate-store.json' || '' }}
     steps:
       - name: Checkout
@@ -94,6 +95,7 @@ jobs:
         env:
           RUN_BATCH: 1
           RUN_DEPS_CHECK: 1
+          RUN_SCHEMA_MANIFEST: 1
           WRITE_REQUIRE_SIGNATURE: 1  # ensure crypto deps present in CI
         run: bash scripts/verify/preflight.sh
 
@@ -155,6 +157,9 @@ jobs:
 
       - name: Idempotency/replay smoke
         run: lua5.4 scripts/verify/idempotency_replay.lua
+
+      - name: Metrics counters spec
+        run: lua5.4 scripts/verify/metrics_counters_spec.lua
 
       - name: Conflict + replay/idempotency (end-to-end)
         run: |

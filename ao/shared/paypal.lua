@@ -213,19 +213,38 @@ function PayPal.verify_webhook_remote(body, headers)
   if not payload.webhook_event then
     return false, "decode_failed"
   end
+  local timeout = tonumber(os.getenv "PAYPAL_VERIFY_TIMEOUT" or "5") or 5
   local base = api_base()
   local cmd = string.format(
-    "curl -sS -X POST %s/v1/notifications/verify-webhook-signature -H 'Content-Type: application/json' -H 'Authorization: Bearer %s' -d '%s'",
+    "curl -sS --max-time %d -X POST %s/v1/notifications/verify-webhook-signature -H 'Content-Type: application/json' -H 'Authorization: Bearer %s' -w '\\n%%{http_code}\\n' -d '%s'",
+    timeout,
     base,
     token,
     cjson.encode(payload)
   )
   local fh = io.popen(cmd)
   if not fh then
-    return false, "curl_failed"
+    return nil, "curl_failed"
   end
-  local resp_body = fh:read "*a" or ""
-  fh:close()
+  local raw = fh:read "*a" or ""
+  local close_ok, exit_reason, exit_code = fh:close()
+  raw = raw:gsub("\r", "")
+  local resp_body, http_status = raw:match("^(.*)\n(%d%d%d)\n$")
+  http_status = tonumber(http_status)
+  if not resp_body then
+    resp_body = raw
+  end
+  local err
+  if not close_ok then
+    err = exit_reason == "exit" and tostring(exit_code) == "28" and "timeout" or "remote_unreachable"
+  elseif not http_status then
+    err = "remote_unreachable"
+  elseif http_status >= 500 then
+    err = "remote_error"
+  end
+  if err then
+    return nil, err
+  end
   local resp = cjson.decode(resp_body)
   if resp and resp.verification_status == "SUCCESS" then
     if tx_id then

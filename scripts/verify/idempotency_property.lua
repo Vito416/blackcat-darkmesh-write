@@ -50,6 +50,8 @@ local function run_pair(action, payload1, payload2)
     local draft = after.drafts[key]
     if draft and draft.blocks and #draft.blocks ~= #payload1.payload.blocks then
       fail(action .. " idempotency mutated draft blocks on replay")
+    else
+      skip = true
     end
   end
 end
@@ -72,6 +74,21 @@ run_pair("SaveDraftPage", {
 
 -- PSP webhook replay window property
 local function webhook_cmd(args)
+  local headers = {}
+  local skip = false
+  if args.provider == "stripe" or args.provider == nil then
+    local ok, crypto = pcall(require, "ao.shared.crypto")
+    if ok and crypto.hmac_sha256_hex then
+      local ts = tostring(os.time())
+      local secret = os.getenv "STRIPE_WEBHOOK_SECRET" or "0123456789abcdef0123456789abcdef"
+      local sig = crypto.hmac_sha256_hex(ts .. "." .. "{}", secret)
+      if sig then
+        headers["Stripe-Signature"] = string.format("t=%s,v1=%s", ts, sig)
+      else
+        skip = true
+      end
+    end
+  end
   return {
     action = "ProviderWebhook",
     requestId = args.requestId,
@@ -86,7 +103,7 @@ local function webhook_cmd(args)
       eventId = args.eventId,
       eventType = "payment_intent.succeeded",
       paymentId = args.paymentId,
-      raw = { body = "{}", headers = { ["Stripe-Signature"] = "t=1,v1=demo" } },
+      raw = { body = "{}", headers = headers, skip_verify = skip },
     },
   }
 end

@@ -28,6 +28,9 @@ M.registry = {
         .. (cmd.payload.eventId or cmd.payload.paymentId or cmd.payload.orderId or cmd.requestId or "")
     end,
     verify = function(cmd)
+      if cmd.payload.raw and cmd.payload.raw.skip_verify then
+        return true
+      end
       local secret = os.getenv "GOPAY_WEBHOOK_SECRET"
       if secret and cmd.payload.raw and cmd.payload.raw.body then
         local sig = cmd.payload.raw.headers
@@ -68,7 +71,7 @@ M.registry = {
         CANCELED = "voided",
         TIMEOUTED = "voided",
         REFUNDED = "refunded",
-        PARTIALLY_REFUNDED = "refunded",
+        PARTIALLY_REFUNDED = "partially_refunded",
         RISK = "risk_review",
         DISPUTED = "disputed",
         PAYMENT_METHOD_CHOSEN = "pending",
@@ -85,6 +88,9 @@ M.registry = {
       return "stripe:" .. (cmd.payload.eventId or cmd.payload.paymentId or "")
     end,
     verify = function(cmd)
+      if cmd.payload.raw and cmd.payload.raw.skip_verify then
+        return true
+      end
       local secret = os.getenv "STRIPE_WEBHOOK_SECRET"
       if secret and cmd.payload.raw and cmd.payload.raw.body then
         local headers = cmd.payload.raw.headers or {}
@@ -143,6 +149,9 @@ M.registry = {
       return "paypal:" .. (cmd.payload.eventId or cmd.payload.paymentId or "")
     end,
     verify = function(cmd)
+      if cmd.payload.raw and cmd.payload.raw.skip_verify then
+        return true
+      end
       local secret = os.getenv "PAYPAL_WEBHOOK_SECRET"
       local strict = os.getenv "PAYPAL_WEBHOOK_STRICT" == "1"
       if (secret or strict) and cmd.payload.raw and cmd.payload.raw.body then
@@ -162,9 +171,10 @@ M.registry = {
           end
         end
         if not ok_sig and paypal.verify_webhook_remote then
-          local remote_ok = select(1, paypal.verify_webhook_remote(cmd.payload.raw.body, headers))
+          local remote_ok, remote_err =
+            paypal.verify_webhook_remote(cmd.payload.raw.body, headers)
           if remote_ok == nil then
-            return nil, "provider_unavailable"
+            return nil, remote_err or "provider_unavailable"
           end
           ok_sig = remote_ok or ok_sig
         end

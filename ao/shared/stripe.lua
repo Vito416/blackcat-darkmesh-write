@@ -169,7 +169,13 @@ local function parse_sig_header(sig_header)
   for part in string.gmatch(sig_header or "", "([^,]+)") do
     local k, v = part:match "^%s*(%w+)=([^,]+)$"
     if k and v then
-      out[k] = v
+      if out[k] == nil then
+        out[k] = v
+      elseif type(out[k]) == "table" then
+        table.insert(out[k], v)
+      else
+        out[k] = { out[k], v }
+      end
     end
   end
   return out
@@ -189,15 +195,30 @@ function Stripe.verify_webhook(body, sig_header, secret, tolerance_sec)
   if not (parts.t and parts.v1) then
     return false
   end
+  local ts = tonumber(parts.t)
+  if not ts then
+    return false
+  end
+  ts = math.floor(ts)
   local signed_payload = parts.t .. "." .. body
   local expected = crypto.hmac_sha256_hex(signed_payload, secret)
   if not expected then
     return false
   end
-  if expected ~= parts.v1 then
+  local signatures = parts.v1
+  if type(signatures) == "string" then
+    signatures = { signatures }
+  end
+  local matched = false
+  for _, sig in ipairs(signatures) do
+    if expected == sig then
+      matched = true
+      break
+    end
+  end
+  if not matched then
     return false
   end
-  local ts = tonumber(parts.t)
   local tol = tolerance_sec or tonumber(os.getenv "STRIPE_WEBHOOK_TOLERANCE" or "300")
   if ts and math.abs(now - ts) > tol then
     return false
