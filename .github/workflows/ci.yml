@@ -107,7 +107,7 @@ jobs:
         env:
           ARWEAVE_VERIFY_FILE: ${{ env.ARWEAVE_VERIFY_FILE }}
           ARWEAVE_VERIFY_TX: ${{ env.ARWEAVE_VERIFY_TX }}
-        run: scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
+        run: bash scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
 
       - name: Arweave hash verify (policy enforced)
         if: env.ENFORCE_ARWEAVE_HASH == '1'
@@ -118,14 +118,14 @@ jobs:
           if [ -z "${ARWEAVE_VERIFY_FILE:-}" ] || [ -z "${ARWEAVE_VERIFY_TX:-}" ]; then
             echo "::error::ENFORCE_ARWEAVE_HASH=1 but ARWEAVE_VERIFY_* missing" && exit 1
           fi
-          scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
+          bash scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
 
       - name: Arweave hash verify (optional)
         if: env.ARWEAVE_VERIFY_FILE != '' && env.ARWEAVE_VERIFY_TX != ''
         env:
           ARWEAVE_VERIFY_FILE: ${{ env.ARWEAVE_VERIFY_FILE }}
           ARWEAVE_VERIFY_TX: ${{ env.ARWEAVE_VERIFY_TX }}
-        run: scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
+        run: bash scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
 
       - name: Luacheck
         run: |
