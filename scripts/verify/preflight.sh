@@ -91,6 +91,11 @@ if command -v lua5.4 >/dev/null 2>&1; then
     LUA_CPATH="${ROCKS_LUA_CPATH}" \
       lua5.4 "$ROOT_DIR/scripts/verify/schema_consistency.lua"
   fi
+  if [ "${RUN_SCHEMA_MANIFEST:-1}" -eq 1 ]; then
+    echo "[verify] schema manifest drift"
+    ROOT_DIR="$ROOT_DIR" UPDATE_SCHEMA_MANIFEST=0 \
+      bash "$ROOT_DIR/scripts/verify/schema_manifest.sh"
+  fi
   if [ "${RUN_GOPAY_SPEC:-1}" -eq 1 ]; then
     echo "[verify] gopay webhook spec"
     WRITE_REQUIRE_NONCE=0 \
@@ -108,6 +113,8 @@ if command -v lua5.4 >/dev/null 2>&1; then
     WRITE_REQUIRE_TIMESTAMP=0 \
     WRITE_REQUIRE_SIGNATURE=0 \
     WRITE_REQUIRE_JWT=0 \
+    STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET:-0123456789abcdef0123456789abcdef}" \
+    PAYPAL_WEBHOOK_STRICT=0 \
     LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua;${ROCKS_LUA_PATH}" \
     LUA_CPATH="${ROCKS_LUA_CPATH}" \
       lua5.4 "$ROOT_DIR/scripts/verify/webhook_psp_spec.lua"

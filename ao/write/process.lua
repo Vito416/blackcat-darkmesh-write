@@ -43,6 +43,7 @@ local PSP_HOSTED_ONLY = os.getenv "WRITE_PSP_HOSTED_ONLY" ~= "0" -- default on (
 local PSP_BREAKER_THRESHOLD = tonumber(os.getenv "WRITE_PSP_BREAKER_THRESHOLD" or "5")
 local PSP_BREAKER_COOLDOWN = tonumber(os.getenv "WRITE_PSP_BREAKER_COOLDOWN" or "300")
 local WEBHOOK_REPLAY_WINDOW = tonumber(os.getenv "WRITE_WEBHOOK_REPLAY_WINDOW" or "600")
+local WEBHOOK_SEEN_TTL = tonumber(os.getenv "WRITE_WEBHOOK_SEEN_TTL" or tostring(WEBHOOK_REPLAY_WINDOW))
 local WEBHOOK_RETRY_MAX = tonumber(os.getenv "WRITE_WEBHOOK_RETRY_MAX" or "5")
 local WEBHOOK_RETRY_BASE = tonumber(os.getenv "WRITE_WEBHOOK_RETRY_BASE_SECONDS" or "30")
 local WEBHOOK_RETRY_JITTER_PCT = tonumber(os.getenv "WRITE_WEBHOOK_RETRY_JITTER_PCT" or "20")
@@ -183,6 +184,7 @@ local state = persist.load("write_state", {
   coupons = {}, -- code -> { type, value, currency, minOrder, expiresAt }
   webhooks = {}, -- tenant -> list of endpoints
   payments = {}, -- paymentId -> {orderId, amount, currency, provider, status}
+  order_payment = {}, -- orderId -> paymentId (reverse lookup)
   shipments = {}, -- shipmentId -> {status, tracking, carrier}
   returns = {}, -- returnId -> {status, reason}
   dlq = {}, -- dead-letter for outbox
@@ -207,7 +209,7 @@ local state = persist.load("write_state", {
   locale_routes = {}, -- siteId -> locale -> path -> target
   form_webhooks = {}, -- formId -> queue of webhook deliveries
   psp_breakers = {}, -- provider -> { count, open_until }
-  webhook_seen = {}, -- key -> ts
+  webhook_seen = {}, -- key -> { ts, expiresAt, signature }
   webhook_retry = {}, -- queue of { handler, cmd, attempts, nextAttempt }
 })
 
@@ -242,8 +244,8 @@ local function ok(req_id, payload)
   return { status = "OK", requestId = req_id, payload = payload or {} }
 end
 
-local function breaker_allows(provider)
-  if PSP_HOSTED_ONLY and provider and provider ~= "manual" then
+local function breaker_allows(provider, allow_webhook)
+  if (not allow_webhook) and PSP_HOSTED_ONLY and provider and provider ~= "manual" then
     return false, "PSP_HOSTED_ONLY"
   end
   local br = state.psp_breakers[provider or "default"]
@@ -280,27 +282,98 @@ local function breaker_note(provider, success)
   gauge("breaker_open", open_total)
 end
 
-local function mark_webhook_seen(key, ts)
+local function prune_webhook_seen(now)
+  now = now or os.time()
+  local changed
+  for k, v in pairs(state.webhook_seen or {}) do
+    local expires = (type(v) == "table" and v.expiresAt) or ((tonumber(v) or 0) + WEBHOOK_SEEN_TTL)
+    if not expires or expires <= now then
+      state.webhook_seen[k] = nil
+      changed = true
+    end
+  end
+  if changed and WEBHOOK_SEEN_PATH then
+    atomic_persist(WEBHOOK_SEEN_PATH, state.webhook_seen)
+  end
+end
+
+local function webhook_seen_recent(key, ts)
+  prune_webhook_seen()
+  local entry = state.webhook_seen[key]
+  if not entry then
+    return false
+  end
   local now = os.time()
   ts = tonumber(ts) or now
   if ts > now + WEBHOOK_REPLAY_WINDOW then
     ts = now
   end
-  local prev = state.webhook_seen[key]
-  if prev then
-    if prev > now then
-      prev = now
-    end -- clamp any poisoned future value
-    if (ts - prev) <= WEBHOOK_REPLAY_WINDOW then
-      counter("write.webhook.replay", 1)
-      return false
-    end
+  local prev = (type(entry) == "table" and entry.ts) or tonumber(entry)
+  if not prev then
+    return false
   end
-  state.webhook_seen[key] = ts
+  if prev > now then
+    prev = now
+  end
+  return (ts - prev) <= WEBHOOK_REPLAY_WINDOW
+end
+
+local function mark_webhook_seen(key, ts, signature)
+  prune_webhook_seen()
+  local now = os.time()
+  ts = tonumber(ts) or now
+  if ts > now + WEBHOOK_REPLAY_WINDOW then
+    ts = now
+  end
+  state.webhook_seen[key] = {
+    ts = ts,
+    expiresAt = ts + WEBHOOK_SEEN_TTL,
+    signature = signature,
+  }
   if WEBHOOK_SEEN_PATH then
     atomic_persist(WEBHOOK_SEEN_PATH, state.webhook_seen)
   end
-  return true
+end
+
+-- Maintain bidirectional lookup between payments and orders so webhook payloads
+-- that only carry an orderId (or provider payment id) still update the right payment.
+local function link_payment_to_order(payment_id, order_id)
+  if not payment_id or payment_id == "" or not order_id or order_id == "" then
+    return
+  end
+  state.order_payment = state.order_payment or {}
+  state.order_payment[order_id] = payment_id
+end
+
+local function resolve_payment(hint, provider)
+  if not hint or hint == "" then
+    return nil
+  end
+  -- direct payment id
+  if state.payments[hint] then
+    link_payment_to_order(hint, state.payments[hint].orderId)
+    return hint, state.payments[hint]
+  end
+  -- order -> payment mapping
+  if state.order_payment and state.order_payment[hint] then
+    local pid = state.order_payment[hint]
+    return pid, state.payments[pid]
+  end
+  -- legacy entries without reverse mapping
+  for pid, p in pairs(state.payments) do
+    if p.orderId == hint then
+      link_payment_to_order(pid, p.orderId)
+      return pid, p
+    end
+  end
+  -- provider payment id fallback
+  for pid, p in pairs(state.payments) do
+    if p.providerPaymentId == hint and (not provider or provider == p.provider) then
+      link_payment_to_order(pid, p.orderId)
+      return pid, p
+    end
+  end
+  return nil
 end
 
 local webhook_counter
@@ -314,18 +387,45 @@ local function handle_psp_webhook(cmd, schedule_retry)
       or err(cmd.requestId, "INVALID_INPUT", "provider_not_supported")
   end
 
+  local ok_br, br_err = breaker_allows(provider, true)
+  if not ok_br and br_err == "PSP_HOSTED_ONLY" then
+    -- Webhooks are inbound; PSP_HOSTED_ONLY should not block them.
+    ok_br, br_err = true, nil
+  end
+  if not ok_br then
+    if schedule_retry then
+      return schedule_retry(br_err or "psp_circuit_open")
+    end
+    return err(cmd.requestId, "PSP_UNAVAILABLE", br_err or "psp_circuit_open")
+  end
+
   local replay_key = spec.replay_key(cmd)
-  if replay_key ~= "" and not mark_webhook_seen(replay_key, cmd.timestamp) then
+  if replay_key ~= "" and webhook_seen_recent(replay_key, cmd.timestamp) then
     webhook_counter(provider, "replay")
     return err(cmd.requestId, "REPLAY", "duplicate_webhook")
   end
 
+  local headers = cmd.payload.raw and cmd.payload.raw.headers or {}
+  local sig = headers["Stripe-Signature"] or headers["stripe-signature"]
+    or headers["PayPal-Transmission-Sig"]
+    or headers["PP-Signature"]
+    or headers["X-GoPay-Signature"]
+    or headers["GoPay-Signature"]
+
   if spec.verify then
     local okv, verr = spec.verify(cmd)
-    if not okv then
+    if okv == nil then
+      breaker_note(provider, false)
+      if schedule_retry then
+        return schedule_retry(verr or "provider_unavailable")
+      end
+      return err(cmd.requestId, "PSP_UNAVAILABLE", verr or "provider_unavailable")
+    end
+    if okv == false then
       webhook_counter(provider, "verify_fail")
       return err(cmd.requestId, "UNAUTHORIZED", verr or "signature_invalid")
     end
+    breaker_note(provider, true)
   end
 
   if ok_schema then
@@ -346,26 +446,30 @@ local function handle_psp_webhook(cmd, schedule_retry)
   end
 
   local new_status = spec.status and spec.status(cmd) or "pending"
-  local pid = cmd.payload.paymentId or cmd.payload.orderId or cmd.payload.eventId
-
-  if pid and state.payments[pid] then
-    set_payment_status(pid, new_status, cmd.payload.status or cmd.payload.eventType, cmd.requestId)
-    if spec.on_found then
-      spec.on_found(pid, state.payments[pid], cmd, state)
+  local hints = {
+    cmd.payload.paymentId,
+    cmd.payload.providerPaymentId,
+    cmd.payload.orderId,
+    cmd.payload.eventId,
+  }
+  local pid, payment
+  for _, h in ipairs(hints) do
+    pid, payment = resolve_payment(h, provider)
+    if pid then
+      break
     end
-    webhook_counter(provider, "success")
-    return ok(cmd.requestId, { paymentId = pid, status = new_status })
   end
 
-  for ppid, p in pairs(state.payments) do
-    if p.provider == provider and p.providerPaymentId == pid then
-      set_payment_status(ppid, new_status, cmd.payload.status or cmd.payload.eventType, cmd.requestId)
-      if spec.on_found then
-        spec.on_found(ppid, state.payments[ppid], cmd, state)
-      end
-      webhook_counter(provider, "success")
-      return ok(cmd.requestId, { paymentId = pid or ppid, status = state.payments[ppid].status })
+  if pid then
+    set_payment_status(pid, new_status, cmd.payload.status or cmd.payload.eventType, cmd.requestId)
+    if spec.on_found then
+      spec.on_found(pid, payment or state.payments[pid], cmd, state)
     end
+    if replay_key ~= "" then
+      mark_webhook_seen(replay_key, cmd.timestamp, sig)
+    end
+    webhook_counter(provider, "success")
+    return ok(cmd.requestId, { paymentId = pid, status = state.payments[pid].status })
   end
 
   webhook_counter(provider, "missing_payment")
@@ -462,6 +566,7 @@ function set_payment_status(pid, new_status, provider_status, req_id)
   if not p then
     return
   end
+  link_payment_to_order(pid, p.orderId)
   p.status = new_status or p.status
   p.updatedAt = os.time()
   local ev = {
@@ -475,16 +580,24 @@ function set_payment_status(pid, new_status, provider_status, req_id)
   if p.orderId and state.orders[p.orderId] then
     local map = {
       captured = "paid",
+      paid = "paid",
+      success = "paid",
+      succeeded = "paid",
+      completed = "paid",
       refunded = "refunded",
+      partially_refunded = "refunded",
       voided = "cancelled",
+      canceled = "cancelled",
+      cancelled = "cancelled",
       disputed = "disputed",
       failed = "payment_failed",
-      requires_capture = "pending",
+      requires_capture = "confirmed",
+      authorized = "confirmed",
       returned = "returned",
       fulfilled = "fulfilled",
-      pending = state.orders[p.orderId].status,
     }
     local new_order_status = map[p.status]
+      or (p.status == "pending" and state.orders[p.orderId].status)
     if new_order_status then
       state.orders[p.orderId].status = new_order_status
       state.orders[p.orderId].version = (state.orders[p.orderId].version or 1) + 1
@@ -1360,8 +1473,11 @@ function handlers.UpsertOrderStatus(cmd)
 end
 
 function handlers.IssueRefund(cmd)
-  local payment = state.payments[cmd.payload.orderId]
-  local provider = payment and payment.provider
+  local pid, payment = resolve_payment(cmd.payload.paymentId or cmd.payload.orderId)
+  if not payment then
+    return err(cmd.requestId, "NOT_FOUND", "payment not found")
+  end
+  local provider = payment.provider
   local ok_br, br_err = breaker_allows(provider)
   if not ok_br then
     return err(cmd.requestId, "PSP_UNAVAILABLE", br_err, { provider = provider })
@@ -2146,6 +2262,7 @@ function handlers.CreatePaymentIntent(cmd)
     gatewayUrl = gatewayUrl,
     tokenized = cmd.payload.paymentMethodToken ~= nil,
   }
+  link_payment_to_order(pid, cmd.payload.orderId)
   if cmd.payload.customerId and cmd.payload.paymentMethodToken then
     state.payment_tokens[cmd.payload.customerId] = state.payment_tokens[cmd.payload.customerId]
       or {}
@@ -2618,7 +2735,7 @@ function handlers.ProviderShippingWebhook(cmd)
   end
 
   local replay_key = "ship:" .. (cmd.payload.eventId or cmd.payload.shipmentId or "")
-  if not mark_webhook_seen(replay_key, cmd.timestamp) then
+  if webhook_seen_recent(replay_key, cmd.timestamp) then
     webhook_counter("shipping", "replay")
     return err(cmd.requestId, "REPLAY", "duplicate_webhook")
   end
@@ -2661,6 +2778,7 @@ function handlers.ProviderShippingWebhook(cmd)
     }
   end
   webhook_counter(cmd.payload.provider or "shipping", "success")
+  mark_webhook_seen(replay_key, cmd.timestamp)
   return ok(cmd.requestId, { shipmentId = cmd.payload.shipmentId, status = sh.status })
 end
 
@@ -2693,11 +2811,12 @@ end
 -- Run due webhook retries (manual or cron) -----------------------------------
 function handlers.RunWebhookRetries(cmd)
   state.webhook_retry = state.webhook_retry or {}
+  local queue = state.webhook_retry
+  state.webhook_retry = {}
   local now = os.time()
-  local remaining = {}
-  for _, job in ipairs(state.webhook_retry) do
+  for _, job in ipairs(queue) do
     if job.nextAttempt and job.nextAttempt > now then
-      table.insert(remaining, job)
+      table.insert(state.webhook_retry, job)
     else
       local handler = handlers[job.handler]
       if handler then
@@ -2710,7 +2829,6 @@ function handlers.RunWebhookRetries(cmd)
       end
     end
   end
-  state.webhook_retry = remaining
   persist.save("write_state", state)
   gauge("write.webhook.retry_queue", #state.webhook_retry)
   gauge("webhook_retry_queue", #state.webhook_retry)
@@ -2731,6 +2849,7 @@ function handlers.RunWebhookRetries(cmd)
   end
   gauge("write.webhook.retry_lag_seconds", math.max(0, max_lag))
   gauge("webhook_retry_lag_seconds", math.max(0, max_lag))
+  gauge("webhook_retry_lag", math.max(0, max_lag))
   gauge("write.webhook.retry_overdue", overdue)
   gauge("webhook_retry_overdue", overdue)
   return ok(cmd.requestId, { retry_size = #state.webhook_retry })
@@ -2742,6 +2861,7 @@ function M.route(command)
   local stored = idem.lookup(command.requestId or command["Request-Id"])
   if stored then
     counter("write.idempotency.collisions", 1)
+    counter("idempotency_collisions", 1)
     counter("idempotency_collisions_total", 1)
     return stored
   end
@@ -2835,6 +2955,7 @@ function M.route(command)
     local apply_duration = os.clock() - apply_started
     gauge("write.wal.apply_duration_seconds", apply_duration)
     gauge("wal_apply_duration_seconds", apply_duration)
+    gauge("wal_apply_duration", apply_duration)
   end
   local wal_entry
   do

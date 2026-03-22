@@ -70,4 +70,84 @@ run_pair("SaveDraftPage", {
   },
 })
 
+-- PSP webhook replay window property
+local function webhook_cmd(args)
+  return {
+    action = "ProviderWebhook",
+    requestId = args.requestId,
+    actor = "system",
+    tenant = "t-idem",
+    role = "admin",
+    nonce = args.nonce,
+    timestamp = args.timestamp,
+    signatureRef = args.signatureRef,
+    payload = {
+      provider = "stripe",
+      eventId = args.eventId,
+      eventType = "payment_intent.succeeded",
+      paymentId = args.paymentId,
+      raw = { body = "{}", headers = { ["Stripe-Signature"] = "t=1,v1=demo" } },
+    },
+  }
+end
+
+do
+  local state = write._state()
+  state.payments = state.payments or {}
+  state.webhook_seen = {}
+  state.payments["pi-idem-window"] = { provider = "stripe", providerPaymentId = "pi-idem-window" }
+  state.payments["pi-idem-out"] = { provider = "stripe", providerPaymentId = "pi-idem-out" }
+
+  local window = tonumber(os.getenv "WRITE_WEBHOOK_REPLAY_WINDOW" or "600")
+  local base_ts = os.time() - 10
+
+  -- inside window: duplicate should be REPLAY
+  local first = webhook_cmd {
+    requestId = "rw-window-1",
+    signatureRef = "sig-window",
+    nonce = "nonce-window",
+    timestamp = base_ts,
+    eventId = "evt-window",
+    paymentId = "pi-idem-window",
+  }
+  expect_ok(write.route(first), "first webhook (within window) failed")
+
+  local replay = webhook_cmd {
+    requestId = "rw-window-2",
+    signatureRef = "sig-window",
+    nonce = "nonce-window",
+    timestamp = base_ts + math.floor(window / 2),
+    eventId = "evt-window",
+    paymentId = "pi-idem-window",
+  }
+  local replay_resp = write.route(replay)
+  if not (replay_resp and replay_resp.status == "ERROR" and replay_resp.code == "REPLAY") then
+    fail("webhook replay inside window not deduped")
+  end
+
+  -- outside window: same signatureRef/nonce accepted
+  local first_out = webhook_cmd {
+    requestId = "rw-window-3",
+    signatureRef = "sig-out",
+    nonce = "nonce-out",
+    timestamp = base_ts,
+    eventId = "evt-window-out",
+    paymentId = "pi-idem-out",
+  }
+  expect_ok(write.route(first_out), "first webhook (outside window setup) failed")
+
+  local second_out = webhook_cmd {
+    requestId = "rw-window-4",
+    signatureRef = "sig-out",
+    nonce = "nonce-out",
+    timestamp = base_ts + window + 2,
+    eventId = "evt-window-out",
+    paymentId = "pi-idem-out",
+  }
+  local second_out_resp = write.route(second_out)
+  if not (second_out_resp and second_out_resp.status == "OK") then
+    fail("webhook outside replay window should be accepted")
+  end
+end
+
 print "idempotency_property: ok"

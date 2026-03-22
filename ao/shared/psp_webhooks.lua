@@ -35,9 +35,13 @@ M.registry = {
         if not sig then
           return false, "missing_signature"
         end
-        local ok_sig = gopay_ok
-          and gopay.verify_signature
-          and gopay.verify_signature(cmd.payload.raw.body, sig, secret)
+        if not (gopay_ok and gopay.verify_signature) then
+          return nil, "provider_unavailable"
+        end
+        local ok_sig = gopay.verify_signature(cmd.payload.raw.body, sig, secret)
+        if ok_sig == nil then
+          return nil, "provider_unavailable"
+        end
         if not ok_sig then
           return false, "signature_invalid"
         end
@@ -88,13 +92,18 @@ M.registry = {
         if not sig then
           return false, "missing_signature"
         end
-        local ok_sig = stripe_ok
-          and stripe.verify_webhook(
-            cmd.payload.raw.body,
-            sig,
-            secret,
-            tonumber(os.getenv "STRIPE_WEBHOOK_TOLERANCE" or "300")
-          )
+        if not stripe_ok or not stripe.verify_webhook then
+          return nil, "provider_unavailable"
+        end
+        local ok_sig = stripe.verify_webhook(
+          cmd.payload.raw.body,
+          sig,
+          secret,
+          tonumber(os.getenv "STRIPE_WEBHOOK_TOLERANCE" or "300")
+        )
+        if ok_sig == nil then
+          return nil, "provider_unavailable"
+        end
         if not ok_sig then
           return false, "signature_invalid"
         end
@@ -142,15 +151,22 @@ M.registry = {
         if strict and not sig then
           return false, "missing_signature"
         end
+        if not paypal_ok then
+          return nil, "provider_unavailable"
+        end
         local ok_sig = false
-        if paypal_ok then
-          if sig and secret then
-            ok_sig = paypal.verify_webhook(cmd.payload.raw.body, sig, secret)
+        if sig and secret and paypal.verify_webhook then
+          ok_sig = paypal.verify_webhook(cmd.payload.raw.body, sig, secret)
+          if ok_sig == nil then
+            return nil, "provider_unavailable"
           end
-          if not ok_sig then
-            local remote_ok = select(1, paypal.verify_webhook_remote(cmd.payload.raw.body, headers))
-            ok_sig = remote_ok or ok_sig
+        end
+        if not ok_sig and paypal.verify_webhook_remote then
+          local remote_ok = select(1, paypal.verify_webhook_remote(cmd.payload.raw.body, headers))
+          if remote_ok == nil then
+            return nil, "provider_unavailable"
           end
+          ok_sig = remote_ok or ok_sig
         end
         if strict and not ok_sig then
           return false, "signature_invalid"
