@@ -203,7 +203,7 @@ LUA
       WRITE_OUTBOX_PATH="$tmp_outbox" \
         lua5.4 - <<'LUA'
 local storage = require "ao.shared.storage"
-local auth = require "ao.shared.auth"
+local verifier = require "ao.shared.outbox_verifier"
 
 local secret = os.getenv("OUTBOX_HMAC_SECRET") or "secret"
 local now = os.time()
@@ -216,7 +216,7 @@ local event_ok = {
   manifestTx = "tx-preflight",
   requestId = "req-preflight",
 }
-local hmac, herr = auth.compute_outbox_hmac(event_ok, secret)
+local hmac, herr = verifier.compute(event_ok, { secret = secret })
 assert(hmac, "compute_outbox_hmac failed: " .. tostring(herr))
 event_ok.hmac = hmac
 event_ok.Hmac = hmac
