@@ -14,17 +14,15 @@ package.cpath = table.concat({
   package.cpath,
 }, ";")
 
--- test-local env override (works without os.setenv)
-local overrides = { OUTBOX_HMAC_SECRET = "0123456789abcdef0123456789abcdef" } -- 32 bytes raw
-local real_getenv = os.getenv
--- luacheck: push ignore os
-os.getenv = function(k)
+-- test-local env override without mutating os.getenv (luacheck-friendly)
+-- expects OUTBOX_HMAC_SECRET to be a 32-byte raw string (matching prod hex after decode)
+local overrides = { OUTBOX_HMAC_SECRET = "0123456789abcdef0123456789abcdef" }
+local function getenv(k)
   if overrides[k] ~= nil then
     return overrides[k]
   end
-  return real_getenv(k)
+  return os.getenv(k)
 end
--- luacheck: pop
 
 local write = require "ao.write.process"
 local storage = require "ao.shared.storage"
@@ -77,7 +75,7 @@ for _, entry in ipairs(queue) do
   local ev = entry.event
   if ev.Hmac then
     local auth = require "ao.shared.auth"
-    local expected = auth.compute_outbox_hmac(ev, os.getenv "OUTBOX_HMAC_SECRET" or "")
+    local expected = auth.compute_outbox_hmac(ev, getenv "OUTBOX_HMAC_SECRET" or "")
     assert(expected, "HMAC compute failed")
     assert(ev.Hmac == expected, "HMAC mismatch")
   end

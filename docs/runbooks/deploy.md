@@ -6,6 +6,10 @@ Audience: ops/infra teams deploying the write AO process to production-like host
 - Ensure Lua 5.4 + required rocks are installed (`luarocks --version`); refresh pinned deps if needed (`ops/rocks.lock`).
 - Run `scripts/verify/preflight.sh` with `RUN_CONTRACTS=1 RUN_CONFLICTS=1` to cover schema, contract, and conflict checks.
 - Verify git/tag matches the intended release and that local changes are clean except approved hotfixes.
+- Secrets checklist:
+  - `OUTBOX_HMAC_SECRET` **must be 64 hex chars (32 bytes)**; non-hex will fail `scripts/verify/secrets_lint.sh` and cause HMAC drift.
+  - `WRITE_SIG_TYPE` matches the provided key: `WRITE_SIG_PUBLIC` for ed25519/ecdsa, `WRITE_SIG_SECRET` for hmac.
+  - Arweave gate: set `ARWEAVE_VERIFY_FILE`, `ARWEAVE_VERIFY_TX`, `ARWEAVE_VERIFY_REF` + `ENFORCE_ARWEAVE_HASH=1` if you want fail-closed hashing; leave unset to skip enforcement.
 
 ## Prepare host
 - Copy `ops/env.prod.example` to `/etc/blackcat/write.env` and fill secrets/paths:
@@ -38,3 +42,19 @@ Audience: ops/infra teams deploying the write AO process to production-like host
 - Smoke commands: `lua scripts/cli/run_command.lua fixtures/sample-save-draft.json` then `lua scripts/cli/run_command.lua fixtures/sample-publish.json`; confirm WAL grows and outbox queue drains.
 - Optional: force a logrotate dry run `logrotate -f /etc/logrotate.d/write-wal` on a canary host to verify permissions.
 - Arweave publish (arkb, optional): use workflow `Arweave Deploy (arkb)` (`.github/workflows/arkb-deploy.yml`) with inputs `artifact_path` (default `dev/write-export.ndjson`), `content_type` (default `application/json`). Requires secret `ARKB_WALLET_JSON_B64` (base64 wallet JSON). Workflow summary prints TXID + SHA256.
+
+## Arweave release hash gate
+- Purpose: CI fails closed if the shipped artifact hash differs from the reference stored on Arweave.
+- Set secrets (repo or org):
+  - `ARWEAVE_VERIFY_FILE` — filename of the artifact (e.g., `blackcat-darkmesh-write-v1.0.0.tar.gz`).
+  - `ARWEAVE_VERIFY_TX` — Arweave TXID containing that artifact.
+  - `ARWEAVE_VERIFY_REF` — git ref or tag to hash locally (e.g., `v1.0.0`).
+  - `ENFORCE_ARWEAVE_HASH=1` — enables the gate; without it, the step is skipped.
+- CI step (`scripts/verify/verify_arweave_hash.sh`) will:
+  1) Download TX data, compute SHA256.
+  2) Check out `ARWEAVE_VERIFY_REF` and hash the local artifact path; compare.
+  3) Fail if hashes mismatch or file/tx missing.
+- Ops triage:
+  - If mismatch: verify you uploaded the right artifact, re-upload (same file) or update `ARWEAVE_VERIFY_TX`/`ARWEAVE_VERIFY_REF` to the intended release.
+  - If TX not found: ensure gateway availability and TX finality; retry later.
+  - For hotfixes: temporarily set `ENFORCE_ARWEAVE_HASH=0` only on a hotfix branch, never on main/release.

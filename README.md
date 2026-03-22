@@ -1,9 +1,26 @@
-# blackcat-darkmesh-write
-[![Project: Blackcat Mesh Nexus](https://img.shields.io/badge/Project-Blackcat%20Mesh%20Nexus-000?logo=github)](https://github.com/users/Vito416/projects/2) [![CI](https://github.com/Vito416/blackcat-darkmesh-write/actions/workflows/ci.yml/badge.svg)](https://github.com/Vito416/blackcat-darkmesh-write/actions/workflows/ci.yml)
+# **blackcat-darkmesh-write**
+[![Project: Blackcat Mesh Nexus](https://img.shields.io/badge/Project-Blackcat%20Mesh%20Nexus-000?logo=github)](https://github.com/users/Vito416/projects/2) [![CI](https://github.com/Vito416/blackcat-darkmesh-write/actions/workflows/ci.yml/badge.svg)](https://github.com/Vito416/blackcat-darkmesh-write/actions/workflows/ci.yml) ![Lua](https://img.shields.io/badge/Lua-5.4-blue) ![License](https://img.shields.io/badge/License-BFNL--1.0-lightgrey)
 
 ![Write Banner](.github/blackcat-darkmesh-write-banner.jpg)
 
 AO-native command layer for Blackcat Darkmesh. This repository hosts the write-side AO processes that enforce idempotent, authorized, and auditable changes to the canonical state maintained in `blackcat-darkmesh-ao`. No separate server-side authority exists; any bridge or admin client is only a transport adapter.
+
+> This repo is infrastructure/back-end only: no UI assets, no public read path, no long-lived secrets.
+
+## Contents
+- [Scope](#scope)
+- [Architecture Snapshot](#architecture-snapshot)
+- [Interfaces at a glance](#interfaces-at-a-glance)
+- [Links hub](#links-hub)
+- [Development](#development)
+- [Env toggles (write process)](#env-toggles-write-process)
+- [CLI helpers](#cli-helpers)
+- [Prod hardening checklist](#prod-hardening-checklist)
+- [Monitoring](#monitoring)
+- [Bridge (stub)](#bridge-stub)
+- [Security Guard Rails](#security-guard-rails)
+- [License](#license)
+- [CI notes](#ci-notes)
 
 ## Scope
 - In scope: AO command processes, handlers, idempotency registry, audit/event emission, publish workflow (draft → review → publish → rollback), validators and schemas, minimal adapters, deploy/verify scripts, fixtures, CI workflows.
@@ -15,6 +32,56 @@ AO-native command layer for Blackcat Darkmesh. This repository hosts the write-s
 - Identity & auth: signed commands or capability tokens; gateway is never an implicit authority.
 - Idempotence: `requestId` registry and optimistic `expectedVersion` guards to prevent duplicate writes.
 - Audit: append-only log with correlation to requestId and actor; deterministic status codes.
+
+```mermaid
+flowchart LR
+  A[Client / Gateway] -->|Action envelope| V[Validation
+  - schema
+  - policy
+  - signature/JWT
+  - nonce/replay]
+  V --> I[Idempotency check
+  requestId + expectedVersion]
+  I --> H[Handler]
+  H --> O[Outbox event
+  + HMAC]
+  H --> W[WAL/audit]
+  O --> D[Downstream AO / bridge]
+  style O fill:#0b7285,stroke:#0b7285,color:#fff
+  style W fill:#495057,stroke:#495057,color:#fff
+```
+
+```mermaid
+flowchart LR
+  WB[PSP/Webhook] -->|POST| R[Webhook handler]
+  R -->|verify sig| S{Signature OK?}
+  S -->|no| B[Breaker + 4xx]
+  S -->|yes| DQ[dedupe window]
+  DQ -->|seen?| Drop[409 Conflict]
+  DQ -->|new| Q[enqueue retry queue]
+  Q -->|fetch PSP state| P[Process payment/update]
+  P --> EV[emit event + HMAC]
+  style Q fill:#0b7285,stroke:#0b7285,color:#fff
+
+Legend: teal = queues/events, gray = WAL/audit paths.
+```
+
+### Interfaces at a glance
+
+| Area | Inputs | Outputs | Interfaces / Paths | Health | CI gates |
+|---|---|---|---|---|---|
+| Commands | Signed envelopes (`Action`, `Request-Id`, `Actor`, `Tenant`, `Expected-Version`, `Nonce`, `Signature-Ref`, `Timestamp`) | WAL entries, outbox events (HMACed), audit | `ao/write/process.lua`, schemas under `schemas/` | `scripts/verify/health.lua` | `preflight`, `contracts`, `conflicts`, `batch fixtures` |
+| Webhooks (PSP) | Stripe/PayPal/GoPay webhook POSTs + signatures | PSP events → outbox, breaker state, retry queue | `ao/shared/psp_webhooks.lua`, retry queue | metrics `webhook_retry_*`, `breaker_open` | `webhook_psp_spec`, `gopay_webhook_spec` |
+| Metrics | Prom text file (`METRICS_PROM_PATH`) | scrape/alerts | `/metrics` (if exposed) | `scripts/verify/health.lua` | `docs/ALERTS.md` |
+| Arweave gate | Artifact hash vs TX | pass/fail | `scripts/verify/verify_arweave_hash.sh` | n/a | `ENFORCE_ARWEAVE_HASH` stage |
+
+## Links hub
+- Alerts & thresholds: `docs/ALERTS.md`
+- Deploy runbook: `docs/runbooks/deploy.md`
+- Rollback runbook (incl. hash-gate handling): `docs/runbooks/rollback.md`
+- Env template: `ops/env.prod.example`
+- Schemas: `schemas/`
+- PSP/webhook specs: `scripts/verify/webhook_psp_spec.lua`, `gopay_webhook_spec.lua`
 
 ## Repository Layout (blueprint)
 ```
@@ -105,11 +172,19 @@ scripts/cli/       # local helpers (run command)
   `WRITE_OUTBOX_EXPORT_PATH=dev/outbox.ndjson lua scripts/verify/export_verify.lua`
 
 ## Prod hardening checklist
+> 🚦 **Production readiness** — keep these on before serving real traffic.
 - Set `WRITE_STRICT_OUTBOX_HMAC=1` and ensure every emitted event includes `hmac`.
 - Keep signature/JWT verification on (WRITE_REQUIRE_SIGNATURE/WRITE_REQUIRE_JWT) and rotate keys regularly.
 - Persist idempotency/rate buckets/outbox where applicable (`WRITE_IDEM_PATH`, `WRITE_RATE_STORE_PATH`, `WRITE_OUTBOX_PATH`) and back them up.
 - Monitor `/metrics` (bearer from METRICS_BEARER_TOKEN) for `rate_limited`, `replay_nonce`, and outbox HMAC counters; alert on sustained errors.
 - If Arweave verification is mandatory on all branches, set `ENFORCE_ARWEAVE_HASH=1` and provide `ARWEAVE_VERIFY_FILE/ARWEAVE_VERIFY_TX`; CI will fail-closed otherwise.
+- Licensing quick links: BFNL-1.0 and Founder Fee Policy are authoritative — keep deployments within their terms.
+
+> **Common pitfalls**
+> - `OUTBOX_HMAC_SECRET` must be 64 hex chars (32B) or HMAC drifts and `secrets_lint` will fail.
+> - `WRITE_SIG_TYPE` must match the key you provide (public key for ed25519/ecdsa vs shared secret for hmac).
+> - `WRITE_NONCE_TTL_SECONDS` / replay window: too low → false rejects; too high → oversized seen-cache.
+> - Arweave hash gate: with `ENFORCE_ARWEAVE_HASH=1` you need the correct `ARWEAVE_VERIFY_TX` + artifact, otherwise CI fails closed.
 
 ## Monitoring
 - Expose Prom-style `/metrics` via `ao.shared.metrics` (see `METRICS_PROM_PATH`, `METRICS_LOG`, `METRICS_BEARER_TOKEN`).
@@ -145,7 +220,7 @@ scripts/cli/       # local helpers (run command)
 - All comments and docs remain in English.
 
 ## License
-Blackcat Darkmesh Write is licensed under `BFNL-1.0` (see `LICENSE`). Contribution and relicensing rules are governed by the companion documents in `blackcat-darkmesh-ao/docs/`. This repository is an official component of the Blackcat Covered System; repository separation inside `BLACKCAT_MESH_NEXUS` is for maintenance/safety/auditability and nevyvolává samostatnou fee událost pro stejný běžný deployment.
+Blackcat Darkmesh Write is licensed under `BFNL-1.0` (see `LICENSE`). Contribution and relicensing rules are governed by the companion documents in `blackcat-darkmesh-ao/docs/`. This repository is an official component of the Blackcat Covered System; the repo split inside `BLACKCAT_MESH_NEXUS` is only for maintenance/safety/auditability and does **not** trigger a separate fee event for the same deployment.
 
 Canonical licensing bundle:
 - BFNL 1.0: https://github.com/Vito416/blackcat-darkmesh-ao/blob/main/docs/BFNL-1.0.md

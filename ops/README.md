@@ -37,7 +37,7 @@ Guard rails
 Observability
 - Prom scrape via `METRICS_PROM_PATH`; NDJSON export via `METRICS_NDJSON_PATH`;
   log stream to `METRICS_LOG`.
-- Klíčové metriky: `write.webhook.verify_fail`, `write.webhook.replay`,
+- Key metrics: `write.webhook.verify_fail`, `write.webhook.replay`,
   `write.webhook.retry_queue` / `webhook_retry_queue`,
   `write.webhook.retry_overdue` / `webhook_retry_overdue`,
   `write.webhook.retry_lag_seconds` / `webhook_retry_lag_seconds`,

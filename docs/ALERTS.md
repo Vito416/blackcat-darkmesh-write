@@ -8,6 +8,8 @@ Key gauges/counters:
 - `webhook_retry_lag_seconds` / `webhook_retry_lag` — oldest webhook retry delay.
 - `breaker_open` — number of open PSP/webhook breakers.
 - `idempotency_collisions_total` — replayed request hits.
+- `write.webhook.retry_queue` — backlog of webhook retries.
+- `write_outbox_hmac_mismatch_total` / `write_outbox_hmac_missing_total` — HMAC coverage on outbox.
 
 ## Prometheus rules (examples)
 
@@ -46,12 +48,27 @@ Key gauges/counters:
     summary: "Webhook retry lag > 30s"
     description: "Downstream PSP/gateway likely failing; breaker may be open."
 
+- alert: WriteWebhookRetryQueue
+  expr: max_over_time(write_webhook_retry_queue[5m]) > 200
+  for: 10m
+  labels: { severity: warning }
+  annotations:
+    summary: "Webhook retry queue growing"
+    description: "Backlog >200 for 10m; check PSP availability and DLQ policy."
+
 - alert: WriteBreakerOpen
   expr: max_over_time(breaker_open[5m]) > 0
   labels: { severity: warning }
   annotations:
     summary: "Circuit breaker opened"
     description: "PSP/webhook failures triggered breaker in last 5m."
+
+- alert: WriteOutboxHmacMissing
+  expr: increase(write_outbox_hmac_missing_total[10m]) > 0 or increase(write_outbox_hmac_mismatch_total[10m]) > 0
+  labels: { severity: warning }
+  annotations:
+    summary: "Outbox HMAC coverage issue"
+    description: "Events missing or failing HMAC in last 10m; verify OUTBOX_HMAC_SECRET and forwarder config."
 
 # Schema drift / contract checks
 - alert: WriteSchemaDrift

@@ -23,3 +23,8 @@ Goal: return the write process to the last known good release while preserving W
 ## Re-enable traffic
 - Put the service back into rotation; monitor alerts `WriteWebhookRetryLagHigh`, `WriteWalApplySlow`, and WAL size thresholds for 15–30 minutes.
 - If issues persist, roll forward to a new hotfix rather than flipping repeatedly.
+
+## Arweave hash gate (CI) rollback
+- If CI fails on Arweave hash mismatch during an emergency hotfix, you may temporarily set `ENFORCE_ARWEAVE_HASH=0` **only in the hotfix branch**, never on `main`/`release`.
+- Keep `ARWEAVE_VERIFY_FILE/ARWEAVE_VERIFY_TX/ARWEAVE_VERIFY_REF` unchanged; after uploading the corrected artifact to Arweave, re-enable `ENFORCE_ARWEAVE_HASH=1` and update TXID/ref as needed.
+- Document any temporary disable/enable in the change ticket and post-mortem.
