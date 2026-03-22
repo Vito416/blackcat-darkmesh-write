@@ -4,6 +4,13 @@
 local crypto = require "ao.shared.crypto"
 local ok_json, cjson = pcall(require, "cjson.safe")
 local os_time = os.time
+local metrics_ok, metrics = pcall(require, "ao.shared.metrics")
+
+local function m_counter(name, value)
+  if metrics_ok and metrics and metrics.counter then
+    metrics.counter(name, value or 1)
+  end
+end
 
 local Stripe = {}
 
@@ -209,6 +216,7 @@ function Stripe.verify_webhook(body, sig_header, secret, tolerance_sec)
   if type(signatures) == "string" then
     signatures = { signatures }
   end
+  local signature_count = signatures and #signatures or 0
   local matched = false
   for _, sig in ipairs(signatures) do
     if expected == sig then
@@ -220,7 +228,18 @@ function Stripe.verify_webhook(body, sig_header, secret, tolerance_sec)
     return false
   end
   local tol = tolerance_sec or tonumber(os.getenv "STRIPE_WEBHOOK_TOLERANCE" or "300")
-  if ts and math.abs(now - ts) > tol then
+  local skew = ts and math.abs(now - ts) or 0
+  if ts and skew > tol then
+    if signature_count > 1 then
+      m_counter("write.webhook.stripe.multi_v1_ts_skew", 1)
+    else
+      m_counter("write.webhook.stripe.ts_skew", 1)
+    end
+    if os.getenv "WRITE_DEBUG" == "1" then
+      io.stderr:write(
+        string.format("[stripe] webhook ts skew %s exceeds tolerance %s (sigs=%d)\n", skew, tol, signature_count)
+      )
+    end
     return false
   end
   if cache_key then

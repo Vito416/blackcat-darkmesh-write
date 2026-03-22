@@ -4,6 +4,13 @@
 local crypto = require "ao.shared.crypto"
 local ok_json, cjson = pcall(require, "cjson.safe")
 local os_time = os.time
+local metrics_ok, metrics = pcall(require, "ao.shared.metrics")
+
+local function m_counter(name, value)
+  if metrics_ok and metrics and metrics.counter then
+    metrics.counter(name, value or 1)
+  end
+end
 
 local PayPal = {}
 
@@ -235,14 +242,22 @@ function PayPal.verify_webhook_remote(body, headers)
     resp_body = raw
   end
   local err
+  local http_unavailable = false
   if not close_ok then
     err = exit_reason == "exit" and tostring(exit_code) == "28" and "timeout" or "remote_unreachable"
   elseif not http_status then
     err = "remote_unreachable"
+  elseif http_status == 429 then
+    err = "rate_limited"
+    http_unavailable = true
   elseif http_status >= 500 then
     err = "remote_error"
+    http_unavailable = true
   end
   if err then
+    if http_unavailable then
+      m_counter("write.webhook.paypal.verify_unavailable", 1)
+    end
     return nil, err
   end
   local resp = cjson.decode(resp_body)

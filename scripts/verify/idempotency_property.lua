@@ -81,6 +81,11 @@ local function webhook_cmd(args)
     if ok and crypto.hmac_sha256_hex then
       local ts = tostring(os.time())
       local secret = os.getenv "STRIPE_WEBHOOK_SECRET" or "0123456789abcdef0123456789abcdef"
+      if #secret < 32 then
+        secret = secret .. string.rep("0", 32 - #secret)
+      elseif #secret > 32 then
+        secret = secret:sub(1, 32)
+      end
       local sig = crypto.hmac_sha256_hex(ts .. "." .. "{}", secret)
       if sig then
         headers["Stripe-Signature"] = string.format("t=%s,v1=%s", ts, sig)

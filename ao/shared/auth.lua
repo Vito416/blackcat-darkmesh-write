@@ -28,6 +28,9 @@ local RL_MAX =
   tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_REQUESTS", "WRITE_RL_MAX_REQUESTS") or "200")
 local RL_CALLER_MAX =
   tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_PER_CALLER", "WRITE_RL_CALLER_MAX") or "120")
+local UNIQUE_SUBJECT_MAX_PER_IP = tonumber(
+  getenv_multi("WRITE_UNIQUE_SUBJECT_MAX_PER_IP", "AUTH_UNIQUE_SUBJECT_MAX_PER_IP") or "0"
+)
 local RL_BUCKET_TTL = tonumber(
   getenv_multi("AUTH_RATE_BUCKET_TTL_SECONDS", "WRITE_RL_BUCKET_TTL_SECONDS")
     or tostring(RL_WINDOW * 4)
@@ -650,6 +653,61 @@ local function caller_identity(msg)
   return "anon"
 end
 
+local function extract_subject(msg)
+  if msg.subject or msg.Subject then
+    return tostring(msg.subject or msg.Subject)
+  end
+  local payload = msg.payload or msg.Payload
+  if type(payload) == "table" then
+    return tostring(
+      payload.subject
+        or payload.pageId
+        or payload.orderId
+        or payload.cartId
+        or payload.resourceId
+        or payload.paymentId
+        or payload.subscriptionId
+        or payload.siteId
+        or payload.key
+        or payload.sku
+        or payload.id
+    )
+  end
+  return nil
+end
+
+local function bump_unique_subject(ip, subject)
+  if not UNIQUE_SUBJECT_MAX_PER_IP or UNIQUE_SUBJECT_MAX_PER_IP < 1 then
+    return true
+  end
+  if not ip or ip == "" or not subject or subject == "" then
+    return true
+  end
+  local now = os_time()
+  local key = "uniqsubj:" .. tostring(ip)
+  local bucket = rate_store[key] or { subjects = {}, count = 0, reset = now + RL_WINDOW }
+  if now > (bucket.reset or 0) then
+    bucket.subjects = {}
+    bucket.count = 0
+    bucket.reset = now + RL_WINDOW
+  end
+  if not bucket.subjects[subject] then
+    bucket.subjects[subject] = now
+    bucket.count = bucket.count + 1
+  else
+    bucket.subjects[subject] = now
+  end
+  bucket.updated = now
+  rate_store[key] = bucket
+  trim_rate_store(now)
+  persist_rate_store()
+  if bucket.count > UNIQUE_SUBJECT_MAX_PER_IP then
+    metrics_counter("write_auth_subject_spray_total", 1)
+    return false, "rate_limited"
+  end
+  return true
+end
+
 function Auth.rate_limit_check(msg)
   local ok, err = bump_rate("global", RL_WINDOW, RL_MAX)
   if not ok then
@@ -664,6 +722,14 @@ function Auth.rate_limit_check(msg)
   end
   if not ok_caller then
     return ok_caller, err_caller
+  end
+  local ip = msg.ip or msg.IP
+  local subject = extract_subject(msg)
+  if ip and subject then
+    local ok_subj, err_subj = bump_unique_subject(ip, subject)
+    if not ok_subj then
+      return ok_subj, err_subj
+    end
   end
   return true
 end

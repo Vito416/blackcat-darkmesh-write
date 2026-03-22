@@ -470,6 +470,7 @@ local function handle_psp_webhook(cmd, schedule_retry)
   if spec.verify then
     local okv, verr = spec.verify(cmd)
     if okv == nil then
+      webhook_counter(provider, "verify_unavailable")
       breaker_note(provider, false)
       if schedule_retry then
         return schedule_retry(verr or "provider_unavailable")

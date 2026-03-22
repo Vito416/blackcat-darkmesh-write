@@ -5,6 +5,7 @@ local overrides = {
   AUTH_REQUIRE_NONCE = "0",
   AUTH_REQUIRE_TIMESTAMP = "0",
   PAYPAL_WEBHOOK_SECRET = "paypal_webhook_secret_32len_key!",
+  METRICS_LOG = "dev/test-metrics.log",
 }
 
 local real_getenv = os.getenv
@@ -393,6 +394,45 @@ assert(recovered.status == "OK", ("breaker close expected OK got %s"):format(rec
 assert(
   state.psp_breakers.stripe.count == 0 and not state.psp_breakers.stripe.open_until,
   "breaker should reset after successful call"
+)
+
+-- PayPal remote verify 5xx schedules retry and records metric.
+reset()
+state.payments["pp_remote_metric"] = { provider = "paypal", providerPaymentId = "pp_remote_metric" }
+local metrics_log = overrides.METRICS_LOG or "metrics/metrics.log"
+os.remove(metrics_log)
+
+local paypal_remote = paypal.verify_webhook_remote
+paypal.verify_webhook_remote = function()
+  return nil, "remote_error"
+end
+
+local remote_resp = run_webhook("rw-paypal-remote-500-metric", {
+  provider = "paypal",
+  eventId = "evp_remote_metric",
+  eventType = "PAYMENT.CAPTURE.COMPLETED",
+  paymentId = "pp_remote_metric",
+  raw = { body = '{"id":"pp_remote_metric","event_type":"PAYMENT.CAPTURE.COMPLETED"}' },
+})
+paypal.verify_webhook_remote = paypal_remote
+
+assert(
+  remote_resp.status == "ERROR" and remote_resp.code == "RETRY_SCHEDULED",
+  "paypal remote verify 5xx should schedule retry"
+)
+assert(
+  state.psp_breakers.paypal and state.psp_breakers.paypal.count >= 1,
+  "paypal breaker should increment on remote verify unavailability"
+)
+
+local f_metrics = io.open(metrics_log, "r")
+local metrics_body = f_metrics and f_metrics:read "*a" or ""
+if f_metrics then
+  f_metrics:close()
+end
+assert(
+  metrics_body:find("write.webhook.paypal.verify_unavailable"),
+  "verify_unavailable metric should be recorded for PayPal remote failures"
 )
 
 -- Retry queue is bounded; overflowed jobs are dead-lettered.
