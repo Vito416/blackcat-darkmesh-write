@@ -5,6 +5,24 @@ local write = require "ao.write.process"
 local crypto = require "ao.shared.crypto"
 local storage = require "ao.shared.storage"
 
+-- test-local env override (works even without os.setenv)
+local overrides = {}
+local real_getenv = os.getenv
+os.getenv = function(k)
+  if overrides[k] ~= nil then
+    return overrides[k]
+  end
+  return real_getenv(k)
+end
+local function setenv(k, v)
+  overrides[k] = v
+  if os.setenv then
+    os.setenv(k, v)
+  end
+end
+
+setenv("OUTBOX_HMAC_SECRET", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+
 local function ok(res)
   return res and res.status == "OK"
 end
