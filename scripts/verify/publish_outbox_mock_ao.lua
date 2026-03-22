@@ -2,7 +2,6 @@
 package.path =
   table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
 local write = require "ao.write.process"
-local crypto = require "ao.shared.crypto"
 local storage = require "ao.shared.storage"
 
 local overrides = {}
