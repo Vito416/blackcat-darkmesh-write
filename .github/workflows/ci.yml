@@ -19,6 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      ARWEAVE_VERIFY_FILE: ${{ secrets.ARWEAVE_VERIFY_FILE || vars.ARWEAVE_VERIFY_FILE }}
+      ARWEAVE_VERIFY_TX: ${{ secrets.ARWEAVE_VERIFY_TX || vars.ARWEAVE_VERIFY_TX }}
+      ENFORCE_ARWEAVE_HASH: ${{ secrets.ENFORCE_ARWEAVE_HASH || vars.ENFORCE_ARWEAVE_HASH || '0' }}
       RUN_JWT_SPEC: ${{ github.event_name == 'schedule' && '1' || '' }}
       RUN_RATE_SPEC: ${{ github.event_name == 'schedule' && '1' || '' }}
       RUN_SCHEMA_MANIFEST: 1
