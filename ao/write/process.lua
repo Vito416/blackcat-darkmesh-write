@@ -36,7 +36,7 @@ local apply_refund
 
 local OUTBOX_PATH = os.getenv "WRITE_OUTBOX_PATH"
 local WAL_PATH = os.getenv "WRITE_WAL_PATH"
-local OUTBOX_HMAC_SECRET = os.getenv "OUTBOX_HMAC_SECRET"
+local OUTBOX_HMAC_SECRET = os.getenv "OUTBOX_HMAC_SECRET" or rawget(_G, "OUTBOX_HMAC_SECRET")
 local CART_STORE_PATH = os.getenv "WRITE_CART_STORE_PATH"
 local RATE_STORE_PATH = os.getenv "WRITE_RATE_STORE_PATH"
 local PSP_HOSTED_ONLY = os.getenv "WRITE_PSP_HOSTED_ONLY" ~= "0" -- default on (secrets live in Worker)
