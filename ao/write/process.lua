@@ -301,7 +301,7 @@ local function trim_webhook_seen(now, current_size)
   end
   local items = {}
   for key, entry in pairs(state.webhook_seen) do
-    local ts = 0
+    local ts
     if type(entry) == "table" then
       ts = tonumber(entry.ts)
         or tonumber(entry.expiresAt and (entry.expiresAt - WEBHOOK_SEEN_TTL))
@@ -1625,7 +1625,7 @@ function handlers.UpsertOrderStatus(cmd)
 end
 
 function handlers.IssueRefund(cmd)
-  local _pid, payment = resolve_payment(cmd.payload.paymentId or cmd.payload.orderId)
+  local pid, payment = resolve_payment(cmd.payload.paymentId or cmd.payload.orderId)
   if not payment then
     return err(cmd.requestId, "NOT_FOUND", "payment not found")
   end
