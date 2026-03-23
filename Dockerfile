@@ -10,7 +10,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       lua5.4 lua5.4-dev luarocks \
       libsodium-dev libssl-dev libsqlite3-dev \
-      build-essential ca-certificates git curl && \
+      build-essential ca-certificates git curl python3 python3-pip cmake && \
     rm -rf /var/lib/apt/lists/*
 
 # Preinstall rocks from lockfile when present
