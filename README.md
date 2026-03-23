@@ -166,6 +166,7 @@ docker compose build
 docker compose run --rm write         # runs full preflight (schemas, contracts, conflicts, batch)
 docker compose run --rm write bash    # drop into shell with deps preinstalled
 ```
+Notes: the image ships with Lua openssl + luasodium so PSP/webhook specs run with crypto enabled. `outbox replay smoke` will print `hmac failures: missing=1` if `OUTBOX_HMAC_SECRET` is unset; set it to silence that warning.
 
 ## CLI helpers
 - `lua scripts/cli/run_command.lua ./fixtures/sample-save-draft.json` — route a JSON command locally and print the response (uses in-memory state). A publish sample is at `fixtures/sample-publish.json`.
