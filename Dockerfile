@@ -21,7 +21,9 @@ RUN if [ -f /tmp/rocks.lock ]; then \
         esac; \
         luarocks --lua-version=5.4 install --local "$name" "$ver"; \
       done < /tmp/rocks.lock; \
-    fi
+    fi && \
+    luarocks --lua-version=5.4 install --local openssl && \
+    luarocks --lua-version=5.4 install --local luasodium
 
 # Copy source
 COPY . /app
