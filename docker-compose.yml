@@ -9,7 +9,11 @@ services:
     environment:
       LUA_PATH: ${LUA_PATH:-?.lua;?/init.lua;/usr/local/share/lua/5.4/?.lua;/usr/local/share/lua/5.4/?/init.lua;/usr/share/lua/5.4/?.lua;/usr/share/lua/5.4/?/init.lua;/root/.luarocks/share/lua/5.4/?.lua;/root/.luarocks/share/lua/5.4/?/init.lua}
       LUA_CPATH: ${LUA_CPATH:-?.so;/usr/local/lib/lua/5.4/?.so;/usr/lib/lua/5.4/?.so;/usr/local/lib/lua/5.4/loadall.so;/root/.luarocks/lib/lua/5.4/?.so}
-    command: ["bash"]
+      RUN_CONTRACTS: "1"
+      RUN_CONFLICTS: "1"
+      RUN_BATCH: "1"
+      RUN_SCHEMA_MANIFEST: "1"
+    command: ["bash", "-lc", "scripts/verify/preflight.sh"]
 
   ao:
     # Placeholder for the state/read process; reuses the same image for now.

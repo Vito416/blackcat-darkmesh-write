@@ -21,6 +21,7 @@ AO-native command layer for Blackcat Darkmesh. This repository hosts the write-s
 - [Security Guard Rails](#security-guard-rails)
 - [License](#license)
 - [CI notes](#ci-notes)
+- [Docker quickstart](#docker-quickstart)
 
 ## Scope
 - In scope: AO command processes, handlers, idempotency registry, audit/event emission, publish workflow (draft → review → publish → rollback), validators and schemas, minimal adapters, deploy/verify scripts, fixtures, CI workflows.
@@ -158,6 +159,13 @@ scripts/cli/       # local helpers (run command)
 - Trust manifest signing (resolvers): set `TRUST_MANIFEST_HMAC` and run `lua scripts/cli/trust_manifest_sign.lua manifest.json > manifest.signed.json`; optionally set `TRUST_MANIFEST_SIGNER`.
 - Key management: keep public keys under `/etc/ao/keys`, record their `sha256sum` in ops docs, rotate on a schedule; never store private keys in repos, artifacts, or CI logs.
 - OTP/passwordless flows and payment/PSP callbacks have been removed from this repo; keep secrets and such logic in upstream gateway/web layers.
+
+## Docker quickstart
+```bash
+docker compose build
+docker compose run --rm write         # runs full preflight (schemas, contracts, conflicts, batch)
+docker compose run --rm write bash    # drop into shell with deps preinstalled
+```
 
 ## CLI helpers
 - `lua scripts/cli/run_command.lua ./fixtures/sample-save-draft.json` — route a JSON command locally and print the response (uses in-memory state). A publish sample is at `fixtures/sample-publish.json`.
