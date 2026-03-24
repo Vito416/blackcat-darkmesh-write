@@ -12,6 +12,22 @@ local function has(mod)
 end
 
 local openssl = has "openssl"
+local openssl_hmac = has "openssl.hmac"
+
+local function hmac_digest(algo, message, secret)
+  local mod = (openssl and openssl.hmac) or openssl_hmac
+  if not mod then
+    return nil
+  end
+  if type(mod.digest) == "function" then
+    return mod.digest(algo, message, secret, true)
+  end
+  if type(mod) == "function" then
+    -- some builds expose hmac as a callable
+    return mod(algo, message, secret, true)
+  end
+  return nil
+end
 local sodium = has "sodium"
 
 function Crypto.verify_ed25519(message, signature_hex, pubkey_path)
@@ -48,8 +64,8 @@ function Crypto.verify_ecdsa_sha256(message, signature_hex, pubkey_path)
 end
 
 function Crypto.verify_hmac_sha256(message, secret, signature_hex)
-  if openssl and openssl.hmac then
-    local raw = openssl.hmac.digest("sha256", message, secret, true)
+  local raw = hmac_digest("sha256", message, secret)
+  if raw then
     local hex = (openssl.hex and openssl.hex(raw))
       or raw:gsub(".", function(c)
         return string.format("%02x", string.byte(c))
@@ -65,8 +81,8 @@ function Crypto.verify_hmac_sha256(message, secret, signature_hex)
 end
 
 function Crypto.hmac_sha256_hex(message, secret)
-  if openssl and openssl.hmac then
-    local raw = openssl.hmac.digest("sha256", message, secret, true)
+  local raw = hmac_digest("sha256", message, secret)
+  if raw then
     return (openssl.hex and openssl.hex(raw))
       or raw:gsub(".", function(c)
         return string.format("%02x", string.byte(c))

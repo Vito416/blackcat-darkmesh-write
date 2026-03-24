@@ -52,7 +52,7 @@ jobs:
       - name: Install rocks (Lua 5.4)
         run: |
           set -euo pipefail
-          rocks=(lua-cjson luv lsqlite3 luaossl luasodium luafilesystem)
+          rocks=(lua-cjson dkjson luv lsqlite3 luaossl luasodium luafilesystem)
           for rock in "${rocks[@]}"; do
             luarocks --lua-version=5.4 install --local "$rock"
           done
@@ -181,6 +181,7 @@ jobs:
       - name: Publish → outbox HMAC smoke
         env:
           OUTBOX_HMAC_SECRET: ${{ secrets.OUTBOX_HMAC_SECRET_TEST || secrets.OUTBOX_HMAC_SECRET || 'ci-placeholder' }}
+          OUTBOX_SUPPRESS_HMAC_WARN: 1
         run: lua5.4 scripts/verify/publish_outbox_mock_ao.lua
 
       - name: JWT claim mapping spec (nightly)
@@ -192,6 +193,13 @@ jobs:
         env:
           WRITE_RATE_STORE_PATH: ${{ env.WRITE_RATE_STORE_PATH }}
         run: lua5.4 scripts/verify/rate_store_spec.lua
+
+      - name: Clear persisted rate-store after spec (nightly)
+        if: env.RUN_RATE_SPEC == '1'
+        run: |
+          if [ -n "${WRITE_RATE_STORE_PATH:-}" ]; then
+            rm -f "$WRITE_RATE_STORE_PATH" "$WRITE_RATE_STORE_PATH.tmp"
+          fi
 
       - name: Bundle export (if export file present)
         env:

@@ -53,6 +53,7 @@ local f = assert(io.open(queue_path, "w"))
 
 local written, skipped = 0, 0
 local failures = { hmac_missing = 0, hmac_mismatch = 0, other = 0 }
+local suppress_hmac_warn = os.getenv "OUTBOX_SUPPRESS_HMAC_WARN" == "1"
 
 for _, entry in ipairs(outbox) do
   if limit > 0 and written >= limit then
@@ -99,7 +100,7 @@ local msg = string.format(
   queue_path
 )
 print(msg)
-if skipped > 0 then
+if skipped > 0 and not suppress_hmac_warn then
   io.stderr:write(
     string.format(
       "hmac failures: missing=%d mismatch=%d other=%d\n",
