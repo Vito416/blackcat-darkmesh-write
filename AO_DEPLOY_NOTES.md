@@ -81,6 +81,16 @@ Response: 500 `/push`, HTML body with `unsupported_tx_format` (ar_bundles:deseri
 - Ask Forward/AO if `/push` expects a different ANS/bundle format or if this is a known bug with aoconnect 0.0.93.
 - Workaround: run a local HyperBEAM node and push there until the public `/push` accepts current bundles.
 
+### 0.0.94 (GitHub tarball) retry
+- Installed `@permaweb/aoconnect@0.0.94` from tag tarball; retried spawn with the same module/wallet and Forward HB URL/Scheduler.
+- Result: still `Error spawning process` (HTTP 500 on `/push`); behavior identical to 0.0.93, so the rejection is on the HB side, not the SDK patch level.
+
+### Rate limits (from AO Assistant, 2026-03-28 02:29)
+- If you see `Error: 500: {"error":"Error: Rate limit exceeded"}`, it means the signer address needs AO balance.
+- Messaging limits based on AO balance: 0.1 AO → 1 msg/hour; 1 AO → 10 msg/hour; 2 AO → 20 msg/hour; 10 AO → 100 msg/hour.
+- Typical dev/app processes: 200 msgs/hour + 10 msgs per AO held in the signer wallet.
+- To obtain AO: stake AR or other assets (see https://ao.arweave.net/#/mint/deposits/) or buy on a CEX (no guidance provided).
+
 ## What we need to proceed
 - A working HyperBEAM/Scheduler URL that returns HTTP 200 (no redirect) and is reachable from MU/HyperBEAM:
   - Testnet: Variant `ao.TN.1`, Scheduler-Location TX with such `Url`.
