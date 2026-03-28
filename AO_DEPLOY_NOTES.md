@@ -45,6 +45,42 @@
 1) No reachable HyperBEAM/Scheduler endpoint: every known URL either redirects (302) or times out.
 2) Indexing issues on AO side: even with a reachable host, validation/indexing may be unstable until the team finishes their fix.
 
+## 2026-03-28 – Forward HB public endpoints announced
+- Public HB URLs: `https://push.forward.computer/` (mirror `https://push-1.forward.computer/`), scheduler `n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo`; aoconnect 0.0.93 recommended (Jon Ringo, 28-Mar-2026 02:03 UTC).
+- Spawn attempts with aoconnect 0.0.93 (wallet.json, module `csOQ_c7ZYLpKwD8MPI6ezgd712ibs7KKhXsasTga-iY`, Variant=ao.MN.1, Scheduler tag) → **HTTP 500** on `/push` (both push.forward.computer and push-1). HyperBEAM error page shows `unsupported_tx_format` at `ar_bundles:deserialize_item/1`, so the bundle is rejected before scheduling.
+- `npx aos new --mainnet dist/ao-write.js ...` also fails (“could not parse file”), likely because `aos new` expects a different local source format.
+
+### Repro script (fails with 500 /push)
+```js
+import fs from 'fs';
+import { connect, createDataItemSigner } from '@permaweb/aoconnect';
+
+const wallet = JSON.parse(fs.readFileSync('wallet.json','utf8'));
+const moduleTx = 'csOQ_c7ZYLpKwD8MPI6ezgd712ibs7KKhXsasTga-iY';
+const HB = 'https://push.forward.computer';
+const SCHED = 'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo';
+
+const ao = connect({ MODE: 'mainnet', URL: HB, SCHEDULER: SCHED });
+
+await ao.spawn({
+  module: moduleTx,
+  scheduler: SCHED,
+  signer: createDataItemSigner(wallet),
+  tags: [
+    { name: 'Variant', value: 'ao.MN.1' },
+    { name: 'Scheduler', value: SCHED },
+    { name: 'Name', value: 'blackcat-write' },
+    { name: 'Data-Protocol', value: 'ao' },
+    { name: 'Content-Type', value: 'application/javascript' },
+  ],
+});
+```
+Response: 500 `/push`, HTML body with `unsupported_tx_format` (ar_bundles:deserialize_item/1).
+
+### Likely next steps
+- Ask Forward/AO if `/push` expects a different ANS/bundle format or if this is a known bug with aoconnect 0.0.93.
+- Workaround: run a local HyperBEAM node and push there until the public `/push` accepts current bundles.
+
 ## What we need to proceed
 - A working HyperBEAM/Scheduler URL that returns HTTP 200 (no redirect) and is reachable from MU/HyperBEAM:
   - Testnet: Variant `ao.TN.1`, Scheduler-Location TX with such `Url`.
