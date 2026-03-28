@@ -80,6 +80,7 @@ Response: 500 `/push`, HTML body with `unsupported_tx_format` (ar_bundles:deseri
 ### Likely next steps
 - Ask Forward/AO if `/push` expects a different ANS/bundle format or if this is a known bug with aoconnect 0.0.93.
 - Workaround: run a local HyperBEAM node and push there until the public `/push` accepts current bundles.
+- When spawning, add one or more `Authority` tags (e.g., scheduler/node operator). In `aos`: `--tag-name Authority --tag-value <addr1> --tag-name Authority --tag-value <addr2>`. In JS: `tags: [{ name: "Authority", value: "<addr1>" }, ...]`. At runtime, you can append: `table.insert(ao.authorities, "<addrX>")`.
 
 ### 0.0.94 (GitHub tarball) retry
 - Installed `@permaweb/aoconnect@0.0.94` from tag tarball; retried spawn with the same module/wallet and Forward HB URL/Scheduler.
