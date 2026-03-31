@@ -4,12 +4,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:ao": "esbuild ao/handler.ts --bundle --platform=node --format=esm --outfile=dist/ao-write.js"
+    "build:ao": "esbuild ao/handler.ts --bundle --platform=node --format=esm --outfile=dist/ao-write.js",
+    "bundle:write": "node scripts/build-write-bundle.js",
+    "ao:upload": "node scripts/ao-upload.js",
+    "ao:spawn": "node scripts/ao-spawn.js"
   },
   "devDependencies": {
     "@permaweb/aos": "^1.2.18",
     "ao": "^0.1.1",
     "esbuild": "^0.20.2",
     "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "@permaweb/ao": "https://github.com/permaweb/ao/archive/refs/tags/connect@v0.0.94.tar.gz",
+    "@permaweb/ao-core-libs": "^0.0.8",
+    "@permaweb/aoconnect": "^0.0.93",
+    "arweave": "^1.15.7"
+  },
+  "overrides": {
+    "axios": "1.14.0"
   }
 }

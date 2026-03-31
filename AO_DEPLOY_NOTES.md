@@ -1,5 +1,12 @@
 # AO deployment log – blackcat-write
 
+## Snapshot (2026-03-28 - mainnet retry plan)
+- Latest mainnet module (dist/ao-write.js build) uploaded as `fwoPBAYio8pUkqgemgVuAsexTucPSGM6tMADdW1rHK0` (supersedes `csOQ_c7ZYLpKwD8MPI6ezgd712ibs7KKhXsasTga-iY` for mainnet pushes).
+- Target HB: `https://push.forward.computer/` (mirror `https://push-1.forward.computer/`); Scheduler TX: `n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo`.
+- Spawn tags: Variant=`ao.MN.1`, Scheduler=`n_XZ...`, Authority=`scheduler`, Name=`blackcat-write`, Data-Protocol=`ao`, Content-Type=`application/javascript`; signer from `wallet.json` (addr `ZqkuoHZ3GTSCVh96BUgO0wlszuOfzFcerd_zN5W4xTU`).
+- Process PID: **record once spawn succeeds** on push.* or a self-hosted HyperBEAM/Scheduler.
+- Throughput: public push.* enforces AO gas-based message quotas; keep >=1 AO in the signer and prefer running your own HB+Scheduler to avoid throttling/indexing lag.
+
 ## Snapshot (2026-03-24)
 - Module uploaded to Arweave: `csOQ_c7ZYLpKwD8MPI6ezgd712ibs7KKhXsasTga-iY`
   - Tags: Type=Module, Data-Protocol=ao, Module-Format=javascript, Input/Output-Encoding=utf-8, Name=blackcat-write-module.
@@ -93,45 +100,75 @@ Response: 500 `/push`, HTML body with `unsupported_tx_format` (ar_bundles:deseri
 - To obtain AO: stake AR or other assets (see https://ao.arweave.net/#/mint/deposits/) or buy on a CEX (no guidance provided).
 
 ## What we need to proceed
-- A working HyperBEAM/Scheduler URL that returns HTTP 200 (no redirect) and is reachable from MU/HyperBEAM:
-  - Testnet: Variant `ao.TN.1`, Scheduler-Location TX with such `Url`.
-  - Mainnet: Variant `ao.MN.1`, or direct HyperBEAM URL to use as `URL` in `connect`.
+- Confirm whether `push.forward.computer` accepts the new module bundle (`fwoPBAYio8pUkqgemgVuAsexTucPSGM6tMADdW1rHK0`) with Scheduler/Authority tag; if 500 persists, spawn on a self-hosted HyperBEAM/Scheduler instead.
+- Capture the returned PID once spawn succeeds (public or self-hosted) and record it in the snapshot above.
+- After a PID exists, run Eval + one domain action to verify handlers; log outputs and any rate-limit messages.
+- Keep the signer funded (>=1 AO recommended) to stay above AO gas quotas during messaging.
 
-## Ready-to-run spawn once a good endpoint is known
+## Mainnet spawn recipe (push.forward.computer)
 ```js
-import { connect } from '@permaweb/aoconnect';
 import fs from 'fs';
+import { connect, createDataItemSigner } from '@permaweb/aoconnect';
 
-const wallet = JSON.parse(fs.readFileSync('/mnt/c/Users/jaine/Desktop/BLACKCAT_MESH_NEXUS/blackcat-darkmesh-write/wallet.json','utf8'));
-const moduleId = 'csOQ_c7ZYLpKwD8MPI6ezgd712ibs7KKhXsasTga-iY';
+const signer = createDataItemSigner(JSON.parse(fs.readFileSync('wallet.json','utf8')));
+const moduleTx = 'fwoPBAYio8pUkqgemgVuAsexTucPSGM6tMADdW1rHK0';
+const scheduler = 'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo';
 
-const HB_URL = '<working-hyperbeam-url-here>';       // e.g. https://<host>
-const SCHED_LOC = '<scheduler-location-txid-if-needed>'; // optional
+const ao = connect({ MODE: 'mainnet', URL: 'https://push.forward.computer', SCHEDULER: scheduler });
 
-const tags = [
-  { name:'Variant', value:'ao.TN.1' },        // ao.MN.1 for mainnet
-  { name:'Type', value:'Process' },
-  { name:'Module', value: moduleId },
-  { name:'Scheduler', value:'ZqkuoHZ3GTSCVh96BUgO0wlszuOfzFcerd_zN5W4xTU' },
-  { name:'Scheduler-Location', value: SCHED_LOC },
-  { name:'App-Name', value:'ao' },
-  { name:'App-Version', value:'0.0.1' },
-  { name:'Name', value:'blackcat-write' },
-  { name:'Data-Protocol', value:'ao' },
-  { name:'Content-Type', value:'application/javascript' }
-];
+const pid = await ao.spawn({
+  module: moduleTx,
+  scheduler,
+  signer,
+  tags: [
+    { name: 'Variant', value: 'ao.MN.1' },
+    { name: 'Authority', value: scheduler },
+    { name: 'Scheduler', value: scheduler },
+    { name: 'Name', value: 'blackcat-write' },
+    { name: 'Data-Protocol', value: 'ao' },
+    { name: 'Content-Type', value: 'application/javascript' },
+  ],
+});
 
-const { spawn } = connect({ MODE:'testnet', URL: HB_URL }); // MODE:'mainnet' for mainnet
-const pid = await spawn({ module: moduleId, wallet, tags });
-console.log('Process ID', pid);
+console.log('Process PID (record in snapshot):', pid);
 ```
+- Swap `URL` to your own HyperBEAM/Scheduler node to bypass public rate limits and to control indexing. Keep `{ Authority: scheduler }` when targeting Forward’s scheduler.
+
+## Messaging with aoconnect (Eval + domain action)
+```js
+const { message, result } = ao;
+
+// Eval smoke
+const evalMsg = await message({
+  process: pid,
+  signer,
+  tags: [{ name: 'Action', value: 'Eval' }],
+  data: 'return "pong"',
+});
+const evalOut = await result({ process: pid, message: evalMsg });
+
+// Domain action example
+const saveDraft = await message({
+  process: pid,
+  signer,
+  tags: [
+    { name: 'Action', value: 'SaveDraftPage' },
+    { name: 'Request-Id', value: '<uuid>' },
+    { name: 'Actor', value: '<actor>' },
+    { name: 'Tenant', value: '<tenant>' },
+    { name: 'Timestamp', value: String(Date.now()) },
+  ],
+  data: JSON.stringify({ /* payload */ }),
+});
+const saveDraftOut = await result({ process: pid, message: saveDraft });
+```
+- Messaging incurs AO gas quotas on public push.*; if responses stall or rate limit errors appear, fund the signer or point `ao.URL` to your own node.
 
 ## Action items
-1) Obtain a reachable HyperBEAM URL (HTTP 200, no redirect) from AO/Forward (testnet or mainnet).
-2) If provided as Scheduler-Location TXID (Variant `ao.TN.1` or `ao.MN.1`), set `SCHED_LOC`; otherwise set `URL` in `connect`.
-3) Re-run the spawn script; read state from compute/cache while GQL indexing is being fixed.
-4) Keep SDK at 0.0.94 until a newer release appears.
-5) Optional cleanup: `/home/jaine/ao-connect-094` (~30 MB) can be deleted, kept for rebuild convenience.
+1) Spawn `fwoPBAYio8pUkqgemgVuAsexTucPSGM6tMADdW1rHK0` on push.forward.computer (or self-hosted HB) with Scheduler/Authority `n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo`; log the returned PID above.
+2) Run Eval + one `SaveDraftPage` message using the messaging recipe; capture outputs and any rate-limit errors.
+3) If `/push` continues returning 500/`unsupported_tx_format`, stand up a local HB+Scheduler and retry spawn/messaging there.
+4) Keep `wallet.json` funded (>=1 AO) to stay above the lowest gas tier.
 
 ## Housekeeping
 - Sources kept: `/home/jaine/ao-connect-094` (local build, ~30 MB) in case we need to rebuild.
@@ -139,5 +176,5 @@ console.log('Process ID', pid);
 - Unsuccessful Scheduler-Location TXs remain on Arweave; harmless but not usable for validation.
 
 ## Next step
-- Get a confirmed reachable HyperBEAM host or Scheduler-Location TXID from AO/Forward.
-- Re-run the spawn script above with that URL/TXID; monitor compute/cache for results while indexing is being fixed.
+- Run the mainnet spawn recipe (push.* or self-hosted HB) and capture the returned PID in the snapshot at the top.
+- Send Eval + `SaveDraftPage` messages, record outputs and any rate-limit errors; if push.* keeps rejecting bundles, fall back to self-hosted HB/Scheduler and document its URL/tag here.

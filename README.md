@@ -12,6 +12,7 @@ AO-native command layer for Blackcat Darkmesh. This repository hosts the write-s
 - [Architecture Snapshot](#architecture-snapshot)
 - [Interfaces at a glance](#interfaces-at-a-glance)
 - [Links hub](#links-hub)
+- [AO deploy (mainnet snapshot)](#ao-deploy-mainnet-snapshot)
 - [Development](#development)
 - [Env toggles (write process)](#env-toggles-write-process)
 - [CLI helpers](#cli-helpers)
@@ -83,6 +84,64 @@ Legend: teal = queues/events, gray = WAL/audit paths.
 - Env template: `ops/env.prod.example`
 - Schemas: `schemas/`
 - PSP/webhook specs: `scripts/verify/webhook_psp_spec.lua`, `gopay_webhook_spec.lua`
+
+## AO deploy (mainnet snapshot)
+- Module TX (mainnet build, 2026-03-28): `fwoPBAYio8pUkqgemgVuAsexTucPSGM6tMADdW1rHK0` (supersedes `csOQ_c7ZYLpKwD8MPI6ezgd712ibs7KKhXsasTga-iY` for mainnet pushes).
+- Target HyperBEAM: `https://push.forward.computer` (mirror `https://push-1.forward.computer/`), Scheduler: `n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo`; include `{name:'Authority', value:scheduler}` with Variant `ao.MN.1`.
+- Process PID: record in `AO_DEPLOY_NOTES.md` once spawn confirms (pending as of 2026-03-28).
+- Throughput: AO gas quotas apply on push.*; keep >=1 AO funded or point `URL` to your own HB+Scheduler (recommended for reliability and indexing).
+
+```js
+import { connect, createDataItemSigner } from '@permaweb/aoconnect';
+import fs from 'fs';
+
+const signer = createDataItemSigner(JSON.parse(fs.readFileSync('wallet.json','utf8')));
+const scheduler = 'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo';
+const ao = connect({ MODE: 'mainnet', URL: 'https://push.forward.computer', SCHEDULER: scheduler });
+
+const pid = await ao.spawn({
+  module: 'fwoPBAYio8pUkqgemgVuAsexTucPSGM6tMADdW1rHK0',
+  scheduler,
+  signer,
+  tags: [
+    { name: 'Variant', value: 'ao.MN.1' },
+    { name: 'Authority', value: scheduler },
+    { name: 'Scheduler', value: scheduler },
+    { name: 'Name', value: 'blackcat-write' },
+    { name: 'Data-Protocol', value: 'ao' },
+    { name: 'Content-Type', value: 'application/javascript' },
+  ],
+});
+```
+
+```js
+const { message, result } = ao;
+
+// Eval ping
+const evalId = await message({
+  process: pid,
+  signer,
+  tags: [{ name: 'Action', value: 'Eval' }],
+  data: 'return \"pong\"',
+});
+const evalOut = await result({ process: pid, message: evalId });
+
+// Domain action example
+const actionId = await message({
+  process: pid,
+  signer,
+  tags: [
+    { name: 'Action', value: 'SaveDraftPage' },
+    { name: 'Request-Id', value: '<uuid>' },
+    { name: 'Actor', value: '<actor>' },
+    { name: 'Tenant', value: '<tenant>' },
+    { name: 'Timestamp', value: String(Date.now()) },
+  ],
+  data: JSON.stringify({ /* payload */ }),
+});
+const actionOut = await result({ process: pid, message: actionId });
+```
+- Full chronology and error history: `AO_DEPLOY_NOTES.md`.
 
 ## Repository Layout (blueprint)
 ```
