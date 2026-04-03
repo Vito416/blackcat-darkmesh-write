@@ -182,8 +182,9 @@ const saveDraftOut = await result({ process: pid, message: saveDraft });
   - Data-Protocol: ao
   - Input-Encoding: JSON-1
   - Output-Encoding: JSON-1
-  - (optional) Memory-Limit: 1-gb; Compute-Limit: 9000000000000
+- (optional) Memory-Limit: 1-gb; Compute-Limit: 9000000000000
 - Spawn process with `module: <module_txid>`, Scheduler, Authority tags. No Eval needed; CU/HB loads module by TXID.
+- Hyperengine smoke test before upload: clone/build `hyperengine`, then run `hyperengine smoke main` (or module name) on the built wasm; expect “Smoke OK”.
 
 ### Lua path tags (when using spawn+eval/chunking)
 - Content-Type: text/lua
