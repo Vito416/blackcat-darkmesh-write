@@ -185,6 +185,7 @@ const saveDraftOut = await result({ process: pid, message: saveDraft });
 - (optional) Memory-Limit: 1-gb; Compute-Limit: 9000000000000
 - Spawn process with `module: <module_txid>`, Scheduler, Authority tags. No Eval needed; CU/HB loads module by TXID.
 - Hyperengine smoke test before upload: clone/build `hyperengine`, then run `hyperengine smoke main` (or module name) on the built wasm; expect “Smoke OK”.
+- Alternative toolchains: `wao` (ArweaveOasis, Rust→WASM) can build AO modules with correct tags; not yet tested here.
 
 ### Lua path tags (when using spawn+eval/chunking)
 - Content-Type: text/lua
