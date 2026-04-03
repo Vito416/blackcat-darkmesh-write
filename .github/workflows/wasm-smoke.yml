@@ -1,0 +1,80 @@
+name: wasm-smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  wasm-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect WASM sources
+        id: detect
+        run: |
+          if [ -f Cargo.toml ] || [ -d wasm ]; then
+            echo "found=true" >> $GITHUB_OUTPUT
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+            echo "No WASM sources (Cargo.toml or wasm/ dir). Skipping."
+          fi
+
+      - name: Setup Node.js
+        if: steps.detect.outputs.found == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        if: steps.detect.outputs.found == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasi
+
+      - name: Install hyperengine locally
+        if: steps.detect.outputs.found == 'true'
+        run: |
+          git clone https://github.com/memetic-block/hyperengine.git /tmp/hyperengine
+          cd /tmp/hyperengine
+          npm install
+          npm run build
+          npm install -g . --prefix $HOME/.npm-global
+          echo "$HOME/.npm-global/bin" >> $GITHUB_PATH
+
+      - name: Build WASM (Rust)
+        if: steps.detect.outputs.found == 'true' && hashFiles('Cargo.toml') != ''
+        run: |
+          cargo build --target wasm32-wasi --release
+          # Copy first produced wasm to dist/module.wasm for smoke
+          mkdir -p dist
+          find target/wasm32-wasi/release -maxdepth 1 -name '*.wasm' -print -quit | xargs -I{} cp {} dist/module.wasm
+
+      - name: Build WASM (npm script)
+        if: steps.detect.outputs.found == 'true' && hashFiles('package.json') != '' && steps.build_wasm_rust.outcome == 'skipped'
+        run: |
+          npm install
+          if npm run | grep -q build:wasm; then npm run build:wasm; fi
+
+      - name: Locate WASM artifact
+        if: steps.detect.outputs.found == 'true'
+        id: wasm_path
+        run: |
+          set +e
+          wasm_file=$(find dist target wasm -name '*.wasm' -print | head -n 1)
+          if [ -z "$wasm_file" ]; then
+            echo "No wasm artifact found; skipping smoke."
+            echo "found=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "WASM file: $wasm_file"
+          echo "found=true" >> $GITHUB_OUTPUT
+          echo "path=$wasm_file" >> $GITHUB_OUTPUT
+
+      - name: Smoke test WASM with hyperengine
+        if: steps.wasm_path.outputs.found == 'true'
+        run: |
+          set -e
+          wasm_name=$(basename "${{ steps.wasm_path.outputs.path }}" .wasm)
+          echo "Running hyperengine smoke for $wasm_name"
+          hyperengine smoke "$wasm_name"
