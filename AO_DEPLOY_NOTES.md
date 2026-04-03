@@ -170,6 +170,27 @@ const saveDraftOut = await result({ process: pid, message: saveDraft });
 3) If `/push` continues returning 500/`unsupported_tx_format`, stand up a local HB+Scheduler and retry spawn/messaging there.
 4) Keep `wallet.json` funded (>=1 AO) to stay above the lowest gas tier.
 
+### WASM module path (no Eval/chunking)
+- Build module to `application/wasm` with target `wasm64-unknown-emscripten-draft_2024_02_15`, JSON I/O.
+- Upload module TX with tags:
+  - Content-Type: application/wasm
+  - Module-Format: wasm64-unknown-emscripten-draft_2024_02_15
+  - AOS-Version: 2.0.6 (or matching build)
+  - Name: <module-name>
+  - Type: Module
+  - Variant: ao.TN.1
+  - Data-Protocol: ao
+  - Input-Encoding: JSON-1
+  - Output-Encoding: JSON-1
+  - (optional) Memory-Limit: 1-gb; Compute-Limit: 9000000000000
+- Spawn process with `module: <module_txid>`, Scheduler, Authority tags. No Eval needed; CU/HB loads module by TXID.
+
+### Lua path tags (when using spawn+eval/chunking)
+- Content-Type: text/lua
+- Data-Protocol: ao
+- Variant: ao.MN.1
+- Authority tags at spawn
+
 ### HTTP via `~relay@1.0` (async)
 
 You can call HTTP endpoints directly from the process using the HyperBEAM relay device. Key rules:
