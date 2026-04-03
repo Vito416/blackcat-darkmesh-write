@@ -170,6 +170,52 @@ const saveDraftOut = await result({ process: pid, message: saveDraft });
 3) If `/push` continues returning 500/`unsupported_tx_format`, stand up a local HB+Scheduler and retry spawn/messaging there.
 4) Keep `wallet.json` funded (>=1 AO) to stay above the lowest gas tier.
 
+### HTTP via `~relay@1.0` (async)
+
+You can call HTTP endpoints directly from the process using the HyperBEAM relay device. Key rules:
+- Target must be `~relay@1.0` (not `ao.id`).
+- Add a `Request-ID` tag so you can match responses.
+- Set `Action='HttpRequest'` and `Method` (e.g., GET/POST).
+- Gate responses with `ao.isTrusted(msg)` and the `Request-ID`.
+
+Example (Lua):
+
+```lua
+Handlers.add('GET', 'GET', function (msg)
+  local url = msg.Tags['URL']
+  assert(type(url) == 'string' and #url > 0, 'URL tag is required')
+  local reqId = tostring(ao.id) .. '-' .. tostring(msg.Id or ao.now)
+  Send({
+    Target = '~relay@1.0',
+    Tags = {
+      Action = 'HttpRequest',
+      Method = 'GET',
+      ['Request-ID'] = reqId,
+      Url = url,
+    },
+    Data = ''
+  })
+end)
+
+Handlers.add('GET-Result', function (msg)
+  return ao.isTrusted(msg)
+    and msg.Tags['Request-ID'] ~= nil
+    and msg.Tags['Status'] == '200'
+end, function (msg)
+  print('GET success id=' .. msg.Tags['Request-ID'] .. ' status=' .. msg.Tags['Status'])
+  print('Body:', msg.Body or '')
+end)
+
+Handlers.add('GET-Failed', function (msg)
+  return ao.isTrusted(msg)
+    and msg.Tags['Request-ID'] ~= nil
+    and msg.Tags['Status'] ~= '200'
+end, function (msg)
+  print('GET failed id=' .. msg.Tags['Request-ID'] .. ' status=' .. (msg.Tags['Status'] or 'unknown'))
+  print('Body:', msg.Body or '')
+end)
+```
+
 ## Housekeeping
 - Sources kept: `/home/jaine/ao-connect-094` (local build, ~30 MB) in case we need to rebuild.
 - Installed: `@permaweb/aoconnect` 0.0.94 (from tag build), `ao-core-libs` 0.0.8.
