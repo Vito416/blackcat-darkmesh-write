@@ -583,3 +583,14 @@ console.log(res);
 - Z `dev_codec_ans104_from` a `hb_message` plyne: committed/base message jsou prázdné, resp. nejsou očíslované ⇒ `message_to_ordered_list` vrací [].
 - Pro AO je potřeba TABM s numerickými klíči ("1", "2", …) nebo list. Ans104 data pole je binární, takže se numerické klíče nevytvoří automaticky; ans104 bundle zjevně nepřekládá JSON string do mapy.
 - Další směr: buď použít codec httpsig@1.0 (podepsaný request) nebo ans104 bundle ve formátu, který obsahuje očíslované zprávy (nenalezeno), případně postavit TABM ručně (mimo ans104) tak, aby měl číselné klíče.
+
+## 2026-04-05 — Mainnet WASM publish + spawn (push-1)
+- WASM module publish TX: `O1gXFuy3-8UA2wvLgIpqOQNCYzziDnuC6q0gaSEcwS4` (tags: ao.TN.1, wasm64-unknown-emscripten-draft_2024_02_15, signing-format=ans104, accept-bundle=true, accept-codec=httpsig@1.0, Name=blackcat-write).
+- Spawned PID (push-1): `xV9QOCYQ4SuS5_DbWas-nlrIFf8ObWs1n3arjC5AQ6g`.
+- Initial ping test returned `1984` (likely pre-finalization behavior / default handler). Do **not** judge correctness until finalization completes.
+- IMPORTANT: allow 30–40 minutes for both module TX and process TX to fully finalize/index before concluding any test results.
+
+### Planned production-like validation (after finalization)
+- Full functional test matrix: Ping, GetHealth, SaveDraftPage, Write-Command (signed), webhooks (ProviderWebhook/ProviderShippingWebhook), outbox HMAC, replay window, rate limits.
+- Security tests: verify signature enforcement, nonce+timestamp window, reject unsigned commands, verify HMAC required in prod mode.
+- Pentest pass: malformed payloads, oversized payloads, replayed nonces, missing tags, invalid signatures.
