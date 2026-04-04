@@ -211,7 +211,8 @@ local function register_write_handlers()
     return tags[key] or tags[key:lower()]
   end
 
-  Handlers.add("Write-Command",
+  Handlers.add(
+    "Write-Command",
     Handlers.utils.hasMatchingTag("Action", "Write-Command"),
     function(msg)
       local cmd = {}
@@ -234,7 +235,7 @@ local function register_write_handlers()
 
       local resp = M.route(cmd)
       local resp_json = ok_json and cjson.encode(resp) or tostring(resp)
-      Send({ Target = msg.From, Action = "Write-Command-Result", Data = resp_json })
+      Send { Target = msg.From, Action = "Write-Command-Result", Data = resp_json }
     end
   )
 end
@@ -711,7 +712,7 @@ function handlers.Ping(cmd)
     status = "OK",
     pong = true,
     requestId = cmd and (cmd.requestId or cmd.RequestId or cmd.Id),
-    actor = cmd and (cmd.actor or cmd.Actor)
+    actor = cmd and (cmd.actor or cmd.Actor),
   }
 end
 
