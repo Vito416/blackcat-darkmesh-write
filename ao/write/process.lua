@@ -1,4 +1,5 @@
 -- luacheck: max_line_length 200
+-- luacheck: globals Handlers Send
 -- luacheck: ignore send_event OUTBOX_PATH role_policy bridge jwt ok ok_json cjson auth state content_key discount vat schedule_retry OUTBOX_HMAC_SECRET
 -- Entry point for the write command AO process.
 
