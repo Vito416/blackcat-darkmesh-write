@@ -30,23 +30,39 @@ local function hmac_digest(algo, message, secret)
 end
 local sodium = has "sodium"
 
-function Crypto.verify_ed25519(message, signature_hex, pubkey_path)
-  if sodium and sodium.crypto_sign_verify_detached then
-    local pub = assert(io.open(pubkey_path, "rb")):read "*a"
+function Crypto.verify_ed25519(message, signature_hex, pubkey_or_path)
+  if not pubkey_or_path or pubkey_or_path == "" then
+    return false, "missing_pubkey"
+  end
+
+  local is_hex = pubkey_or_path:match "^hex:" or pubkey_or_path:match "^[0-9a-fA-F]+$"
+  local pub_bytes
+
+  if is_hex and sodium and sodium.from_hex then
+    pub_bytes = sodium.from_hex((pubkey_or_path:gsub("^hex:", "")))
+  elseif not is_hex and io.open(pubkey_or_path, "rb") then
+    pub_bytes = assert(io.open(pubkey_or_path, "rb")):read "*a"
+  end
+
+  -- libsodium path (preferred)
+  if sodium and sodium.crypto_sign_verify_detached and pub_bytes then
     local sig = sodium.from_hex(signature_hex)
     if not sig then
       return false, "bad_hex"
     end
-    local ok = sodium.crypto_sign_verify_detached(sig, message, pub)
+    local ok = sodium.crypto_sign_verify_detached(sig, message, pub_bytes)
     return ok, ok and nil or "bad_signature"
   end
-  if openssl and openssl.pkey and openssl.hex then
-    local pem = assert(io.open(pubkey_path, "r")):read "*a"
+
+  -- openssl path (needs PEM file)
+  if openssl and openssl.pkey and openssl.hex and not is_hex then
+    local pem = assert(io.open(pubkey_or_path, "r")):read "*a"
     local pkey = openssl.pkey.read(pem, true, "public")
     local raw = openssl.hex(signature_hex)
     local ok = pkey:verify(raw, message, "NONE")
     return ok, ok and nil or "bad_signature"
   end
+
   return false, "ed25519_not_available"
 end
 

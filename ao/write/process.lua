@@ -2,6 +2,13 @@
 -- luacheck: ignore send_event OUTBOX_PATH role_policy bridge jwt ok ok_json cjson auth state content_key discount vat schedule_retry OUTBOX_HMAC_SECRET
 -- Entry point for the write command AO process.
 
+-- Ensure templates module exists early (used by hyperengine UI utilities).
+if not package.preload["templates"] then
+  package.preload["templates"] = function()
+    return {}
+  end
+end
+
 local validation = require "ao.shared.validation"
 local auth = require "ao.shared.auth"
 local idem = require "ao.shared.idempotency"
@@ -30,6 +37,14 @@ local psp_webhooks = require "ao.shared.psp_webhooks"
 local tax = require "ao.shared.tax"
 local ok_mime, mime = pcall(require, "mime")
 local ok_json, cjson = pcall(require, "cjson.safe")
+
+-- Some upstream HyperEngine templates code calls require("templates").
+-- Ensure a stub is always present even if package.preload was reset in WASM.
+if not package.preload["templates"] then
+  package.preload["templates"] = function()
+    return {}
+  end
+end
 
 local set_payment_status
 local apply_refund
@@ -172,6 +187,57 @@ local function atomic_persist(path, kv)
   return true
 end
 
+-- Register AO handlers to accept signed write commands via Data JSON.
+local function register_write_handlers()
+  if type(Handlers) ~= "table" or type(Handlers.add) ~= "function" then
+    return
+  end
+  local ok_json, cjson = pcall(require, "cjson.safe")
+  local function decode_json(raw)
+    if not ok_json or not raw or raw == "" then
+      return {}
+    end
+    local ok, parsed = pcall(cjson.decode, raw)
+    if ok and type(parsed) == "table" then
+      return parsed
+    end
+    return {}
+  end
+  local function pick(tags, key)
+    if not tags then
+      return nil
+    end
+    return tags[key] or tags[key:lower()]
+  end
+
+  Handlers.add("Write-Command",
+    Handlers.utils.hasMatchingTag("Action", "Write-Command"),
+    function(msg)
+      local cmd = {}
+      if type(msg.Data) == "string" then
+        cmd = decode_json(msg.Data)
+      elseif type(msg.Data) == "table" then
+        cmd = msg.Data
+      end
+      local tags = msg.Tags or {}
+      cmd.action = cmd.action or cmd.Action or pick(tags, "Command-Action")
+      cmd.requestId = cmd.requestId or cmd["Request-Id"] or pick(tags, "Request-Id")
+      cmd.actor = cmd.actor or cmd.Actor or pick(tags, "Actor")
+      cmd.tenant = cmd.tenant or cmd.Tenant or pick(tags, "Tenant")
+      cmd.role = cmd.role or cmd.Role or pick(tags, "Role")
+      cmd.nonce = cmd.nonce or cmd.Nonce or pick(tags, "Nonce")
+      cmd.timestamp = cmd.timestamp or cmd.ts or cmd["X-Timestamp"] or pick(tags, "Timestamp")
+      cmd.signatureRef = cmd.signatureRef or cmd["Signature-Ref"] or pick(tags, "Signature-Ref")
+      cmd.signature = cmd.signature or cmd.Signature or pick(tags, "Signature")
+      cmd.payload = cmd.payload or cmd.Payload or {}
+
+      local resp = M.route(cmd)
+      local resp_json = ok_json and cjson.encode(resp) or tostring(resp)
+      Send({ Target = msg.From, Action = "Write-Command-Result", Data = resp_json })
+    end
+  )
+end
+
 -- simple in-memory state; AO runtime would persist
 local state = persist.load("write_state", {
   drafts = {}, -- key: siteId:pageId -> payload
@@ -216,6 +282,8 @@ local state = persist.load("write_state", {
   webhook_seen = {}, -- key -> { ts, expiresAt, signature }
   webhook_retry = {}, -- queue of { handler, cmd, attempts, nextAttempt }
 })
+
+register_write_handlers()
 
 -- load persisted carts if available
 do
@@ -635,6 +703,16 @@ local role_policy = {
   RetrySubmission = { "admin", "publisher" },
   RunWebhookRetries = { "admin", "support" },
 }
+
+-- Simple health check
+function handlers.Ping(cmd)
+  return {
+    status = "OK",
+    pong = true,
+    requestId = cmd and (cmd.requestId or cmd.RequestId or cmd.Id),
+    actor = cmd and (cmd.actor or cmd.Actor)
+  }
+end
 
 local function b64url(x)
   return (mime.b64(x) or ""):gsub("+", "-"):gsub("/", "_"):gsub("=", "")

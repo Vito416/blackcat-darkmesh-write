@@ -37,9 +37,12 @@ local RL_BUCKET_TTL = tonumber(
 local RL_MAX_BUCKETS =
   tonumber(getenv_multi("AUTH_RATE_MAX_BUCKETS", "WRITE_RL_MAX_BUCKETS") or "4096")
 
-local REQUIRE_SIGNATURE = getenv_multi("WRITE_REQUIRE_SIGNATURE", "AUTH_REQUIRE_SIGNATURE") == "1"
+-- Default ON: signatures required unless explicitly disabled with WRITE_REQUIRE_SIGNATURE=0.
+local REQUIRE_SIGNATURE = getenv_multi("WRITE_REQUIRE_SIGNATURE", "AUTH_REQUIRE_SIGNATURE") ~= "0"
 local SIG_TYPE = getenv_multi("WRITE_SIG_TYPE", "AUTH_SIG_TYPE") or "ed25519"
-local SIG_PUBLIC = getenv_multi("WRITE_SIG_PUBLIC", "AUTH_SIG_PUBLIC")
+-- Default public key (hex) for worker-signed requests; safe to keep in code.
+local SIG_PUBLIC_DEFAULT = "hex:e3db1fdf78b6d88e94e69d96a708fd836d66275d186033d7d8b7a6f46be45459"
+local SIG_PUBLIC = getenv_multi("WRITE_SIG_PUBLIC", "AUTH_SIG_PUBLIC") or SIG_PUBLIC_DEFAULT
 local SIG_SECRET = getenv_multi("WRITE_SIG_SECRET", "AUTH_SIG_SECRET")
 local REQUIRE_JWT = getenv_multi("WRITE_REQUIRE_JWT", "AUTH_REQUIRE_JWT") == "1"
 local JWT_SECRET = getenv_multi("WRITE_JWT_HS_SECRET", "AUTH_JWT_HS_SECRET")

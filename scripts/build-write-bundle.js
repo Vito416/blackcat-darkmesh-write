@@ -13,13 +13,16 @@ const sharedList = [
 ];
 
 const files = [
-  ...sharedList.map(f => [`ao.shared.${f.replace('.lua','')}`, readFileSync(join(sharedDir,f),'utf8')]),
-  ['ao.shared.write.process', readFileSync(entryFile,'utf8')],
+  // stub templates module first so it's registered before any require("templates")
+  ['templates', readFileSync('ao/templates.lua', 'utf8')],
+  ...sharedList.map(f => [`ao.shared.${f.replace('.lua','')}`, readFileSync(join(sharedDir, f), 'utf8')]),
+  ['ao.shared.write.process', readFileSync(entryFile, 'utf8')],
 ];
 
+// Use long-bracket delimiters to avoid escaping ']' inside source.
 const chunks = files.map(([name, src]) => `
 package.preload["${name}"] = function()
-  local loaded, err = load([=[${src.replace(/\]/g, '\\]')}]=], "${name}")
+  local loaded, err = load([====[${src}]====], "${name}")
   if not loaded then error(err) end
   local ret = loaded()
   if ret ~= nil then return ret end
