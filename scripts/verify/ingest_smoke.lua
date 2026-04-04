@@ -9,6 +9,8 @@ if os.setenv then
     "OUTBOX_HMAC_SECRET",
     os.getenv "OUTBOX_HMAC_SECRET" or "0123456789abcdef0123456789abcdef"
   )
+  -- For smoke tests we allow unsigned commands; production keeps signatures on.
+  os.setenv("WRITE_REQUIRE_SIGNATURE", os.getenv "WRITE_REQUIRE_SIGNATURE" or "0")
 end
 local process = require "ao.write.process"
 
