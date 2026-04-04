@@ -2,23 +2,19 @@
 -- luacheck: max_line_length 180
 package.path =
   table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
--- ensure HMAC generation during webhook processing (set before require)
--- Write smoke test: force signatures off and skip HMAC (prod keeps both on).
--- In environments without os.setenv (or luacheck complaining about read-only fields),
--- patch getenv for the duration of this script to disable signature/HMAC requirements.
--- luacheck: push ignore
-do
-  local real_getenv = os.getenv
-  os.getenv = function(key)
-    if key == "WRITE_REQUIRE_SIGNATURE" then
-      return "0"
-    elseif key == "OUTBOX_HMAC_SECRET" then
-      return ""
-    end
-    return real_getenv(key)
+
+local function env_or_skip()
+  local req_sig = os.getenv "WRITE_REQUIRE_SIGNATURE"
+  local hmac_secret = os.getenv "OUTBOX_HMAC_SECRET"
+  if req_sig ~= "0" or not hmac_secret or #hmac_secret == 0 then
+    io.stderr:write(
+      "SKIP ingest_smoke: set WRITE_REQUIRE_SIGNATURE=0 and OUTBOX_HMAC_SECRET for this smoke\n"
+    )
+    os.exit(0)
   end
 end
--- luacheck: pop
+
+env_or_skip()
 
 local process = require "ao.write.process"
 

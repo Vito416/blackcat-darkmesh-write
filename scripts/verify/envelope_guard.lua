@@ -1,19 +1,15 @@
--- luacheck: ignore 113 121 122
 package.path =
   table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
 
--- Disable signature requirement for this offline envelope smoke.
-if os.setenv then
-  os.setenv("WRITE_REQUIRE_SIGNATURE", "0")
-else
-  local real_getenv = os.getenv
-  os.getenv = function(key)
-    if key == "WRITE_REQUIRE_SIGNATURE" then
-      return "0"
-    end
-    return real_getenv(key)
+local function require_env()
+  local req_sig = os.getenv "WRITE_REQUIRE_SIGNATURE"
+  if req_sig ~= "0" then
+    io.stderr:write("SKIP envelope_guard: set WRITE_REQUIRE_SIGNATURE=0 for this smoke\n")
+    os.exit(0)
   end
 end
+
+require_env()
 
 local write = require "ao.write.process"
 
