@@ -4,6 +4,9 @@ package.path =
   table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
 -- ensure HMAC generation during webhook processing (set before require)
 -- Write smoke test: force signatures off and skip HMAC (prod keeps both on).
+-- In environments without os.setenv (or luacheck complaining about read-only fields),
+-- patch getenv for the duration of this script to disable signature/HMAC requirements.
+-- luacheck: push ignore
 do
   local real_getenv = os.getenv
   os.getenv = function(key)
@@ -15,6 +18,7 @@ do
     return real_getenv(key)
   end
 end
+-- luacheck: pop
 
 local process = require "ao.write.process"
 
