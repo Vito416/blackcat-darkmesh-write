@@ -10,7 +10,8 @@
     "ao:spawn": "node scripts/ao-spawn.js",
     "build:bundle": "node scripts/build-write-bundle.js",
     "build:ao-wasm": "hyperengine build",
-    "smoke:wasm": "hyperengine smoke"
+    "smoke:wasm": "hyperengine smoke",
+    "preflight:prod": "bash scripts/preflight-prod.sh"
   },
   "devDependencies": {
     "@permaweb/aos": "^1.2.18",
