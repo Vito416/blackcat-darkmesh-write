@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-#!/usr/bin/env node
 // Sign a write command using ed25519 keys from env (WRITE_SIG_PRIV_HEX seed, 64 hex chars).
 // Usage:
 //   node scripts/sign-write.js --file cmd.json
