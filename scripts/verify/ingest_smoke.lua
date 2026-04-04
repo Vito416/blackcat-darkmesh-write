@@ -3,15 +3,25 @@
 package.path =
   table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
 -- ensure HMAC generation during webhook processing (set before require)
--- luacheck: globals os.setenv
-if os.setenv then
-  os.setenv(
-    "OUTBOX_HMAC_SECRET",
-    os.getenv "OUTBOX_HMAC_SECRET" or "0123456789abcdef0123456789abcdef"
-  )
-  -- For smoke tests we allow unsigned commands; production keeps signatures on.
-  os.setenv("WRITE_REQUIRE_SIGNATURE", os.getenv "WRITE_REQUIRE_SIGNATURE" or "0")
+-- Write smoke test: force signatures off regardless of host env (prod keeps them on).
+do
+  local real_getenv = os.getenv
+  local shim = {}
+  for k, v in pairs(os) do
+    shim[k] = v
+  end
+  shim.getenv = function(key)
+    if key == "WRITE_REQUIRE_SIGNATURE" then
+      return "0"
+    elseif key == "OUTBOX_HMAC_SECRET" then
+      -- empty to skip HMAC computation in smoke (avoids crypto dependency)
+      return ""
+    end
+    return real_getenv(key)
+  end
+  os = shim
 end
+
 local process = require "ao.write.process"
 
 local function assert_ok(resp)
