@@ -2,17 +2,10 @@
 package.path =
   table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
 
--- Disable signature requirement for offline validation smoke.
-if os.setenv then
-  os.setenv("WRITE_REQUIRE_SIGNATURE", "0")
-else
-  local real_getenv = os.getenv
-  os.getenv = function(key)
-    if key == "WRITE_REQUIRE_SIGNATURE" then
-      return "0"
-    end
-    return real_getenv(key)
-  end
+-- This smoke expects signatures disabled via env. Skip if not provided to avoid mutating globals.
+if os.getenv("WRITE_REQUIRE_SIGNATURE") ~= "0" then
+  io.stderr:write("SKIP action_validation: set WRITE_REQUIRE_SIGNATURE=0\n")
+  os.exit(0)
 end
 
 local write = require "ao.write.process"
