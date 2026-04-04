@@ -3,23 +3,17 @@
 package.path =
   table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
 -- ensure HMAC generation during webhook processing (set before require)
--- Write smoke test: force signatures off regardless of host env (prod keeps them on).
+-- Write smoke test: force signatures off and skip HMAC (prod keeps both on).
 do
   local real_getenv = os.getenv
-  local shim = {}
-  for k, v in pairs(os) do
-    shim[k] = v
-  end
-  shim.getenv = function(key)
+  os.getenv = function(key)
     if key == "WRITE_REQUIRE_SIGNATURE" then
       return "0"
     elseif key == "OUTBOX_HMAC_SECRET" then
-      -- empty to skip HMAC computation in smoke (avoids crypto dependency)
       return ""
     end
     return real_getenv(key)
   end
-  os = shim
 end
 
 local process = require "ao.write.process"
