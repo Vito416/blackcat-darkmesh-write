@@ -5,6 +5,14 @@ package.path =
 -- Disable signature requirement for this offline envelope smoke.
 if os.setenv then
   os.setenv("WRITE_REQUIRE_SIGNATURE", "0")
+else
+  local real_getenv = os.getenv
+  os.getenv = function(key)
+    if key == "WRITE_REQUIRE_SIGNATURE" then
+      return "0"
+    end
+    return real_getenv(key)
+  end
 end
 
 local write = require "ao.write.process"
