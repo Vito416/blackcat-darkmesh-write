@@ -1,6 +1,20 @@
 -- luacheck: max_line_length 200
 package.path =
   table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
+
+-- Disable signature requirement for offline validation smoke.
+if os.setenv then
+  os.setenv("WRITE_REQUIRE_SIGNATURE", "0")
+else
+  local real_getenv = os.getenv
+  os.getenv = function(key)
+    if key == "WRITE_REQUIRE_SIGNATURE" then
+      return "0"
+    end
+    return real_getenv(key)
+  end
+end
+
 local write = require "ao.write.process"
 
 local function expect_error(res)
