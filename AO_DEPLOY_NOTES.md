@@ -1384,3 +1384,14 @@ console.log(res);
 - Updated interpretation:
   - Ingestion and scheduling are now validated even for broader production-like command set.
   - Remaining blocker remains strictly compute/readback execution plane on public push nodes.
+
+## 2026-04-07 — Post-push checkpoint
+- Diagnostics toolkit commit pushed to `main`:
+  - commit: `00372a2`
+  - message: `diagnostics: add scheduler-direct and readback analysis tooling`
+- Local verification rerun (with rocks path loaded):
+  - `ingest_smoke: OK`
+  - `envelope_guard: ok`
+  - `action_validation: ok`
+- Command used:
+  - `eval "$(luarocks --lua-version=5.4 path)" && WRITE_REQUIRE_SIGNATURE=1 ... lua5.4 scripts/verify/ingest_smoke.lua && lua5.4 scripts/verify/envelope_guard.lua && lua5.4 scripts/verify/action_validation.lua`
