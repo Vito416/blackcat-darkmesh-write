@@ -85,63 +85,56 @@ Legend: teal = queues/events, gray = WAL/audit paths.
 - Schemas: `schemas/`
 - PSP/webhook specs: `scripts/verify/webhook_psp_spec.lua`, `gopay_webhook_spec.lua`
 
-## AO deploy (mainnet snapshot)
-- Module TX (mainnet build, 2026-03-28): `fwoPBAYio8pUkqgemgVuAsexTucPSGM6tMADdW1rHK0` (supersedes `csOQ_c7ZYLpKwD8MPI6ezgd712ibs7KKhXsasTga-iY` for mainnet pushes).
-- Target HyperBEAM: `https://push.forward.computer` (mirror `https://push-1.forward.computer/`), Scheduler: `n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo`; include `{name:'Authority', value:scheduler}` with Variant `ao.MN.1`.
-- Process PID: record in `AO_DEPLOY_NOTES.md` once spawn confirms (pending as of 2026-03-28).
-- Throughput: AO gas quotas apply on push.*; keep >=1 AO funded or point `URL` to your own HB+Scheduler (recommended for reliability and indexing).
+## AO deploy (current runbook)
+- Canonical endpoint: `https://push.forward.computer`
+- Scheduler: `n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo`
+- Runtime variant/tag family: `ao.TN.1` (module + process + message path in this repo)
+- Source of truth for live module/PID history: `AO_DEPLOY_NOTES.md` (do not treat this README as the TX ledger).
 
-```js
-import { connect, createDataItemSigner } from '@permaweb/aoconnect';
-import fs from 'fs';
-
-const signer = createDataItemSigner(JSON.parse(fs.readFileSync('wallet.json','utf8')));
-const scheduler = 'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo';
-const ao = connect({ MODE: 'mainnet', URL: 'https://push.forward.computer', SCHEDULER: scheduler });
-
-const pid = await ao.spawn({
-  module: 'fwoPBAYio8pUkqgemgVuAsexTucPSGM6tMADdW1rHK0',
-  scheduler,
-  signer,
-  tags: [
-    { name: 'Variant', value: 'ao.MN.1' },
-    { name: 'Authority', value: scheduler },
-    { name: 'Scheduler', value: scheduler },
-    { name: 'Name', value: 'blackcat-write' },
-    { name: 'Data-Protocol', value: 'ao' },
-    { name: 'Content-Type', value: 'application/javascript' },
-  ],
-});
+### Publish module (WASM)
+```bash
+node scripts/build-write-bundle.js
+ao-dev build
+node scripts/publish-wasm.js
 ```
 
-```js
-const { message, result } = ao;
+`scripts/publish-wasm.js` publishes `dist/write/process.wasm` with the expected tags:
+- `Type=Module`
+- `Content-Type=application/wasm`
+- `Variant=ao.TN.1`
+- `signing-format=ans104`
+- `accept-bundle=true`
+- `accept-codec=httpsig@1.0`
 
-// Eval ping
-const evalId = await message({
-  process: pid,
-  signer,
-  tags: [{ name: 'Action', value: 'Eval' }],
-  data: 'return \"pong\"',
-});
-const evalOut = await result({ process: pid, message: evalId });
-
-// Domain action example
-const actionId = await message({
-  process: pid,
-  signer,
-  tags: [
-    { name: 'Action', value: 'SaveDraftPage' },
-    { name: 'Request-Id', value: '<uuid>' },
-    { name: 'Actor', value: '<actor>' },
-    { name: 'Tenant', value: '<tenant>' },
-    { name: 'Timestamp', value: String(Date.now()) },
-  ],
-  data: JSON.stringify({ /* payload */ }),
-});
-const actionOut = await result({ process: pid, message: actionId });
+### Spawn process
+```bash
+AO_MODULE=<module_tx> \
+HB_URL=https://push.forward.computer \
+HB_SCHEDULER=n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo \
+WRITE_SIG_TYPE=ed25519 \
+WRITE_SIG_PUBLIC=<pubkey_or_hex> \
+node scripts/cli/spawn_wasm_tn.js
 ```
-- Full chronology and error history: `AO_DEPLOY_NOTES.md`.
+
+### Finalization gate (required)
+- Expect temporary `404` on `https://arweave.net/raw/<tx>` shortly after publish/spawn.
+- Do not trust runtime behavior before both module and PID are indexed/finalized.
+- Typical observed delay in this project: initial 404 window + extended finalization (often tens of minutes).
+
+### Deep test entrypoints
+```bash
+HB_URL=https://push.forward.computer \
+HB_SCHEDULER=n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo \
+AO_PID=<pid> \
+node scripts/cli/diagnose_message.js
+
+HB_URL=https://push.forward.computer \
+HB_SCHEDULER=n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo \
+AO_PID=<pid> \
+node scripts/cli/send_write_command.js
+```
+
+For worker-signed end-to-end tests, set `WORKER_SIGN_URL` + `WORKER_AUTH_TOKEN` (test values are kept locally in `tmp/test-secrets.json`).
 
 ## Repository Layout (blueprint)
 ```
@@ -199,7 +192,11 @@ scripts/cli/       # local helpers (run command)
 - `WRITE_REQUIRE_NONCE=1` — reject commands without nonce and block replay.
 - `WRITE_NONCE_TTL_SECONDS` (default 300) and `WRITE_NONCE_MAX` (default 2048) — nonce cache sizing.
 - `WRITE_ALLOW_ANON=1` — allow missing actor/tenant (off by default).
-- `WRITE_SIG_TYPE=ed25519|ecdsa|hmac` (prod default: `ed25519`); `WRITE_SIG_PUBLIC` (PEM) or `WRITE_SIG_SECRET` (hmac key) to verify `signature`.
+- `WRITE_SIG_TYPE=ed25519|ecdsa|hmac` (prod default: `ed25519`).
+- Signature verification inputs:
+  - `WRITE_SIG_PUBLIC` (single key; PEM path or `hex:<pubkey>` form),
+  - `WRITE_SIG_PUBLICS` (rotation/keyring map keyed by `signatureRef`, supports `default`),
+  - `WRITE_SIG_SECRET` (for `hmac` mode).
 - Optional JWT gate: set `WRITE_JWT_HS_SECRET` (HS256) and optionally `WRITE_REQUIRE_JWT=1` to fail-closed; claims `sub/tenant/role/nonce` populate `actor/tenant/role/nonce` when missing.
 - `WRITE_WAL_PATH=/var/lib/ao/write-wal.ndjson` — append-only WAL with request/response hashes.
 - `WRITE_IDEM_PATH=/var/lib/ao/write-idem.json` — persist idempotent responses across restarts (optional).
@@ -296,5 +293,5 @@ Canonical licensing bundle:
 - Covered-System Notice: https://github.com/Vito416/blackcat-darkmesh-ao/blob/main/docs/LICENSING_SYSTEM_NOTICE.md
 
 ## CI notes
-- CI will gain a schema/manifest consistency check (WeaveDB manifest vs. JSON schemas); keep generated manifests in sync when modifying schemas.
-- Future PSP/order fixtures will be added to ingest/batch smokes once the PSP abstraction and order state machine land.
+- CI currently runs schema/lua/stylua checks, ingest/envelope/action validation, publish/idempotency/conflict/hmac smokes, and Arweave/hash gates (based on env flags).
+- If `scripts/sign-write.js` is used in verify scripts, Node dependencies must be installed (`npm ci` step is required in CI).
