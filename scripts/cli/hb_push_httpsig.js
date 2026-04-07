@@ -20,6 +20,10 @@ function base64UrlNoPad(buf) {
   return Buffer.from(buf).toString('base64url').replace(/=+$/g, '')
 }
 
+function base64Std(buf) {
+  return Buffer.from(buf).toString('base64')
+}
+
 function sha256DigestBase64(body) {
   const hash = crypto.createHash('sha256').update(body).digest('base64')
   return `sha-256=:${hash}:`
@@ -71,9 +75,12 @@ function defaultMessage(action, data, variant) {
 
 async function signRequest({ url, method, headers }) {
   const walletPath = arg('--wallet', 'wallet.json')
+  const keyIdFormat = arg('--keyid-format', 'base64url')
   const wallet = loadWallet(walletPath)
   const keyObj = crypto.createPrivateKey({ key: wallet, format: 'jwk' })
-  const keyId = `publickey:${base64UrlNoPad(Buffer.from(wallet.n, 'base64url'))}`
+  const nBuf = Buffer.from(wallet.n, 'base64url')
+  const keyIdBody = keyIdFormat === 'base64' ? base64Std(nBuf) : base64UrlNoPad(nBuf)
+  const keyId = `publickey:${keyIdBody}`
   const signer = createSigner(keyObj, 'rsa-pss-sha512', keyId)
 
   return httpbis.signMessage(
@@ -91,7 +98,11 @@ async function signRequest({ url, method, headers }) {
 }
 
 async function main() {
-  const pid = must(arg('--pid'), '--pid')
+  const pid = arg('--pid')
+  const pathOverride = arg('--path')
+  if (!pid && !pathOverride) {
+    throw new Error('Missing --pid (or provide --path for explicit endpoint)')
+  }
   const urlBase = arg('--url', 'http://localhost:8734')
   const direct = process.argv.includes('--direct')
   const action = arg('--action', 'Ping')
@@ -102,9 +113,12 @@ async function main() {
     ? fs.readFileSync(messageFile, 'utf8')
     : JSON.stringify(defaultMessage(action, data, variant))
 
-  const url = direct
-    ? `${urlBase.replace(/\/$/, '')}/${pid}`
-    : `${urlBase.replace(/\/$/, '')}/${pid}~process@1.0/push`
+  const base = urlBase.replace(/\/$/, '')
+  const url = pathOverride
+    ? `${base}${pathOverride.startsWith('/') ? pathOverride : `/${pathOverride}`}`
+    : direct
+      ? `${base}/${must(pid, 'pid')}`
+      : `${base}/${must(pid, 'pid')}~process@1.0/push`
   const headers = {
     'accept-bundle': 'true',
     'accept-codec': 'httpsig@1.0',

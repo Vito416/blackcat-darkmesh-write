@@ -1144,3 +1144,243 @@ console.log(res);
 - Early deep probe (`diagnose_message.js`) against this PID currently returns `500` with:
   - `details: {badmap,failure}` and stack inside `hb_maps:merge` / `hb_ao:resolve_many`.
   - At this stage this is still considered **pre-finalization noise** until module + PID raw endpoints are both visible.
+
+## 2026-04-07 — Deep retest on current PID after "green" confirmation
+- Current target pair for this retest:
+  - Module: `zbe7l9INN2hlIwIBAqr0LRxkm9YGd6nL41olyLnIPnU`
+  - PID: `revWysnw_rgzvG5Lgm73moQFElfxK8stAIWSMNSrMek`
+- Arweave checks during this run:
+  - `tx/<module>/status` => `200`
+  - `raw/<module>` => `404` (on `arweave.net` gateway in this check)
+  - `tx/<pid>/status` => `404`
+  - `raw/<pid>` => `200` (4-byte body, expected process marker)
+- Worker signing path remains healthy with `tmp/test-secrets.json`:
+  - `GET /health` => `200`
+  - `GET /metrics` (bearer) => `200`
+  - `POST /sign` (worker token) => `200` with `{ signature, signatureRef }`
+- Deep message probes on `https://push.forward.computer`:
+  - Direct `POST /<PID>` => `200`, body `1984` (state/read path behavior)
+  - `POST /<PID>~process@1.0/push` for `Ping` => `400 Message is not valid.`
+  - `POST /<PID>~process@1.0/push` for `GetOpsHealth` => `400 Message is not valid.`
+  - `POST /<PID>~process@1.0/push` for `Write-Command` preset => `400 Message is not valid.`
+- `scripts/cli/diagnose_message.js` (signed Write-Command, worker `/sign`) now consistently returns:
+  - HTTP `400` from `/push`
+  - response body includes `commitments` (rsa-pss + hmac entries) and status `400`
+  - meaning request reaches commitment/codec path, but scheduler still rejects final message shape as invalid.
+- Cross-check against older finalized PID `5WXxCBn5PZADOb35QAGDpF8kY_bBrd7uuKEhaUy-XBk` now also returns `400` on `/push` in this environment, including with transport trio (`signing-format`, `accept-bundle`, `require-codec`).
+- `scripts/cli/send_write_command.js` (`ao.message`) currently fails early with `Error sending message`, so no `ao.result()` payload is available for business-level verification yet.
+- Current blocker is still at `/push` ingress validation (message shape/commitment semantics), not worker secret generation and not direct process availability.
+
+## 2026-04-07 — Push shape diff matrix (new checker)
+- Added checker: `scripts/cli/push_shape_diff.js`
+  - Purpose: run a deterministic matrix of message shapes against one PID and capture accepted/rejected patterns.
+  - Output: full JSON report saved under `tmp/push-shape-report-<timestamp>.json`.
+- Run used:
+  - `node scripts/cli/push_shape_diff.js --pid revWysnw_rgzvG5Lgm73moQFElfxK8stAIWSMNSrMek --module zbe7l9INN2hlIwIBAqr0LRxkm9YGd6nL41olyLnIPnU --url https://push.forward.computer`
+  - Report: `tmp/push-shape-report-2026-04-07T13-12-49-000Z.json`
+- Matrix result summary:
+  - `control_direct_pid` => `200` (body `1984`) as expected for direct process path.
+  - Every `/push` variant tested => `400` (no successful ingress).
+  - Variants without transport hints return plain `Message is not valid.`
+  - Variants with transport hints (`signing-format`, `accept-bundle`, `require-codec`, optional `accept-codec`) return JSON 400 with `commitments` present.
+  - In those 400 JSON responses, committed keys are consistently only `[\"ao-types\",\"status\"]` (no actionable hint that business tags like `Action`/`Type` are being accepted as scheduler payload keys).
+- Current interpretation:
+  - `/push` rejection is shape/ingress-level and reproducible across all tested map forms in this checker.
+  - Worker signing and direct process availability are not the blocker in this phase.
+
+## 2026-04-07 — Cross-endpoint confirmation + committed-envelope probes
+- Ran the same checker against push-1:
+  - `node scripts/cli/push_shape_diff.js --pid revWysnw_rgzvG5Lgm73moQFElfxK8stAIWSMNSrMek --module zbe7l9INN2hlIwIBAqr0LRxkm9YGd6nL41olyLnIPnU --url https://push-1.forward.computer`
+  - report: `tmp/push-shape-report-2026-04-07T13-16-43-356Z.json`
+- Result matches push.forward:
+  - all `/push` variants remain `400`,
+  - transport-tagged variants return JSON 400 with `commitments`,
+  - committed keys remain only `[\"ao-types\",\"status\"]`.
+- Extra committed-envelope probe:
+  - Sent `tmp/committed_ping.json` via `scripts/cli/hb_push_httpsig.js` to both push endpoints:
+    - `/<PID>~process@1.0/push` => `400 Message is not valid.`
+    - `/<PID>` => `200` + `1984`
+  - So even explicit committed body JSON did not unblock `/push`.
+- Scheduler direct probe (`/~scheduler@1.0/schedule`) with HTTPSIG headers:
+  - both push.forward and push-1 return `500` with stack including:
+    - `dev_codec_httpsig_keyid:apply_scheme/3`
+    - `details: badarg`
+    - failing at `base64:dec_bin/8`
+  - Interpretation: scheduler direct path currently rejects this keyid/signature framing in this test shape; not a usable bypass for the `/push` blocker.
+- Key-name normalization probe (`action/type/variant/data-protocol` lowercase vs mixed case) on `/push`:
+  - all tested variants remained `400` (with or without transport trio),
+  - therefore the blocker is not just uppercase/lowercase field naming in request params.
+
+## 2026-04-07 — HTTPSIG keyid format finding (important)
+- `scripts/cli/hb_push_httpsig.js` extended with:
+  - `--path` (explicit endpoint path override, e.g. `--path /~scheduler@1.0/schedule`)
+  - `--keyid-format base64|base64url`
+- Repro on scheduler endpoint:
+  - `--keyid-format base64url` => `500` (matches prior `dev_codec_httpsig_keyid` base64 decode failure path).
+  - `--keyid-format base64` => parser no longer crashes; response becomes `400 No scheduler information provided.`
+- Interpretation:
+  - This confirms a concrete parser sensitivity: scheduler-path HTTPSIG keyid handling differs for base64url vs standard base64.
+  - It does **not** yet solve `/push` for process messaging, but it narrows one transport-level ambiguity and gives a stable way to avoid the scheduler 500 crash during diagnostics.
+- Additional scheduler payload key probe (all with `--keyid-format base64`):
+  - Tried schedule body keys: `target`, `process`, `process-id`, and both `scheduler` / `Scheduler`.
+  - All variants still return `400 No scheduler information provided.`
+  - So the scheduler endpoint expects a different envelope/source of scheduler metadata than these direct body fields.
+- Scheduler query probe (same HTTPSIG helper):
+  - `POST /~scheduler@1.0/schedule?target=<PID>` moves past the `No scheduler information provided` error and returns `400 Message is not valid.` on both push.forward and push-1.
+  - This means scheduler resolution can happen from **query `target`**, and the remaining failure is now purely message validation shape.
+
+## 2026-04-07 — Targeted scheduler-shape diff run completed
+- Added dedicated matrix script: `scripts/cli/scheduler_shape_diff.js`.
+  - It signs requests with HTTPSIG (`comm-` headers), iterates body shapes + header profiles + keyid format (`base64`, `base64url`), and writes a JSON report.
+- Run executed:
+  - `node scripts/cli/scheduler_shape_diff.js --pid revWysnw_rgzvG5Lgm73moQFElfxK8stAIWSMNSrMek --module zbe7l9INN2hlIwIBAqr0LRxkm9YGd6nL41olyLnIPnU --urls https://push.forward.computer,https://push-1.forward.computer`
+  - Report: `tmp/scheduler-shape-report-2026-04-07T13-39-54-203Z.json`
+- Matrix scope:
+  - Endpoint path fixed to `POST /~scheduler@1.0/schedule?target=<PID>`.
+  - Body cases: `plain_lower`, `plain_upper`, `tags_data_shape`, `plain_with_scheduler`, `plain_with_module`, `committed_body_only`, `committed_full_file`.
+  - Header profiles: `default_headers` vs `transport_headers` (`signing-format=ans104`, `require-codec=application/json`).
+  - KeyId formats: standard base64 and base64url.
+- Result summary:
+  - `56/56` requests => `400`; no accepted case.
+  - `default_headers` responses are plain text `Message is not valid.`.
+  - `transport_headers` responses are JSON 400 with `reason: Given message is invalid.` and commitments.
+  - In transport JSON responses, committed keys are consistently `["ao-types","body","reason","status"]`.
+- Interpretation:
+  - Scheduler endpoint is now reached and target-resolved (no scheduler-missing error on this path), but the **message/envelope schema is still not the one scheduler validates as a message**.
+  - Blocker remains: exact scheduler-accepted committed envelope shape for AO Message ingress.
+
+## 2026-04-07 — Captured real `ao.message()` wire payload + replay findings
+- Added wire-capture helper: `scripts/cli/capture_aomessage_wire.js`.
+  - It monkey-patches `fetch`, sends one `ao.message()`, and stores exact request/response payload in `tmp/aomessage-wire-*.json`.
+- Captured run:
+  - `tmp/aomessage-wire-2026-04-07T13-46-00-865Z.json`
+  - `ao.message()` sends:
+    - `POST /<PID>~process@1.0/push`
+    - headers: `codec-device: ans104@1.0`, `content-type: application/ans104`
+    - body: ANS-104 DataItem binary (size 1283 bytes in this run)
+    - tags decoded from DataItem: `Action=Ping`, `Type=Message`, `Variant=ao.TN.1`, `Data-Protocol=ao`, `signing-format=ans104`, `accept-bundle=true`, `require-codec=application/json`, etc.
+  - This request still returns `400` (`Error sending message` in aoconnect), with 400 JSON body containing only error commitments (`ao-types`, `status`).
+- Critical replay result (same captured ANS-104 body/headers):
+  - Replay to `/~scheduler@1.0/schedule?target=<PID>` returns **200** on both:
+    - `https://push.forward.computer`
+    - `https://push-1.forward.computer`
+  - Responses saved:
+    - `tmp/scheduler-direct-push.json`
+    - `tmp/scheduler-direct-push1.json`
+  - Returned payload is `Type=Assignment`, includes `process=<PID>`, incrementing `slot` (`28`, `29`), and body with committed message fields (`action`, `target`, `type`, `variant`, etc.) including ans104 commitment.
+- Interpretation:
+  - The signed ANS-104 message itself is valid enough for scheduler direct path.
+  - Current blocker is specifically in `/PID~process@1.0/push` ingress path behavior/routing, not in detached signer, worker secrets, or basic ANS-104 message construction.
+- Compute follow-up check for returned slot:
+  - `/<PID>~process@1.0/compute=<slot>` currently returns:
+    - `500` on `push.forward.computer`
+    - `400` on `push-1.forward.computer`
+  - So scheduler direct assignment is observable, but compute readback path still needs a compatible query flow.
+
+## 2026-04-07 — Deep scheduler-direct test run (blocker narrowed)
+- Added helper: `scripts/cli/deep_test_scheduler_direct.js`
+  - Sends `Ping`, `GetOpsHealth`, and `Write-Command` as **ANS-104 DataItems** to:
+    - `POST /~scheduler@1.0/schedule?target=<PID>`
+  - Uses worker signing (`/sign`) for `Write-Command`.
+  - Probes `slot/current` and `/<PID>~process@1.0/compute=<slot>` after each send.
+- Command used:
+  - `node scripts/cli/deep_test_scheduler_direct.js --pid revWysnw_rgzvG5Lgm73moQFElfxK8stAIWSMNSrMek --secrets tmp/test-secrets.json --out tmp/deep-test-scheduler-direct-latest.json`
+- Result snapshot:
+  - `push.forward.computer`:
+    - Ping `200` slot `43`
+    - GetOpsHealth `200` slot `44`
+    - Write-Command `200` slot `45`
+    - `/<PID>/slot/current` => `200` (`45`)
+    - `/<PID>~process@1.0/compute=43..45` => `500`
+  - `push-1.forward.computer`:
+    - Ping `200` slot `46`
+    - GetOpsHealth `200` slot `47`
+    - Write-Command `200` slot `48`
+    - `/<PID>/slot/current` => `400`
+    - `/<PID>~process@1.0/compute=46..48` => `400`
+- Final interpretation from this run:
+  - Message construction + signatures + scheduler routing are now validated (all 6 action sends accepted with slot increments).
+  - Remaining blocker is **compute/readback path behavior** on public push endpoints, not worker secrets/signing and not action envelope shape.
+- Aoconnect result cross-check on accepted slot (`45`):
+  - `ao.result({ process: revWys..., message: '45' })` on `https://push.forward.computer` returns `Error getting result`.
+  - Confirms the same readback blocker at client level (not only raw curl probing).
+
+## 2026-04-07 — CU/readback focused diagnosis (requested follow-up)
+- Added helper: `scripts/cli/diagnose_cu_readback.js`
+  - Inputs: PID + previous deep-test report (`tmp/deep-test-scheduler-direct-latest.json`).
+  - Checks per endpoint:
+    - `/<PID>/slot/current`
+    - `POST /~scheduler@1.0/slot?target=<PID>`
+    - `/<PID>~process@1.0/compute=<slot>` for each accepted slot
+    - scheduler message fetch `https://schedule.forward.computer/<messageId>?process-id=<PID>`
+    - `ao.result(...)` (primary endpoint only)
+    - `ao.dryrun(...)` Ping (primary endpoint only)
+- Run:
+  - `node scripts/cli/diagnose_cu_readback.js --pid revWysnw_rgzvG5Lgm73moQFElfxK8stAIWSMNSrMek --report tmp/deep-test-scheduler-direct-latest.json --out tmp/cu-readback-diagnostic-latest.json`
+- Result:
+  - `https://push.forward.computer`
+    - `slot/current` (process path): `200`
+    - scheduler slot probe (`POST /~scheduler@1.0/slot?target=<PID>`): `200`
+    - `compute` for slots `43/44/45`: `500`
+    - scheduler message fetch for all message IDs: `200` (message body retrievable)
+    - `ao.result(...)`: `Error getting result`
+    - `ao.dryrun(...)`: `Error running dryrun`
+  - `https://push-1.forward.computer`
+    - `slot/current` (process path): `400`
+    - scheduler slot probe: `400`
+    - `compute` for slots `46/47/48`: `400`
+    - scheduler message fetch for all message IDs: `200`
+- Additional confirmed endpoint behavior:
+  - `GET /~scheduler@1.0/slot/current?target=<PID>` on `push.forward.computer` returns current slot (e.g., `48`).
+  - `POST /~scheduler@1.0/slot?target=<PID>` returns headers with `current=<slot>` and `status=200` on `push.forward.computer`.
+- Final interpretation:
+  - Scheduler ingestion + storage path is healthy (accepted slots + retrievable message IDs).
+  - Readback/compute plane remains the active blocker on public push endpoints (`500` / `400`), including `ao.result` and `ao.dryrun`.
+
+## 2026-04-07 — Escalation bundle prepared
+- Added helper: `scripts/cli/build_hb_escalation_bundle.js`
+  - Builds a support/escalation package from latest diagnostics.
+  - Includes:
+    - deep test report
+    - CU/readback report
+    - captured `ao.message` wire payload
+    - scheduler-direct assignment responses
+    - `REPORT.md` matrix
+    - `repro.sh` quick repro script
+- Bundle built:
+  - Directory: `tmp/hb-escalation-latest`
+  - Archive: `tmp/hb-escalation-latest.tar.gz`
+  - Included prefilled maintainer report body: `tmp/hb-escalation-latest/ISSUE_BODY.md`
+- Command used:
+  - `node scripts/cli/build_hb_escalation_bundle.js --deep-report tmp/deep-test-scheduler-direct-latest.json --cu-report tmp/cu-readback-diagnostic-latest.json --out-dir tmp/hb-escalation-latest`
+
+## 2026-04-07 — Production-like business matrix via scheduler-direct
+- Added helper: `scripts/cli/business_matrix_scheduler_direct.js`
+  - Sends signed business commands as `Action=Write-Command` envelopes through:
+    - `POST /~scheduler@1.0/schedule?target=<PID>`
+  - Test actions:
+    - `SaveDraftPage`
+    - `PublishPageVersion`
+    - `UpsertRoute`
+    - `CreatePaymentIntent`
+    - `ProviderWebhook`
+    - `ProviderShippingWebhook`
+  - For each send, probes scheduler message fetch:
+    - `https://schedule.forward.computer/<messageId>?process-id=<PID>`
+- Run:
+  - `node scripts/cli/business_matrix_scheduler_direct.js --pid revWysnw_rgzvG5Lgm73moQFElfxK8stAIWSMNSrMek --secrets tmp/test-secrets.json --out tmp/business-matrix-scheduler-direct-latest.json`
+- Result:
+  - `push.forward.computer`: all 6 actions accepted (`200`, slots `49..54`), scheduler message fetch `200` for all 6.
+  - `push-1.forward.computer`: all 6 actions accepted (`200`, slots `55..60`), scheduler message fetch `200` for all 6.
+- Follow-up probes right after matrix:
+  - `GET /<PID>/slot/current`:
+    - `push.forward.computer` => `200` (`60`)
+    - `push-1.forward.computer` => `200` (`60`)
+  - `GET /<PID>~process@1.0/compute=<slot>` for sampled accepted slots (`49`, `54`, `55`, `60`):
+    - `push.forward.computer` => `500`
+    - `push-1.forward.computer` => `500`
+  - `ao.result({process:<PID>, message:'60'})`:
+    - both push endpoints => `Error getting result`
+- Updated interpretation:
+  - Ingestion and scheduling are now validated even for broader production-like command set.
+  - Remaining blocker remains strictly compute/readback execution plane on public push nodes.
