@@ -43,6 +43,22 @@ Audience: ops/infra teams deploying the write AO process to production-like host
 - Optional: force a logrotate dry run `logrotate -f /etc/logrotate.d/write-wal` on a canary host to verify permissions.
 - Arweave publish (arkb, optional): use workflow `Arweave Deploy (arkb)` (`.github/workflows/arkb-deploy.yml`) with inputs `artifact_path` (default `dev/write-export.ndjson`), `content_type` (default `application/json`). Requires secret `ARKB_WALLET_JSON_B64` (base64 wallet JSON). Workflow summary prints TXID + SHA256.
 
+## AO push.forward.computer deploy flow (module + PID)
+- Build/publish:
+  - `node scripts/build-write-bundle.js`
+  - `ao-dev build`
+  - `node scripts/publish-wasm.js` (capture module TX)
+- Spawn:
+  - `AO_MODULE=<module_tx> HB_URL=https://push.forward.computer HB_SCHEDULER=n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo node scripts/cli/spawn_wasm_tn.js`
+  - capture PID from script output.
+- Required finalization gate before production cutover:
+  - `curl -s -o /dev/null -w '%{http_code}\n' https://arweave.net/raw/<module_tx>`
+  - `curl -s -o /dev/null -w '%{http_code}\n' https://arweave.net/raw/<pid>`
+  - promote only after both return `200`.
+- Deep smoke after finalization:
+  - `HB_URL=https://push.forward.computer HB_SCHEDULER=n_XZ... AO_PID=<pid> node scripts/cli/diagnose_message.js`
+  - `HB_URL=https://push.forward.computer HB_SCHEDULER=n_XZ... AO_PID=<pid> node scripts/cli/send_write_command.js`
+
 ## Arweave release hash gate
 - Purpose: CI fails closed if the shipped artifact hash differs from the reference stored on Arweave.
 - Set secrets (repo or org):

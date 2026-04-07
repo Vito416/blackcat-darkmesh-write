@@ -37,8 +37,12 @@
 - Generate: `openssl genpkey -algorithm ed25519 -out /secure/write-ed25519.key`
   and `openssl pkey -in ... -pubout -out /etc/ao/keys/write-ed25519.pub`.
 - Record `sha256sum /etc/ao/keys/write-ed25519.pub` with date in ops vault.
-- Deploy new pubkey, restart write process, validate signatures, then retire the
-  old key. Never commit private keys or print them in CI logs.
+- For single-key mode, set `WRITE_SIG_PUBLIC=<new key>` and restart.
+- For multi-key rotation (recommended), keep a keyring in `WRITE_SIG_PUBLICS`
+  keyed by `signatureRef` (for example: `gateway-a=hex:...,gateway-b=hex:...,default=hex:...`),
+  roll clients to the new `signatureRef`, then remove old entries after cutover.
+- Validate with signed smokes, then retire the old key. Never commit private keys
+  or print them in CI logs.
 
 ## Incident Response
 - Replay/duplicate: inspect `WRITE_IDEM_PATH` and WAL; clear only with explicit

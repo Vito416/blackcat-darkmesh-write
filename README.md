@@ -12,7 +12,7 @@ AO-native command layer for Blackcat Darkmesh. This repository hosts the write-s
 - [Architecture Snapshot](#architecture-snapshot)
 - [Interfaces at a glance](#interfaces-at-a-glance)
 - [Links hub](#links-hub)
-- [AO deploy (mainnet snapshot)](#ao-deploy-mainnet-snapshot)
+- [AO deploy (current runbook)](#ao-deploy-current-runbook)
 - [Development](#development)
 - [Env toggles (write process)](#env-toggles-write-process)
 - [CLI helpers](#cli-helpers)
