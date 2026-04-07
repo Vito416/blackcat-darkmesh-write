@@ -1395,3 +1395,23 @@ console.log(res);
   - `action_validation: ok`
 - Command used:
   - `eval "$(luarocks --lua-version=5.4 path)" && WRITE_REQUIRE_SIGNATURE=1 ... lua5.4 scripts/verify/ingest_smoke.lua && lua5.4 scripts/verify/envelope_guard.lua && lua5.4 scripts/verify/action_validation.lua`
+
+## 2026-04-07 — Extended production-like scheduler-direct matrix
+- `scripts/cli/business_matrix_scheduler_direct.js` now supports `--profile extended`.
+- Run:
+  - `node scripts/cli/business_matrix_scheduler_direct.js --profile extended --pid revWysnw_rgzvG5Lgm73moQFElfxK8stAIWSMNSrMek --secrets tmp/test-secrets.json --out tmp/business-matrix-scheduler-direct-extended-latest.json`
+- Extended action set accepted (`200`) on both push endpoints with scheduler message fetch `200`:
+  - `SaveDraftPage`, `PublishPageVersion`, `UpsertRoute`, `CreatePaymentIntent`, `ProviderWebhook`, `ProviderShippingWebhook`
+  - `CreateWebhook`, `RunWebhookRetries`, `SchedulePublish`, `RunScheduledPublishes`, `SubmitForm`, `CreateOrder`
+  - `CreateShipment`, `UpsertShipmentStatus`, `UpsertReturnStatus`, `RefundPayment`, `ConfirmPayment`
+- Slot progression observed:
+  - `push.forward.computer`: `61..77`
+  - `push-1.forward.computer`: `78..94`
+- Readback remains blocked after this extended matrix:
+  - sampled `/<PID>~process@1.0/compute=<slot>` => `500`
+  - `ao.result(..., message='60')` => `Error getting result` on both push endpoints
+
+## 2026-04-07 — Escalation body finalized
+- Final maintainer-ready issue text: `tmp/hb-escalation-latest/ISSUE_BODY_FINAL.md`
+- Bundle refreshed with latest extended matrix:
+  - `tmp/hb-escalation-latest.tar.gz`

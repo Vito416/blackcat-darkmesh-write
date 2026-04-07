@@ -54,7 +54,7 @@ function baseCommand(action, payload, i) {
   }
 }
 
-function commandFixtures() {
+function basicFixtures() {
   return [
     baseCommand('SaveDraftPage', {
       siteId: 'site-demo',
@@ -95,6 +95,65 @@ function commandFixtures() {
       status: 'in_transit',
       receivedAt: new Date().toISOString()
     }, 6)
+  ]
+}
+
+function extendedFixtures() {
+  return [
+    ...basicFixtures(),
+    baseCommand('CreateWebhook', {
+      siteId: 'site-demo',
+      url: 'https://example.invalid/webhook',
+      events: ['OrderCreated', 'OrderUpdated']
+    }, 7),
+    baseCommand('RunWebhookRetries', {
+      limit: 10
+    }, 8),
+    baseCommand('SchedulePublish', {
+      siteId: 'site-demo',
+      pageId: 'home',
+      publishAt: new Date(Date.now() + 15 * 60 * 1000).toISOString()
+    }, 9),
+    baseCommand('RunScheduledPublishes', {
+      limit: 10
+    }, 10),
+    baseCommand('SubmitForm', {
+      formId: 'contact-form',
+      submission: {
+        email: 'user@example.invalid',
+        message: 'hello from matrix'
+      }
+    }, 11),
+    baseCommand('CreateOrder', {
+      orderId: 'ord-matrix-2',
+      siteId: 'site-demo',
+      items: [{ sku: 'sku-1', qty: 1 }],
+      currency: 'USD'
+    }, 12),
+    baseCommand('CreateShipment', {
+      orderId: 'ord-matrix-2',
+      shipmentId: 'shp-matrix-2',
+      status: 'created',
+      items: [{ sku: 'sku-1', qty: 1 }]
+    }, 13),
+    baseCommand('UpsertShipmentStatus', {
+      shipmentId: 'shp-matrix-2',
+      status: 'in_transit',
+      trackingUrl: 'https://tracking.example.invalid/track/1'
+    }, 14),
+    baseCommand('UpsertReturnStatus', {
+      returnId: 'ret-matrix-1',
+      status: 'received'
+    }, 15),
+    baseCommand('RefundPayment', {
+      paymentId: 'pay-matrix-1',
+      amount: 500,
+      reason: 'customer_request'
+    }, 16),
+    baseCommand('ConfirmPayment', {
+      paymentId: 'pay-matrix-1',
+      provider: 'stripe'
+    }, 17)
   ]
 }
 
@@ -196,6 +255,7 @@ async function main() {
     clean(arg('sign-url', process.env.WORKER_SIGN_URL)) ||
     'https://blackcat-inbox-production.vitek-pasek.workers.dev/sign'
   const variant = arg('variant', 'ao.TN.1')
+  const profile = arg('profile', 'basic')
   const out = arg(
     'out',
     `tmp/business-matrix-scheduler-direct-${new Date().toISOString().replace(/[:.]/g, '-')}.json`
@@ -217,11 +277,12 @@ async function main() {
     urls,
     schedulerUrl,
     variant,
+    profile,
     signUrl,
     tests: []
   }
 
-  const fixtures = commandFixtures()
+  const fixtures = profile === 'extended' ? extendedFixtures() : basicFixtures()
   for (const baseUrl of urls) {
     const baseReport = {
       baseUrl,
