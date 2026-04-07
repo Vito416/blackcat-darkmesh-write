@@ -59,6 +59,19 @@ Audience: ops/infra teams deploying the write AO process to production-like host
   - `HB_URL=https://push.forward.computer HB_SCHEDULER=n_XZ... AO_PID=<pid> node scripts/cli/diagnose_message.js`
   - `HB_URL=https://push.forward.computer HB_SCHEDULER=n_XZ... AO_PID=<pid> node scripts/cli/send_write_command.js`
 
+## Scheduler-direct fallback smoke (when `/compute` readback is degraded)
+- If `/<PID>~process@1.0/compute=<slot>` returns `500/400` but scheduler accepts messages, continue with scheduler-direct flow to keep validation moving.
+- Run targeted deep test:
+  - `node scripts/cli/deep_test_scheduler_direct.js --pid <pid> --secrets tmp/test-secrets.json --out tmp/deep-test-scheduler-direct-latest.json`
+- Run production-like business matrix:
+  - `node scripts/cli/business_matrix_scheduler_direct.js --pid <pid> --secrets tmp/test-secrets.json --out tmp/business-matrix-scheduler-direct-latest.json`
+- Run readback diagnosis:
+  - `node scripts/cli/diagnose_cu_readback.js --pid <pid> --report tmp/deep-test-scheduler-direct-latest.json --out tmp/cu-readback-diagnostic-latest.json`
+- Build escalation bundle for HB maintainers:
+  - `node scripts/cli/build_hb_escalation_bundle.js --deep-report tmp/deep-test-scheduler-direct-latest.json --cu-report tmp/cu-readback-diagnostic-latest.json --out-dir tmp/hb-escalation-latest`
+  - archive: `tmp/hb-escalation-latest.tar.gz`
+  - prefilled issue text: `tmp/hb-escalation-latest/ISSUE_BODY.md`
+
 ## Arweave release hash gate
 - Purpose: CI fails closed if the shipped artifact hash differs from the reference stored on Arweave.
 - Set secrets (repo or org):
