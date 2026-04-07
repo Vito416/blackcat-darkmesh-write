@@ -153,39 +153,102 @@ jobs:
           fi
 
       - name: Ingest smoke
+        env:
+          WRITE_REQUIRE_SIGNATURE: 1
+          WRITE_SIG_TYPE: ed25519
+          WRITE_SIG_PRIV_HEX: 4f3c5f2a0d1b4a8c9e6f7d2b3c4e5a6f7b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e
+          WRITE_SIG_PUBLIC: hex:65c29ed7228fce639284da05d84fbc37ef736c44ddec2ce53226033c80312ace
+          WRITE_SIG_REF: write-ed25519-test
+          OUTBOX_HMAC_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
         run: lua5.4 scripts/verify/ingest_smoke.lua
 
       - name: Envelope guard
+        env:
+          WRITE_REQUIRE_SIGNATURE: 1
+          WRITE_SIG_TYPE: ed25519
+          WRITE_SIG_PRIV_HEX: 4f3c5f2a0d1b4a8c9e6f7d2b3c4e5a6f7b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e
+          WRITE_SIG_PUBLIC: hex:65c29ed7228fce639284da05d84fbc37ef736c44ddec2ce53226033c80312ace
+          WRITE_SIG_REF: write-ed25519-test
         run: lua5.4 scripts/verify/envelope_guard.lua
 
       - name: Action validation
+        env:
+          WRITE_REQUIRE_SIGNATURE: 1
+          WRITE_SIG_TYPE: ed25519
+          WRITE_SIG_PRIV_HEX: 4f3c5f2a0d1b4a8c9e6f7d2b3c4e5a6f7b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e
+          WRITE_SIG_PUBLIC: hex:65c29ed7228fce639284da05d84fbc37ef736c44ddec2ce53226033c80312ace
+          WRITE_SIG_REF: write-ed25519-test
         run: lua5.4 scripts/verify/action_validation.lua
 
+      - name: SignatureRef keyring routing
+        env:
+          WRITE_REQUIRE_SIGNATURE: 1
+          WRITE_SIG_TYPE: ecdsa
+          WRITE_SIG_PUBLICS: tenant-a=key-a.pem,tenant-b=key-b.pem,default=default.pem
+        run: lua5.4 scripts/verify/sig_publics_keyring.lua
+
       - name: Action validation (shipping/returns)
+        env:
+          WRITE_REQUIRE_SIGNATURE: 0
+          WRITE_REQUIRE_NONCE: 0
+          WRITE_REQUIRE_TIMESTAMP: 0
+          WRITE_REQUIRE_JWT: 0
+          WRITE_RL_MAX_REQUESTS: 100000
+          WRITE_RL_CALLER_MAX: 100000
         run: lua5.4 scripts/verify/action_validation_shipping.lua
 
       - name: Publish flow smoke
+        env:
+          WRITE_REQUIRE_SIGNATURE: 0
+          WRITE_REQUIRE_NONCE: 0
+          WRITE_REQUIRE_TIMESTAMP: 0
+          WRITE_REQUIRE_JWT: 0
+          WRITE_RL_MAX_REQUESTS: 100000
+          WRITE_RL_CALLER_MAX: 100000
         run: lua5.4 scripts/verify/publish_flow.lua
 
       - name: Idempotency/replay smoke
+        env:
+          WRITE_REQUIRE_SIGNATURE: 0
+          WRITE_REQUIRE_NONCE: 0
+          WRITE_REQUIRE_TIMESTAMP: 0
+          WRITE_REQUIRE_JWT: 0
+          WRITE_RL_MAX_REQUESTS: 100000
+          WRITE_RL_CALLER_MAX: 100000
         run: lua5.4 scripts/verify/idempotency_replay.lua
 
       - name: Metrics counters spec
         run: lua5.4 scripts/verify/metrics_counters_spec.lua
 
       - name: Conflict + replay/idempotency (end-to-end)
+        env:
+          WRITE_REQUIRE_SIGNATURE: 0
+          WRITE_REQUIRE_NONCE: 0
+          WRITE_REQUIRE_TIMESTAMP: 0
+          WRITE_REQUIRE_JWT: 0
+          WRITE_RL_MAX_REQUESTS: 100000
+          WRITE_RL_CALLER_MAX: 100000
         run: |
           lua5.4 scripts/verify/conflicts.lua
           lua5.4 tests/security/hmac_replay.lua
 
       - name: Publish → outbox HMAC smoke
         env:
+          WRITE_REQUIRE_SIGNATURE: 0
+          WRITE_REQUIRE_NONCE: 0
+          WRITE_REQUIRE_TIMESTAMP: 0
+          WRITE_REQUIRE_JWT: 0
+          WRITE_RL_MAX_REQUESTS: 100000
+          WRITE_RL_CALLER_MAX: 100000
           OUTBOX_HMAC_SECRET: ${{ secrets.OUTBOX_HMAC_SECRET_TEST || secrets.OUTBOX_HMAC_SECRET || 'ci-placeholder' }}
           OUTBOX_SUPPRESS_HMAC_WARN: 1
         run: lua5.4 scripts/verify/publish_outbox_mock_ao.lua
 
       - name: JWT claim mapping spec (nightly)
         if: env.RUN_JWT_SPEC == '1'
+        env:
+          WRITE_REQUIRE_JWT: 1
+          WRITE_JWT_HS_SECRET: 0123456789abcdef0123456789abcdef
         run: lua5.4 scripts/verify/jwt_actor_spec.lua
 
       - name: Rate store persistence spec (nightly)

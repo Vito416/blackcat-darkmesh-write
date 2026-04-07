@@ -2,18 +2,18 @@ package.path =
   table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
 
 local function require_env()
-  if os.getenv("WRITE_REQUIRE_SIGNATURE") ~= "1" then
-    io.stderr:write("SKIP envelope_guard: WRITE_REQUIRE_SIGNATURE must be 1\n")
+  if os.getenv "WRITE_REQUIRE_SIGNATURE" ~= "1" then
+    io.stderr:write "SKIP envelope_guard: WRITE_REQUIRE_SIGNATURE must be 1\n"
     os.exit(0)
   end
   if not os.getenv "WRITE_SIG_PRIV_HEX" or not os.getenv "WRITE_SIG_PUBLIC" then
-    io.stderr:write("SKIP envelope_guard: set WRITE_SIG_PRIV_HEX and WRITE_SIG_PUBLIC\n")
+    io.stderr:write "SKIP envelope_guard: set WRITE_SIG_PRIV_HEX and WRITE_SIG_PUBLIC\n"
     os.exit(0)
   end
 end
 
 local function json_escape(str)
-  return str:gsub('\\', '\\\\'):gsub('"', '\\"')
+  return str:gsub("\\", "\\\\"):gsub('"', '\\"')
 end
 
 local function json_encode(val)
@@ -56,19 +56,25 @@ local function sign_cmd(cmd)
   f:write(json_encode(cmd))
   f:close()
   local handle = io.popen(
-    string.format("WRITE_SIG_PRIV_HEX=%q node scripts/sign-write.js --file %q", os.getenv "WRITE_SIG_PRIV_HEX", tmp),
+    string.format(
+      "WRITE_SIG_PRIV_HEX=%q node scripts/sign-write.js --file %q",
+      os.getenv "WRITE_SIG_PRIV_HEX",
+      tmp
+    ),
     "r"
   )
   if not handle then
     os.remove(tmp)
-    error("cannot run sign-write.js")
+    error "cannot run sign-write.js"
   end
   local out = handle:read "*a"
   handle:close()
   os.remove(tmp)
-  local parsed = require("cjson.safe").decode(out or "{}") or {}
-  cmd.signature = parsed.signature
-  cmd["Signature-Ref"] = parsed.signatureRef
+  local sig = (out or ""):match '"signature"%s*:%s*"([^"]+)"'
+  local sig_ref = (out or ""):match '"signatureRef"%s*:%s*"([^"]+)"'
+  assert(sig, "signature missing in sign-write output")
+  cmd.signature = sig
+  cmd["Signature-Ref"] = sig_ref or "write-ed25519-test"
   return cmd
 end
 

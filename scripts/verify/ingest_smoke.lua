@@ -7,19 +7,17 @@ local function env_or_skip()
   local req_sig = os.getenv "WRITE_REQUIRE_SIGNATURE"
   local hmac_secret = os.getenv "OUTBOX_HMAC_SECRET"
   if req_sig ~= "1" or not hmac_secret or #hmac_secret == 0 then
-    io.stderr:write(
-      "SKIP ingest_smoke: set WRITE_REQUIRE_SIGNATURE=1 and OUTBOX_HMAC_SECRET for this smoke\n"
-    )
+    io.stderr:write "SKIP ingest_smoke: set WRITE_REQUIRE_SIGNATURE=1 and OUTBOX_HMAC_SECRET for this smoke\n"
     os.exit(0)
   end
   if not os.getenv "WRITE_SIG_PRIV_HEX" or not os.getenv "WRITE_SIG_PUBLIC" then
-    io.stderr:write("SKIP ingest_smoke: set WRITE_SIG_PRIV_HEX and WRITE_SIG_PUBLIC\n")
+    io.stderr:write "SKIP ingest_smoke: set WRITE_SIG_PRIV_HEX and WRITE_SIG_PUBLIC\n"
     os.exit(0)
   end
 end
 
 local function json_escape(str)
-  return str:gsub('\\', '\\\\'):gsub('"', '\\"')
+  return str:gsub("\\", "\\\\"):gsub('"', '\\"')
 end
 
 local function json_encode(val)
@@ -62,19 +60,25 @@ local function sign_cmd(cmd)
   f:write(json_encode(cmd))
   f:close()
   local handle = io.popen(
-    string.format("WRITE_SIG_PRIV_HEX=%q node scripts/sign-write.js --file %q", os.getenv "WRITE_SIG_PRIV_HEX", tmp),
+    string.format(
+      "WRITE_SIG_PRIV_HEX=%q node scripts/sign-write.js --file %q",
+      os.getenv "WRITE_SIG_PRIV_HEX",
+      tmp
+    ),
     "r"
   )
   if not handle then
     os.remove(tmp)
-    error("cannot run sign-write.js")
+    error "cannot run sign-write.js"
   end
   local out = handle:read "*a"
   handle:close()
   os.remove(tmp)
-  local parsed = require("cjson.safe").decode(out or "{}") or {}
-  cmd.signature = parsed.signature
-  cmd["Signature-Ref"] = parsed.signatureRef
+  local sig = (out or ""):match '"signature"%s*:%s*"([^"]+)"'
+  local sig_ref = (out or ""):match '"signatureRef"%s*:%s*"([^"]+)"'
+  assert(sig, "signature missing in sign-write output")
+  cmd.signature = sig
+  cmd["Signature-Ref"] = sig_ref or "write-ed25519-test"
   return cmd
 end
 
@@ -126,7 +130,7 @@ local ship = {
   nonce = "smoke-nonce-" .. tostring(math.random(1, 1e6)),
   ts = os.time(),
 }
-local first = process.route(ship)
+local first = process.route(sign_cmd(ship))
 if first.status ~= "OK" and first.code ~= "REPLAY" then
   io.stderr:write("Smoke shipping webhook failed: " .. (first.message or "nil") .. "\n")
   os.exit(1)
@@ -137,7 +141,7 @@ for k, v in pairs(ship) do
 end
 ship_replay.requestId = ship.requestId .. "-replay"
 ship_replay.nonce = ship.nonce .. "-2"
-local second = process.route(ship_replay)
+local second = process.route(sign_cmd(ship_replay))
 if second.status ~= "ERROR" or second.code ~= "REPLAY" then
   io.stderr:write "Replay window not enforced\n"
   os.exit(1)

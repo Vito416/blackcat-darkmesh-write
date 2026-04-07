@@ -31,16 +31,19 @@ end
 
 local write = require "ao.write.process"
 local storage = require "ao.shared.storage"
+local sign = require "scripts.verify._test_sign"
 
 local function ok(res)
   return res and res.status == "OK"
 end
 
 -- build cart and order
-local cart = write.route {
+local cart = write.route(sign.maybe_sign {
   Action = "CartAddItem",
   ["Request-Id"] = "eo-1",
   ["Actor-Role"] = "admin",
+  actor = "outbox-test",
+  tenant = "tenant-eo",
   nonce = "ne1",
   ts = os.time(),
   payload = {
@@ -51,26 +54,30 @@ local cart = write.route {
     qty = 1,
     price = 1000,
   },
-}
+})
 assert(ok(cart), "cart add failed")
-local order = write.route {
+local order = write.route(sign.maybe_sign {
   Action = "CreateOrder",
   ["Request-Id"] = "eo-2",
   ["Actor-Role"] = "admin",
+  actor = "outbox-test",
+  tenant = "tenant-eo",
   nonce = "ne2",
   ts = os.time(),
   payload = { orderId = "ord_eo", cartId = "cart_eo", siteId = "s1", currency = "USD" },
-}
+})
 assert(ok(order), "order failed")
 -- publish page version
-local pub = write.route {
+local pub = write.route(sign.maybe_sign {
   Action = "PublishPageVersion",
   ["Request-Id"] = "eo-3",
   ["Actor-Role"] = "admin",
+  actor = "outbox-test",
+  tenant = "tenant-eo",
   nonce = "ne3",
   ts = os.time(),
   payload = { siteId = "s1", pageId = "home", versionId = "v1", manifestTx = "tx-eo" },
-}
+})
 assert(ok(pub), "publish failed")
 
 -- simulate outbox HMAC verification

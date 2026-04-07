@@ -14,11 +14,13 @@
     "preflight:prod": "bash scripts/preflight-prod.sh"
   },
   "devDependencies": {
+    "@memetic-block/hyperengine": "github:memetic-block/hyperengine",
     "@permaweb/aos": "^1.2.18",
     "ao": "^0.1.1",
     "esbuild": "^0.20.2",
+    "tsup": "^8.5.1",
     "tweetnacl": "^1.0.3",
-    "typescript": "^5.4.5"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@permaweb/ao": "git+https://github.com/permaweb/ao.git#8e23f3486bf28720d98de9d0b4ff650dbdb2077e",

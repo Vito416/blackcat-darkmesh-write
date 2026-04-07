@@ -91,7 +91,7 @@ local function verify(ev, mode, strict, secret)
   return true, "ok"
 end
 
-local secret = "secret"
+local secret = "0123456789abcdef0123456789abcdef"
 
 local full_event = {
   requestId = "rid-1",

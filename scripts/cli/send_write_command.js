@@ -10,9 +10,16 @@ function cleanEnv(val) {
 }
 
 const PID = cleanEnv(process.env.AO_PID) || 'QFCAzUYXtgZI29S4NFD9T-p-cj21rmvCa5DINux-2XE'
-const HYPERBEAM_URL = cleanEnv(process.env.AO_URL) || 'https://push-1.forward.computer'
+const HYPERBEAM_URL =
+  cleanEnv(process.env.HB_URL) ||
+  cleanEnv(process.env.HYPERBEAM_URL) ||
+  cleanEnv(process.env.AO_URL) ||
+  'https://push-1.forward.computer'
 const HYPERBEAM_SCHEDULER =
-  cleanEnv(process.env.AO_SCHEDULER) || 'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo'
+  cleanEnv(process.env.HB_SCHEDULER) ||
+  cleanEnv(process.env.HYPERBEAM_SCHEDULER) ||
+  cleanEnv(process.env.AO_SCHEDULER) ||
+  'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo'
 const RAW_DATA_OVERRIDE = cleanEnv(process.env.AO_DATA)
 const STATUS_TAG = cleanEnv(process.env.AO_STATUS)
 const AO_VARIANT = cleanEnv(process.env.AO_VARIANT) || 'ao.TN.1'
@@ -23,6 +30,7 @@ const AO_OUTPUT_ENCODING = cleanEnv(process.env.AO_OUTPUT_ENCODING) || 'JSON-1'
 const PRIV_PEM = process.env.WORKER_ED25519_PRIV || 'tmp/worker-ed25519-priv.pem'
 const WORKER_SIGN_URL = cleanEnv(process.env.WORKER_SIGN_URL)
 const WORKER_AUTH_TOKEN = cleanEnv(process.env.WORKER_AUTH_TOKEN)
+const SIGNATURE_REF = cleanEnv(process.env.SIGNATURE_REF) || 'worker-ed25519-test'
 
 function stableStringify(value) {
   if (value === null || value === undefined) return 'null'
@@ -81,7 +89,7 @@ async function main() {
     role: 'admin',
     timestamp: nowIso,
     nonce: `nonce-${Math.random().toString(36).slice(2, 10)}`,
-    signatureRef: 'worker-ed25519-test',
+    signatureRef: SIGNATURE_REF,
     payload: {
       siteId: 'site-demo',
       pageId: 'page-demo',

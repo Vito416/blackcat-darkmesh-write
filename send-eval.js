@@ -35,7 +35,9 @@ async function main() {
   }
   const pid = args.pid || '26hrLuQBsVFcsqHMLhP1LjifRh8WYMerYyd71A2ofjo';
   const base = (args.url || 'https://push-1.forward.computer').replace(/\/$/, '');
-  const url = `${base}/${pid}`;
+  const direct = args.direct === true || args.direct === '1' || args.direct === 'true';
+  // Important: /<PID> is process fetch; /<PID>~process@1.0/push is message ingress.
+  const url = direct ? `${base}/${pid}` : `${base}/${pid}~process@1.0/push`;
   const variant = args.variant || 'ao.TN.1';
 
   let code = args.code || '';
@@ -59,7 +61,7 @@ async function main() {
     data: code,
   };
 
-  console.log('POST', url);
+  console.log('POST', url, direct ? '(direct process path)' : '(push path)');
   const resp = await fetch(url, {
     method: 'POST',
     headers: {

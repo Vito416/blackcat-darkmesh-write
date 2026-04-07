@@ -2,6 +2,7 @@ package.path =
   table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
 local write = require "ao.write.process"
 local crypto = require "ao.shared.crypto"
+local sign = require "scripts.verify._test_sign"
 
 local function expect(code, msg)
   if not code then
@@ -64,13 +65,10 @@ state.payments["pay-1"] = { provider = "stripe", providerPaymentId = "pay-1", or
 state.order_payment = state.order_payment or {}
 state.order_payment["ord-1"] = "pay-1"
 
-local first = route(req)
+local first = route(sign.maybe_sign(req))
 expect(first and (first.status == "OK" or first.code == "REPLAY"), "first ProviderWebhook failed")
 local second = route(req)
-expect(
-  second and (second.code == "REPLAY" or second.status == "OK"),
-  "replay window not enforced"
-)
+expect(second and (second.code == "REPLAY" or second.status == "OK"), "replay window not enforced")
 
 -- Outbox event should carry Hmac
 local storage = require "ao.shared.storage"

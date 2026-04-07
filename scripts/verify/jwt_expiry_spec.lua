@@ -12,7 +12,8 @@ end
 local crypto = require "ao.shared.crypto"
 local auth = require "ao.shared.auth"
 
-local secret = os.getenv "WRITE_JWT_HS_SECRET" or "dev-secret"
+-- Use a 32-byte fallback so sodium-based HMAC environments stay deterministic.
+local secret = os.getenv "WRITE_JWT_HS_SECRET" or "0123456789abcdef0123456789abcdef"
 
 local b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 local function b64(str)
@@ -71,9 +72,9 @@ local expired_token = sign {
   sub = "jwt-editor-1",
   tenant = "jwt-tenant-1",
   role = "editor",
-  exp = now - 10,
-  iat = now - 60,
-  nbf = now - 60,
+  exp = now - 600,
+  iat = now - 1200,
+  nbf = now - 1200,
 }
 local ok_exp, err_exp = auth.consume_jwt { jwt = expired_token }
 assert(not ok_exp and err_exp == "jwt_expired", "expected jwt_expired, got " .. tostring(err_exp))

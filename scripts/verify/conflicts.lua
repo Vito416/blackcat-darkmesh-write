@@ -1,4 +1,5 @@
 local write = require "ao.write.process"
+local sign = require "scripts.verify._test_sign"
 
 -- Simple replay/idempotency checks for minimal action set
 
@@ -18,13 +19,13 @@ local req = {
   payload = { siteId = "s1", pageId = "home", blocks = {} },
 }
 
-local first = call(req)
+local first = call(sign.maybe_sign(req))
 assert(first.status == "OK")
 
 local replay = call(req)
 assert(replay.status == "OK") -- idem cache returns same response
 
-local unknown = call {
+local unknown = call(sign.maybe_sign {
   Action = "NotAllowed",
   ["Request-Id"] = "rid-2",
   ["Actor-Role"] = "editor",
@@ -32,7 +33,7 @@ local unknown = call {
   tenant = "t-conflict",
   nonce = "nonce-conf-2",
   ts = os.time(),
-}
+})
 assert(unknown.code == "UNKNOWN_ACTION")
 
 print "conflicts: ok"

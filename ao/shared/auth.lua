@@ -40,9 +40,8 @@ local RL_MAX_BUCKETS =
 -- Default ON: signatures required unless explicitly disabled with WRITE_REQUIRE_SIGNATURE=0.
 local REQUIRE_SIGNATURE = getenv_multi("WRITE_REQUIRE_SIGNATURE", "AUTH_REQUIRE_SIGNATURE") ~= "0"
 local SIG_TYPE = getenv_multi("WRITE_SIG_TYPE", "AUTH_SIG_TYPE") or "ed25519"
--- Default public key (hex) for worker-signed requests; safe to keep in code.
-local SIG_PUBLIC_DEFAULT = "hex:e3db1fdf78b6d88e94e69d96a708fd836d66275d186033d7d8b7a6f46be45459"
-local SIG_PUBLIC = getenv_multi("WRITE_SIG_PUBLIC", "AUTH_SIG_PUBLIC") or SIG_PUBLIC_DEFAULT
+local SIG_PUBLIC = getenv_multi("WRITE_SIG_PUBLIC", "AUTH_SIG_PUBLIC")
+local SIG_PUBLICS = getenv_multi("WRITE_SIG_PUBLICS", "AUTH_SIG_PUBLICS")
 local SIG_SECRET = getenv_multi("WRITE_SIG_SECRET", "AUTH_SIG_SECRET")
 local REQUIRE_JWT = getenv_multi("WRITE_REQUIRE_JWT", "AUTH_REQUIRE_JWT") == "1"
 local JWT_SECRET = getenv_multi("WRITE_JWT_HS_SECRET", "AUTH_JWT_HS_SECRET")
@@ -195,6 +194,48 @@ local function contains(list, value)
     end
   end
   return false
+end
+
+local SIG_PUBLICS_CACHE = nil
+local SIG_PUBLICS_CACHE_OK = false
+local function resolve_sig_public(sig_ref)
+  if SIG_PUBLICS and SIG_PUBLICS ~= "" then
+    if not SIG_PUBLICS_CACHE_OK then
+      SIG_PUBLICS_CACHE_OK = true
+      local parsed_map = nil
+      if cjson_ok and cjson and cjson.decode then
+        local ok, parsed = pcall(cjson.decode, SIG_PUBLICS)
+        if ok and type(parsed) == "table" then
+          parsed_map = parsed
+        end
+      end
+      if not parsed_map then
+        local map = {}
+        for pair in tostring(SIG_PUBLICS):gmatch "[^,;]+" do
+          local k, v = pair:match "^%s*([^=%s]+)%s*=%s*(.-)%s*$"
+          if k and v and v ~= "" then
+            map[k] = v
+          end
+        end
+        if next(map) then
+          parsed_map = map
+        end
+      end
+      SIG_PUBLICS_CACHE = parsed_map
+    end
+    if type(SIG_PUBLICS_CACHE) == "table" then
+      local key = sig_ref or ""
+      local found = SIG_PUBLICS_CACHE[key]
+      if type(found) == "string" and found ~= "" then
+        return found
+      end
+      local default_ref = SIG_PUBLICS_CACHE.default or SIG_PUBLICS_CACHE.DEFAULT
+      if type(default_ref) == "string" and default_ref ~= "" then
+        return default_ref
+      end
+    end
+  end
+  return SIG_PUBLIC
 end
 
 function Auth.require_role(msg, allowed_roles)
@@ -425,6 +466,11 @@ local function is_array(tbl)
       return false
     end
   end
+  if count == 0 then
+    -- Keep empty payload table canonicalized as `{}` so Lua and JS detached
+    -- signers generate the same message string.
+    return false
+  end
   return true
 end
 
@@ -448,30 +494,50 @@ local function canonical_json(value)
       end)
       local parts = {}
       for _, k in ipairs(keys) do
-        local key_encoded
-        if cjson_ok then
-          key_encoded = cjson.encode(k)
-        else
-          key_encoded = string.format("%q", tostring(k))
-        end
+        local key_encoded = tostring(k)
+          :gsub("\\", "\\\\")
+          :gsub('"', '\\"')
+          :gsub("\b", "\\b")
+          :gsub("\f", "\\f")
+          :gsub("\n", "\\n")
+          :gsub("\r", "\\r")
+          :gsub("\t", "\\t")
+          :gsub("[%z\1-\31]", function(ch)
+            return string.format("\\u%04x", string.byte(ch))
+          end)
+        key_encoded = '"' .. key_encoded .. '"'
         parts[#parts + 1] = key_encoded .. ":" .. canonical_json(value[k])
       end
       return "{" .. table.concat(parts, ",") .. "}"
     end
   else
-    if cjson_ok then
-      local ok, encoded = pcall(cjson.encode, value)
-      if ok then
-        return encoded
-      end
-    end
     if value == nil then
       return "null"
     end
-    if t == "string" then
-      return string.format("%q", value)
+    if t == "boolean" then
+      return value and "true" or "false"
     end
-    return tostring(value)
+    if t == "number" then
+      if value ~= value or value == math.huge or value == -math.huge then
+        return "null"
+      end
+      return tostring(value)
+    end
+    if t == "string" then
+      local escaped = value
+        :gsub("\\", "\\\\")
+        :gsub('"', '\\"')
+        :gsub("\b", "\\b")
+        :gsub("\f", "\\f")
+        :gsub("\n", "\\n")
+        :gsub("\r", "\\r")
+        :gsub("\t", "\\t")
+        :gsub("[%z\1-\31]", function(ch)
+          return string.format("\\u%04x", string.byte(ch))
+        end)
+      return '"' .. escaped .. '"'
+    end
+    return '"' .. tostring(value) .. '"'
   end
 end
 
@@ -502,6 +568,7 @@ local function verify_sig(msg)
   if not REQUIRE_SIGNATURE then
     return true
   end
+
   local sig = msg.signature
   local sig_ref = msg.signatureRef or msg["Signature-Ref"]
   if not sig_ref or sig_ref == "" then
@@ -521,29 +588,34 @@ local function verify_sig(msg)
     if not SIG_SECRET or SIG_SECRET == "" then
       return false, "missing_sig_secret"
     end
-    local ok = crypto.verify_hmac_sha256(payload, SIG_SECRET, sig)
+    local ok, verify_err = crypto.verify_hmac_sha256(payload, SIG_SECRET, sig)
     if not ok then
       m_counter "write_auth_signature_failed_total"
+      return false, verify_err or "bad_signature"
     end
-    return ok
+    return true
   elseif SIG_TYPE == "ecdsa" then
-    if not SIG_PUBLIC then
+    local sig_public = resolve_sig_public(sig_ref)
+    if not sig_public then
       return false, "missing_sig_public"
     end
-    local ok = crypto.verify_ecdsa_sha256(payload, sig, SIG_PUBLIC)
+    local ok, verify_err = crypto.verify_ecdsa_sha256(payload, sig, sig_public)
     if not ok then
       m_counter "write_auth_signature_failed_total"
+      return false, verify_err or "bad_signature"
     end
-    return ok
+    return true
   else -- default ed25519
-    if not SIG_PUBLIC then
+    local sig_public = resolve_sig_public(sig_ref)
+    if not sig_public then
       return false, "missing_sig_public"
     end
-    local ok = crypto.verify_ed25519(payload, sig, SIG_PUBLIC)
+    local ok, verify_err = crypto.verify_ed25519(payload, sig, sig_public)
     if not ok then
       m_counter "write_auth_signature_failed_total"
+      return false, verify_err or "bad_signature"
     end
-    return ok
+    return true
   end
 end
 
@@ -562,17 +634,31 @@ function Auth.verify_detached(message, sig)
     if not SIG_SECRET then
       return false, "missing_sig_secret"
     end
-    return crypto.verify_hmac_sha256(message, SIG_SECRET, sig)
+    local ok, verify_err = crypto.verify_hmac_sha256(message, SIG_SECRET, sig)
+    if ok then
+      return true
+    end
+    return false, verify_err or "bad_signature"
   elseif SIG_TYPE == "ecdsa" then
-    if not SIG_PUBLIC then
+    local sig_public = resolve_sig_public(nil)
+    if not sig_public then
       return false, "missing_sig_public"
     end
-    return crypto.verify_ecdsa_sha256(message, sig, SIG_PUBLIC)
+    local ok, verify_err = crypto.verify_ecdsa_sha256(message, sig, sig_public)
+    if ok then
+      return true
+    end
+    return false, verify_err or "bad_signature"
   else
-    if not SIG_PUBLIC then
+    local sig_public = resolve_sig_public(nil)
+    if not sig_public then
       return false, "missing_sig_public"
     end
-    return crypto.verify_ed25519(message, sig, SIG_PUBLIC)
+    local ok, verify_err = crypto.verify_ed25519(message, sig, sig_public)
+    if ok then
+      return true
+    end
+    return false, verify_err or "bad_signature"
   end
 end
 

@@ -2,6 +2,7 @@
 package.path =
   table.concat({ "?.lua", "?/init.lua", "ao/?.lua", "ao/?/init.lua", package.path }, ";")
 local write = require "ao.write.process"
+local sign = require "scripts.verify._test_sign"
 
 local function expect_error(res)
   return res and res.status == "ERROR"
@@ -19,7 +20,7 @@ local bad_ship = write.route {
 }
 assert(expect_error(bad_ship), "missing shipmentId/status should error")
 
-local ok_ship = write.route {
+local ok_ship = write.route(sign.maybe_sign {
   Action = "CreateShipment",
   ["Request-Id"] = "s2",
   ["Actor-Role"] = "admin",
@@ -28,7 +29,7 @@ local ok_ship = write.route {
   nonce = "ns2",
   ts = os.time(),
   payload = { orderId = "o1", shipmentId = "sh1", status = "pending" },
-}
+})
 assert(ok_ship.status == "OK", "CreateShipment should pass")
 
 local bad_return = write.route {
@@ -43,7 +44,7 @@ local bad_return = write.route {
 }
 assert(expect_error(bad_return), "missing status should error")
 
-local ok_return = write.route {
+local ok_return = write.route(sign.maybe_sign {
   Action = "UpsertReturnStatus",
   ["Request-Id"] = "r2",
   ["Actor-Role"] = "admin",
@@ -52,7 +53,7 @@ local ok_return = write.route {
   nonce = "nr2",
   ts = os.time(),
   payload = { returnId = "ret1", status = "requested" },
-}
+})
 assert(ok_return.status == "OK", "UpsertReturnStatus should pass")
 
 print "action_validation_shipping: ok"

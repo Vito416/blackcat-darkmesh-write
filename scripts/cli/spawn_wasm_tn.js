@@ -14,12 +14,27 @@ function cleanEnv(val) {
 }
 
 const MODULE_TX = cleanEnv(process.env.AO_MODULE) || 'F47cEULJhjxolLnvRYO2zGK4cMGToydkxVmA7R7Qe_c'
-const URL = cleanEnv(process.env.AO_URL) || 'https://push-1.forward.computer'
-const SCHED = cleanEnv(process.env.AO_SCHEDULER) || 'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo'
+const URL =
+  cleanEnv(process.env.HB_URL) ||
+  cleanEnv(process.env.HYPERBEAM_URL) ||
+  cleanEnv(process.env.AO_URL) ||
+  'https://push-1.forward.computer'
+const SCHED =
+  cleanEnv(process.env.HB_SCHEDULER) ||
+  cleanEnv(process.env.HYPERBEAM_SCHEDULER) ||
+  cleanEnv(process.env.AO_SCHEDULER) ||
+  'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo'
+const WRITE_SIG_TYPE = cleanEnv(process.env.WRITE_SIG_TYPE)
+const WRITE_SIG_PUBLIC = cleanEnv(process.env.WRITE_SIG_PUBLIC)
+const WRITE_SIG_PUBLICS = cleanEnv(process.env.WRITE_SIG_PUBLICS)
 
 const signer = createSigner(JSON.parse(fs.readFileSync('wallet.json', 'utf-8')))
 // mainnet mode now works because we patched aoconnect to keep Variant=ao.TN.1
 const ao = connect({ MODE: 'mainnet', URL, SCHEDULER: SCHED, signer })
+
+function optionalTag(name, value) {
+  return value ? [{ name, value }] : []
+}
 
 async function main() {
   const pid = await ao.spawn({
@@ -35,7 +50,10 @@ async function main() {
       { name: 'Output-Encoding', value: 'JSON-1' },
       { name: 'signing-format', value: 'ans104' },
       { name: 'accept-bundle', value: 'true' },
-      { name: 'accept-codec', value: 'httpsig@1.0' }
+      { name: 'accept-codec', value: 'httpsig@1.0' },
+      ...optionalTag('WRITE_SIG_TYPE', WRITE_SIG_TYPE),
+      ...optionalTag('WRITE_SIG_PUBLIC', WRITE_SIG_PUBLIC),
+      ...optionalTag('WRITE_SIG_PUBLICS', WRITE_SIG_PUBLICS)
     ]
   })
 

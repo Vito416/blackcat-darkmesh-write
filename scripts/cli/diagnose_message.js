@@ -11,13 +11,21 @@ function cleanEnv(val) {
 }
 
 const PID = cleanEnv(process.env.AO_PID)
-const HYPERBEAM_URL = cleanEnv(process.env.AO_URL) || 'https://push-1.forward.computer'
+const HYPERBEAM_URL =
+  cleanEnv(process.env.HB_URL) ||
+  cleanEnv(process.env.HYPERBEAM_URL) ||
+  cleanEnv(process.env.AO_URL) ||
+  'https://push-1.forward.computer'
 const HYPERBEAM_SCHEDULER =
-  cleanEnv(process.env.AO_SCHEDULER) || 'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo'
+  cleanEnv(process.env.HB_SCHEDULER) ||
+  cleanEnv(process.env.HYPERBEAM_SCHEDULER) ||
+  cleanEnv(process.env.AO_SCHEDULER) ||
+  'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo'
 
 const PRIV_PEM = process.env.WORKER_ED25519_PRIV || 'tmp/worker-ed25519-priv.pem'
 const WORKER_SIGN_URL = cleanEnv(process.env.WORKER_SIGN_URL)
 const WORKER_AUTH_TOKEN = cleanEnv(process.env.WORKER_AUTH_TOKEN)
+const SIGNATURE_REF = cleanEnv(process.env.SIGNATURE_REF) || 'worker-ed25519'
 
 function stableStringify(value) {
   if (value === null || value === undefined) return 'null'
@@ -62,7 +70,7 @@ async function buildSignedCommand() {
     role: 'admin',
     timestamp: nowIso,
     nonce: `nonce-${Math.random().toString(36).slice(2, 10)}`,
-    signatureRef: 'worker-ed25519',
+    signatureRef: SIGNATURE_REF,
     payload: {
       siteId: 'site-demo',
       pageId: 'page-demo',
@@ -120,6 +128,7 @@ async function main() {
   const contentType = cleanEnv(process.env.AO_CONTENT_TYPE)
   const inputEnc = cleanEnv(process.env.AO_INPUT_ENCODING)
   const outputEnc = cleanEnv(process.env.AO_OUTPUT_ENCODING)
+  const moduleId = cleanEnv(process.env.AO_MODULE) || cleanEnv(process.env.HB_MODULE)
   const owner = cleanEnv(process.env.AO_OWNER) || walletAddr
   const nonceTag = cleanEnv(process.env.AO_NONCE) || cmd.nonce || `nonce-${Math.random().toString(36).slice(2, 10)}`
   const tsTag = cleanEnv(process.env.AO_TIMESTAMP) || cmd.timestamp || new Date().toISOString()
@@ -136,6 +145,7 @@ async function main() {
     ...(outputEnc ? { 'Output-Encoding': outputEnc } : {}),
     Status: '0',
     ...(owner ? { Owner: owner } : {}),
+    ...(moduleId ? { Module: moduleId } : {}),
     Nonce: nonceTag,
     Timestamp: tsTag,
     'Content-Length': Buffer.byteLength(data).toString(),

@@ -48,7 +48,7 @@ end
 local function read_all()
   local data = {}
   while true do
-    local chunk = io.read("*l")
+    local chunk = io.read "*l"
     if not chunk then
       break
     end
@@ -73,7 +73,7 @@ if ok_sodium and sodium.crypto_sign_detached then
   local sig = sodium.crypto_sign_detached(msg, sodium.from_hex(priv))
   sig_hex = sodium.to_hex(sig)
 elseif openssl_ok and openssl.sign then
-  local key = openssl.pkey.new({ type = "ed25519", private = priv })
+  local key = openssl.pkey.new { type = "ed25519", private = priv }
   local sig = openssl.sign.detached(msg, key)
   sig_hex = openssl.hex(sig)
 else

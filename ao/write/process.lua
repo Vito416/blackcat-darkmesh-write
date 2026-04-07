@@ -193,6 +193,34 @@ local function register_write_handlers()
   if type(Handlers) ~= "table" or type(Handlers.add) ~= "function" then
     return
   end
+  local function tag_value(tags, key)
+    if type(tags) ~= "table" then
+      return nil
+    end
+    local direct = tags[key] or tags[key:lower()] or tags[key:upper()]
+    if direct then
+      return direct
+    end
+    for _, tag in ipairs(tags) do
+      if type(tag) == "table" then
+        local name = tostring(tag.name or tag.Name or "")
+        if name:lower() == key:lower() then
+          return tag.value or tag.Value
+        end
+      end
+    end
+    return nil
+  end
+  local function is_write_command(msg)
+    if type(msg) ~= "table" then
+      return false
+    end
+    local action = msg.Action or msg.action
+    if action == "Write-Command" then
+      return true
+    end
+    return tag_value(msg.Tags or msg.tags, "Action") == "Write-Command"
+  end
   local ok_json, cjson = pcall(require, "cjson.safe")
   local function decode_json(raw)
     if not ok_json or not raw or raw == "" then
@@ -204,40 +232,185 @@ local function register_write_handlers()
     end
     return {}
   end
+  local function json_quote(value)
+    if ok_json and cjson then
+      local ok, encoded = pcall(cjson.encode, tostring(value))
+      if ok and type(encoded) == "string" then
+        return encoded
+      end
+    end
+    local escaped = tostring(value)
+      :gsub("\\", "\\\\")
+      :gsub('"', '\\"')
+      :gsub("\b", "\\b")
+      :gsub("\f", "\\f")
+      :gsub("\n", "\\n")
+      :gsub("\r", "\\r")
+      :gsub("\t", "\\t")
+      :gsub("[%z\1-\31]", function(ch)
+        return string.format("\\u%04x", string.byte(ch))
+      end)
+    return '"' .. escaped .. '"'
+  end
+  local function is_array(tbl)
+    local max = 0
+    local count = 0
+    for key in pairs(tbl) do
+      if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
+        return false, 0
+      end
+      if key > max then
+        max = key
+      end
+      count = count + 1
+    end
+    if max ~= count then
+      return false, 0
+    end
+    return true, max
+  end
+  local function encode_json_fallback(value, seen)
+    local value_type = type(value)
+    if value_type == "nil" then
+      return "null"
+    end
+    if value_type == "boolean" then
+      return value and "true" or "false"
+    end
+    if value_type == "number" then
+      if value ~= value or value == math.huge or value == -math.huge then
+        return "null"
+      end
+      return tostring(value)
+    end
+    if value_type == "string" then
+      return json_quote(value)
+    end
+    if value_type ~= "table" then
+      return json_quote(tostring(value))
+    end
+    seen = seen or {}
+    if seen[value] then
+      return json_quote "__cycle__"
+    end
+    seen[value] = true
+    local out = {}
+    local array_like, length = is_array(value)
+    if array_like then
+      for i = 1, length do
+        out[#out + 1] = encode_json_fallback(value[i], seen)
+      end
+      seen[value] = nil
+      return "[" .. table.concat(out, ",") .. "]"
+    end
+    local keys = {}
+    for key in pairs(value) do
+      keys[#keys + 1] = key
+    end
+    table.sort(keys, function(a, b)
+      return tostring(a) < tostring(b)
+    end)
+    for _, key in ipairs(keys) do
+      out[#out + 1] = json_quote(tostring(key)) .. ":" .. encode_json_fallback(value[key], seen)
+    end
+    seen[value] = nil
+    return "{" .. table.concat(out, ",") .. "}"
+  end
+  local function encode_json(value)
+    if ok_json and cjson then
+      local ok, encoded = pcall(cjson.encode, value)
+      if ok and type(encoded) == "string" then
+        return encoded
+      end
+    end
+    return encode_json_fallback(value, {})
+  end
   local function pick(tags, key)
     if not tags then
       return nil
     end
     return tags[key] or tags[key:lower()]
   end
-
-  Handlers.add(
-    "Write-Command",
-    Handlers.utils.hasMatchingTag("Action", "Write-Command"),
-    function(msg)
-      local cmd = {}
-      if type(msg.Data) == "string" then
-        cmd = decode_json(msg.Data)
-      elseif type(msg.Data) == "table" then
-        cmd = msg.Data
-      end
-      local tags = msg.Tags or {}
-      cmd.action = cmd.action or cmd.Action or pick(tags, "Command-Action")
-      cmd.requestId = cmd.requestId or cmd["Request-Id"] or pick(tags, "Request-Id")
-      cmd.actor = cmd.actor or cmd.Actor or pick(tags, "Actor")
-      cmd.tenant = cmd.tenant or cmd.Tenant or pick(tags, "Tenant")
-      cmd.role = cmd.role or cmd.Role or pick(tags, "Role")
-      cmd.nonce = cmd.nonce or cmd.Nonce or pick(tags, "Nonce")
-      cmd.timestamp = cmd.timestamp or cmd.ts or cmd["X-Timestamp"] or pick(tags, "Timestamp")
-      cmd.signatureRef = cmd.signatureRef or cmd["Signature-Ref"] or pick(tags, "Signature-Ref")
-      cmd.signature = cmd.signature or cmd.Signature or pick(tags, "Signature")
-      cmd.payload = cmd.payload or cmd.Payload or {}
-
-      local resp = M.route(cmd)
-      local resp_json = ok_json and cjson.encode(resp) or tostring(resp)
-      Send { Target = msg.From, Action = "Write-Command-Result", Data = resp_json }
+  local function resolve_reply_target(msg, tags)
+    local target = msg.From
+      or msg.from
+      or pick(tags, "Reply-To")
+      or pick(tags, "ReplyTo")
+      or pick(tags, "From")
+    if type(target) == "string" and target ~= "" then
+      return target
     end
-  )
+    return nil
+  end
+  local function safe_send(payload)
+    if type(Send) ~= "function" then
+      return false, "send_unavailable"
+    end
+    local ok, send_err = pcall(function()
+      Send(payload)
+    end)
+    if ok then
+      return true
+    end
+    return false, tostring(send_err)
+  end
+
+  Handlers.add("Write-Command", is_write_command, function(msg)
+    local cmd = {}
+    if type(msg.Data) == "string" then
+      cmd = decode_json(msg.Data)
+    elseif type(msg.Data) == "table" then
+      cmd = msg.Data
+    end
+    local tags = msg.Tags or {}
+    cmd.action = cmd.action or cmd.Action or pick(tags, "Command-Action")
+    cmd.requestId = cmd.requestId or cmd["Request-Id"] or pick(tags, "Request-Id")
+    cmd.actor = cmd.actor or cmd.Actor or pick(tags, "Actor")
+    cmd.tenant = cmd.tenant or cmd.Tenant or pick(tags, "Tenant")
+    cmd.role = cmd.role or cmd.Role or pick(tags, "Role")
+    cmd.nonce = cmd.nonce or cmd.Nonce or pick(tags, "Nonce")
+    cmd.timestamp = cmd.timestamp or cmd.ts or cmd["X-Timestamp"] or pick(tags, "Timestamp")
+    cmd.signatureRef = cmd.signatureRef or cmd["Signature-Ref"] or pick(tags, "Signature-Ref")
+    cmd.signature = cmd.signature or cmd.Signature or pick(tags, "Signature")
+    cmd.payload = cmd.payload or cmd.Payload or {}
+    local ok_route, route_result = pcall(M.route, cmd)
+    local resp
+    if ok_route then
+      resp = route_result
+    else
+      counter("write.ao.handler_crash", 1)
+      resp = err(
+        cmd.requestId,
+        "HANDLER_CRASH",
+        "write_handler_crash",
+        { reason = tostring(route_result) }
+      )
+    end
+    local resp_json = encode_json(resp)
+    local reply_target = resolve_reply_target(msg, tags)
+    if not reply_target then
+      counter("write.ao.reply_target_missing", 1)
+      return resp_json
+    end
+    local sent, send_err = safe_send {
+      Target = reply_target,
+      Action = "Write-Command-Result",
+      Data = resp_json,
+    }
+    if not sent then
+      counter("write.ao.send_failed", 1)
+      return encode_json {
+        status = "ERROR",
+        code = "SEND_FAILED",
+        message = send_err or "send_failed",
+        requestId = cmd.requestId,
+        result = resp,
+      }
+    end
+    -- Return a value as well so AO compute result has observability even when
+    -- caller is not waiting on the outbound message channel.
+    return resp_json
+  end)
 end
 
 -- simple in-memory state; AO runtime would persist
@@ -3169,17 +3342,6 @@ function M.route(command)
   local ok_sig, sig_err = auth.verify_signature(command)
   if not ok_sig then
     return err(command.requestId, "UNAUTHORIZED", sig_err or "signature failed")
-  end
-  if command.signature and (command.action or command.Action) then
-    local message = (command.action or command.Action)
-      .. "|"
-      .. (command.tenant or "")
-      .. "|"
-      .. (command.requestId or command["Request-Id"] or "")
-    local ok_det, det_err = auth.verify_detached(message, command.signature)
-    if not ok_det then
-      return err(command.requestId, "UNAUTHORIZED", det_err or "detached signature failed")
-    end
   end
 
   local ok_policy, pol_err = auth.check_policy(command, nil)

@@ -7,8 +7,19 @@ import fs from 'fs'
 import { connect, createSigner } from '@permaweb/aoconnect'
 
 const MODULE_TX = process.env.AO_MODULE || 'F47cEULJhjxolLnvRYO2zGK4cMGToydkxVmA7R7Qe_c'
-const URL = process.env.AO_URL || 'https://push-1.forward.computer'
-const SCHED = process.env.AO_SCHEDULER || 'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo'
+const URL =
+  process.env.HB_URL ||
+  process.env.HYPERBEAM_URL ||
+  process.env.AO_URL ||
+  'https://push-1.forward.computer'
+const SCHED =
+  process.env.HB_SCHEDULER ||
+  process.env.HYPERBEAM_SCHEDULER ||
+  process.env.AO_SCHEDULER ||
+  'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo'
+const WRITE_SIG_TYPE = process.env.WRITE_SIG_TYPE || ''
+const WRITE_SIG_PUBLIC = process.env.WRITE_SIG_PUBLIC || ''
+const WRITE_SIG_PUBLICS = process.env.WRITE_SIG_PUBLICS || ''
 
 const signer = createSigner(JSON.parse(fs.readFileSync('wallet.json', 'utf8')))
 const ao = connect({ MODE: 'mainnet', url: URL, SCHEDULER: SCHED, signer })
@@ -40,6 +51,9 @@ async function main() {
     'signing-format': 'ans104',
     data: '1984'
   }
+  if (WRITE_SIG_TYPE) params.WRITE_SIG_TYPE = WRITE_SIG_TYPE
+  if (WRITE_SIG_PUBLIC) params.WRITE_SIG_PUBLIC = WRITE_SIG_PUBLIC
+  if (WRITE_SIG_PUBLICS) params.WRITE_SIG_PUBLICS = WRITE_SIG_PUBLICS
 
   const res = await ao.request(params)
   const pid = res.headers.get('process')

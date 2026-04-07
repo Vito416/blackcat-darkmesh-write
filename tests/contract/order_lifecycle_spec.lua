@@ -50,16 +50,13 @@ end
 
 local function run_lifecycle()
   reset()
-  local create = run(
-    "CreateOrder",
-    {
-      cartId = "cart-1",
-      customerId = "cust-1",
-      siteId = "site-1",
-      currency = "USD",
-      orderId = "order-1",
-    }
-  )
+  local create = run("CreateOrder", {
+    cartId = "cart-1",
+    customerId = "cust-1",
+    siteId = "site-1",
+    currency = "USD",
+    orderId = "order-1",
+  })
   assert_ok(create)
   local orderId = create.payload.orderId
   local order = state.orders[orderId]
