@@ -1125,3 +1125,22 @@ console.log(res);
   - `action_validation: ok`
   - `sig_publics_keyring: ok`
   - all current luacheck + stylua checks passed in this run.
+
+## 2026-04-07 — New mainnet publish/spawn run (post-CI fix)
+- New module publish:
+  - Module TX: `zbe7l9INN2hlIwIBAqr0LRxkm9YGd6nL41olyLnIPnU` (`status 200` on publish)
+- New process spawn on `https://push.forward.computer`:
+  - PID: `revWysnw_rgzvG5Lgm73moQFElfxK8stAIWSMNSrMek`
+  - Spawn tags include: `WRITE_SIG_TYPE=ed25519`, `WRITE_SIG_PUBLIC=hex:e3db1fdf78b6d88e94e69d96a708fd836d66275d186033d7d8b7a6f46be45459`.
+- Immediate indexing/finalization state:
+  - `arweave.net/tx/<module>/status` => `200`
+  - `arweave.net/raw/<module>` => `404` (still indexing)
+  - `arweave.net/tx/<pid>/status` => `404` (still indexing)
+  - `arweave.net/raw/<pid>` => `404` (still indexing)
+- Worker path remains healthy with `tmp/test-secrets.json`:
+  - `/health` => `200`
+  - `/metrics` => `200`
+  - `/sign` => `200`
+- Early deep probe (`diagnose_message.js`) against this PID currently returns `500` with:
+  - `details: {badmap,failure}` and stack inside `hb_maps:merge` / `hb_ao:resolve_many`.
+  - At this stage this is still considered **pre-finalization noise** until module + PID raw endpoints are both visible.
