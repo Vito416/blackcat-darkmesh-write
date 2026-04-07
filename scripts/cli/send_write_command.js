@@ -1,6 +1,7 @@
 import fs from 'fs'
 import crypto from 'crypto'
 import { connect, createSigner } from '@permaweb/aoconnect'
+import { createData, ArweaveSigner } from 'arbundles'
 
 function cleanEnv(val) {
   if (!val) return undefined
@@ -26,6 +27,7 @@ const AO_VARIANT = cleanEnv(process.env.AO_VARIANT) || 'ao.TN.1'
 const AO_CONTENT_TYPE = cleanEnv(process.env.AO_CONTENT_TYPE) || 'application/json'
 const AO_INPUT_ENCODING = cleanEnv(process.env.AO_INPUT_ENCODING) || 'JSON-1'
 const AO_OUTPUT_ENCODING = cleanEnv(process.env.AO_OUTPUT_ENCODING) || 'JSON-1'
+const AO_INGRESS_MODE = cleanEnv(process.env.AO_INGRESS_MODE) || 'auto' // auto | push | scheduler
 
 const PRIV_PEM = process.env.WORKER_ED25519_PRIV || 'tmp/worker-ed25519-priv.pem'
 const WORKER_SIGN_URL = cleanEnv(process.env.WORKER_SIGN_URL)
@@ -65,9 +67,91 @@ function signEd25519Hex(message, pemPath) {
   return Buffer.from(sig).toString('hex')
 }
 
+async function withTimeout(promise, ms, label) {
+  let timer
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timeout_${label || 'op'}_${ms}ms`)), ms)
+      })
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function sendViaSchedulerDirect({ baseUrl, pid, jwk, data, variant }) {
+  const signer = new ArweaveSigner(jwk)
+  const tags = [
+    { name: 'Action', value: 'Write-Command' },
+    { name: 'Content-Type', value: 'application/json' },
+    { name: 'Input-Encoding', value: 'JSON-1' },
+    { name: 'Output-Encoding', value: 'JSON-1' },
+    { name: 'signing-format', value: 'ans104' },
+    { name: 'accept-bundle', value: 'true' },
+    { name: 'require-codec', value: 'application/json' },
+    { name: 'Data-Protocol', value: 'ao' },
+    { name: 'Type', value: 'Message' },
+    { name: 'Variant', value: variant }
+  ]
+  const item = createData(data, signer, { target: pid, tags })
+  await item.sign(signer)
+  const endpoint = `${baseUrl.replace(/\/$/, '')}/~scheduler@1.0/schedule?target=${pid}`
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/ans104',
+      'codec-device': 'ans104@1.0'
+    },
+    body: item.getRaw()
+  })
+  const text = await res.text().catch(() => '')
+  let parsed = null
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    parsed = null
+  }
+  const slot = Number(res.headers.get('slot') || parsed?.slot || '')
+  if (!res.ok) {
+    throw new Error(`scheduler_send_failed:${res.status}:${text.slice(0, 220)}`)
+  }
+  if (!Number.isFinite(slot)) {
+    throw new Error(`scheduler_send_no_slot:${text.slice(0, 220)}`)
+  }
+  return {
+    ingressMode: 'scheduler',
+    slot,
+    dataItemId: item.id,
+    status: res.status,
+    endpoint,
+    bodyPreview: text.slice(0, 400)
+  }
+}
+
 async function fetchResultViaComputeRequest(pid, slotOrMessage) {
   const endpoint = `${HYPERBEAM_URL.replace(/\/$/, '')}/${pid}~process@1.0/compute=${slotOrMessage}?accept-bundle=true&require-codec=application/json`
-  const response = await fetch(endpoint, { method: 'GET' })
+  let response = null
+  let lastError = null
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      response = await withTimeout(fetch(endpoint, { method: 'GET' }), 45000, 'compute_fetch')
+      if (response.status >= 500 && attempt < 3) {
+        await new Promise((r) => setTimeout(r, 3000))
+        continue
+      }
+      break
+    } catch (err) {
+      lastError = err
+      if (attempt < 3) {
+        await new Promise((r) => setTimeout(r, 3000))
+      }
+    }
+  }
+  if (!response) {
+    throw lastError || new Error('compute_fetch_failed')
+  }
   const text = await response.text().catch(() => '')
   let parsed = null
   try {
@@ -81,6 +165,33 @@ async function fetchResultViaComputeRequest(pid, slotOrMessage) {
     parsed,
     normalized: parsed?.results?.raw || parsed?.raw || parsed,
     bodyPreview: text.slice(0, 800)
+  }
+}
+
+async function resolveResult({ ao, pid, slotOrMessage }) {
+  try {
+    const result = await withTimeout(
+      ao.result({ process: pid, message: slotOrMessage }),
+      45000,
+      'ao.result'
+    )
+    return {
+      resultMode: 'aoconnect.result',
+      result
+    }
+  } catch (err) {
+    const fallback = await fetchResultViaComputeRequest(pid, slotOrMessage)
+    if (!fallback.ok) {
+      throw new Error(
+        `result_fetch_failed: primary=${err?.message || err}; fallback_status=${fallback.status}; fallback_preview=${fallback.bodyPreview}`
+      )
+    }
+    return {
+      resultMode: 'aoconnect.request_fallback',
+      status: fallback.status,
+      result: fallback.normalized,
+      raw: fallback.parsed
+    }
   }
 }
 
@@ -142,53 +253,111 @@ async function main() {
 
   const data = RAW_DATA_OVERRIDE !== undefined ? RAW_DATA_OVERRIDE : JSON.stringify(cmd)
 
-  const msgId = await ao.message({
-    process: PID,
-    tags: [
-      { name: 'Action', value: 'Write-Command' },
-      { name: 'Variant', value: AO_VARIANT },
-      { name: 'Content-Type', value: AO_CONTENT_TYPE },
-      { name: 'Input-Encoding', value: AO_INPUT_ENCODING },
-      { name: 'Output-Encoding', value: AO_OUTPUT_ENCODING },
-      { name: 'Data-Protocol', value: 'ao' },
-      ...(STATUS_TAG ? [{ name: 'Status', value: STATUS_TAG }] : [])
-    ],
-    data
-  })
+  const sendViaPush = () =>
+    withTimeout(
+      ao.message({
+        process: PID,
+        tags: [
+          { name: 'Action', value: 'Write-Command' },
+          { name: 'Variant', value: AO_VARIANT },
+          { name: 'Content-Type', value: AO_CONTENT_TYPE },
+          { name: 'Input-Encoding', value: AO_INPUT_ENCODING },
+          { name: 'Output-Encoding', value: AO_OUTPUT_ENCODING },
+          { name: 'Data-Protocol', value: 'ao' },
+          ...(STATUS_TAG ? [{ name: 'Status', value: STATUS_TAG }] : [])
+        ],
+        data
+      }),
+      30000,
+      'ao.message'
+    )
+
+  let sendMeta = null
+  if (AO_INGRESS_MODE === 'push') {
+    const slot = await sendViaPush()
+    sendMeta = { ingressMode: 'push', slot: Number(slot), messageIdOrSlot: slot }
+  } else if (AO_INGRESS_MODE === 'scheduler') {
+    sendMeta = await sendViaSchedulerDirect({
+      baseUrl: HYPERBEAM_URL,
+      pid: PID,
+      jwk,
+      data,
+      variant: AO_VARIANT
+    })
+  } else {
+    try {
+      const schedulerMeta = await sendViaSchedulerDirect({
+        baseUrl: HYPERBEAM_URL,
+        pid: PID,
+        jwk,
+        data,
+        variant: AO_VARIANT
+      })
+      sendMeta = schedulerMeta
+    } catch (schedulerErr) {
+      const slot = await sendViaPush()
+      sendMeta = {
+        ingressMode: 'push',
+        slot: Number(slot),
+        messageIdOrSlot: slot,
+        schedulerError: schedulerErr?.message || String(schedulerErr)
+      }
+    }
+  }
+
+  let slotOrMessage = String(
+    Number.isFinite(sendMeta?.slot) ? sendMeta.slot : sendMeta?.messageIdOrSlot
+  )
 
   try {
-    const result = await ao.result({ process: PID, message: msgId })
+    const resolved = await resolveResult({ ao, pid: PID, slotOrMessage })
     console.log(
       JSON.stringify(
         {
-          resultMode: 'aoconnect.result',
-          messageId: msgId,
-          result
+          ...resolved,
+          sendMeta,
+          messageIdOrSlot: slotOrMessage
         },
         null,
         2
       )
     )
+    return
   } catch (err) {
-    const fallback = await fetchResultViaComputeRequest(PID, String(msgId))
-    if (!fallback.ok) {
-      throw new Error(
-        `result_fetch_failed: primary=${err?.message || err}; fallback_status=${fallback.status}; fallback_preview=${fallback.bodyPreview}`
+    // Auto mode safety: if /push ingress accepted but readback stalls/fails,
+    // retry through scheduler-direct to force a numeric slot we can read back.
+    if (AO_INGRESS_MODE === 'auto' && sendMeta?.ingressMode === 'push') {
+      const schedulerMeta = await sendViaSchedulerDirect({
+        baseUrl: HYPERBEAM_URL,
+        pid: PID,
+        jwk,
+        data,
+        variant: AO_VARIANT
+      })
+      slotOrMessage = String(
+        Number.isFinite(schedulerMeta?.slot)
+          ? schedulerMeta.slot
+          : schedulerMeta?.messageIdOrSlot
       )
+      const resolved = await resolveResult({ ao, pid: PID, slotOrMessage })
+      console.log(
+        JSON.stringify(
+          {
+            ...resolved,
+            sendMeta: {
+              ...schedulerMeta,
+              autoRetryFromPushError: err?.message || String(err),
+              previousPushMeta: sendMeta
+            },
+            messageIdOrSlot: slotOrMessage
+          },
+          null,
+          2
+        )
+      )
+      return
     }
-    console.log(
-      JSON.stringify(
-        {
-          resultMode: 'aoconnect.request_fallback',
-          messageId: msgId,
-          status: fallback.status,
-          result: fallback.normalized,
-          raw: fallback.parsed
-        },
-        null,
-        2
-      )
-    )
+    throw err
   }
 }
 

@@ -1,5 +1,19 @@
 # AO deployment log – blackcat-write
 
+## 2026-04-07 — Current mainnet deep-test status (PID `5WXx...`)
+- Re-ran live deep tests against finalized PID `5WXxCBn5PZADOb35QAGDpF8kY_bBrd7uuKEhaUy-XBk` using worker signer secrets from `tmp/test-secrets.json`.
+- `scripts/cli/deep_test_scheduler_direct.js` result:
+  - `https://push.forward.computer`: scheduler sends accepted (`Ping/GetOpsHealth/Write-Command`), `slot/current=200`, compute mostly OK (`200`) with occasional transient `500` on oldest slot probe.
+  - `https://push-1.forward.computer`: scheduler send returns `200` and slot advances, but `slot/current` and compute probes return `400` for this PID.
+- `scripts/cli/diagnose_cu_readback.js` confirms the same split:
+  - `push.forward` has working readback (`ao.result=ok`, compute `200`, scheduler-msg `200`).
+  - `push-1` currently fails readback for this PID (`compute=400`, `slot/current=400`) despite accepted scheduler messages.
+- `scripts/cli/send_write_command.js` hardening completed:
+  - auto ingress now prefers scheduler-direct first, then push fallback;
+  - result fetch now retries compute (3 attempts) and uses longer timeouts;
+  - auto mode can recover from transient readback stalls (latest successful write at slot `112` on `push.forward`).
+- Practical rule for current production-like runs: use `HB_URL=https://push.forward.computer` for deep tests until `push-1` readback parity is restored.
+
 ## 2026-04-07 — Cross-repo security fit (ao + write + gateway + web)
 - Context reviewed from READMEs:
   - `gateway` is intentionally untrusted/multi-tenant edge infrastructure (can forward writes, cache templates, hold short-lived encrypted envelopes).
