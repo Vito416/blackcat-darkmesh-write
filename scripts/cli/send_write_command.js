@@ -65,6 +65,25 @@ function signEd25519Hex(message, pemPath) {
   return Buffer.from(sig).toString('hex')
 }
 
+async function fetchResultViaComputeRequest(pid, slotOrMessage) {
+  const endpoint = `${HYPERBEAM_URL.replace(/\/$/, '')}/${pid}~process@1.0/compute=${slotOrMessage}?accept-bundle=true&require-codec=application/json`
+  const response = await fetch(endpoint, { method: 'GET' })
+  const text = await response.text().catch(() => '')
+  let parsed = null
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    parsed = null
+  }
+  return {
+    ok: response.ok,
+    status: response.status,
+    parsed,
+    normalized: parsed?.results?.raw || parsed?.raw || parsed,
+    bodyPreview: text.slice(0, 800)
+  }
+}
+
 async function main() {
   // Quick sanity check so we don't fail with cryptic "Invalid URL"
   try {
@@ -136,8 +155,41 @@ async function main() {
     ],
     data
   })
-  const result = await ao.result({ process: PID, message: msgId })
-  console.log(JSON.stringify(result, null, 2))
+
+  try {
+    const result = await ao.result({ process: PID, message: msgId })
+    console.log(
+      JSON.stringify(
+        {
+          resultMode: 'aoconnect.result',
+          messageId: msgId,
+          result
+        },
+        null,
+        2
+      )
+    )
+  } catch (err) {
+    const fallback = await fetchResultViaComputeRequest(PID, String(msgId))
+    if (!fallback.ok) {
+      throw new Error(
+        `result_fetch_failed: primary=${err?.message || err}; fallback_status=${fallback.status}; fallback_preview=${fallback.bodyPreview}`
+      )
+    }
+    console.log(
+      JSON.stringify(
+        {
+          resultMode: 'aoconnect.request_fallback',
+          messageId: msgId,
+          status: fallback.status,
+          result: fallback.normalized,
+          raw: fallback.parsed
+        },
+        null,
+        2
+      )
+    )
+  }
 }
 
 main().catch((err) => {

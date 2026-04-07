@@ -1415,3 +1415,40 @@ console.log(res);
 - Final maintainer-ready issue text: `tmp/hb-escalation-latest/ISSUE_BODY_FINAL.md`
 - Bundle refreshed with latest extended matrix:
   - `tmp/hb-escalation-latest.tar.gz`
+
+## 2026-04-07 — Readback/compute blocker narrowed further (PID `5WXx...`)
+- Re-ran deep scheduler-direct tests on finalized PID:
+  - `node scripts/cli/deep_test_scheduler_direct.js --pid 5WXxCBn5PZADOb35QAGDpF8kY_bBrd7uuKEhaUy-XBk --secrets tmp/test-secrets.json --out tmp/deep-test-scheduler-direct-5WXx-latest.json`
+- Key finding:
+  - Compute is **not globally broken** if queried as:
+    - `/<PID>~process@1.0/compute=<slot>?accept-bundle=true&require-codec=application/json`
+  - On this run:
+    - `push.forward.computer`: slots `56/57` returned `200`; `55` had transient abort timeout.
+    - `push-1.forward.computer`: slots `58/59/60` returned `200`.
+- CU/readback diagnostic rerun:
+  - `node scripts/cli/diagnose_cu_readback.js --pid 5WXx... --report tmp/deep-test-scheduler-direct-5WXx-latest.json --out tmp/cu-readback-diagnostic-5WXx-latest.json`
+  - `slot/current` and scheduler slot probes now `200` on both push endpoints.
+  - `compute` probes now `200` for tested slots in this report.
+- Interpretation update:
+  - Previous `compute 500` is no longer a strict global blocker; it is now **slot/path/query sensitive** and sometimes transient per endpoint.
+  - Remaining issue is consistency for newly produced messages (example: slot `61` from `send_write_command.js` still returned `500` on push and `400` on push-1).
+- Script updates applied:
+  - `scripts/cli/deep_test_scheduler_direct.js`:
+    - compute probe now uses codec query params and retry logic.
+    - parses inline `results` and follows `results+link` when present.
+  - `scripts/cli/diagnose_cu_readback.js`:
+    - compute probe now uses codec query params + retry and richer parsed summary.
+    - resilient scheduler address handling when `locate()`/GraphQL fails.
+    - `ao.result` fallback path via direct compute request with normalized output summary.
+  - `scripts/cli/send_write_command.js`:
+    - adds explicit fallback result fetch path (for cases where `ao.result` fails).
+
+## 2026-04-07 — Extended business matrix rerun on stabilized PID `5WXx...`
+- Command:
+  - `node scripts/cli/business_matrix_scheduler_direct.js --profile extended --pid 5WXxCBn5PZADOb35QAGDpF8kY_bBrd7uuKEhaUy-XBk --secrets tmp/test-secrets.json --out tmp/business-matrix-scheduler-direct-5WXx-extended-latest.json`
+- Result:
+  - `push.forward.computer`: all 17/17 actions accepted (`200`) with scheduler message fetch `200` (slots `64..80`).
+  - `push-1.forward.computer`: all 17/17 actions accepted (`200`) with scheduler message fetch `200` (slots `81..97`).
+- Important separation:
+  - Scheduler-direct path is now production-like usable for deep action ingestion testing.
+  - Direct `/<PID>~process@1.0/push` with `diagnose_message.js` still returns `400 Message is not valid.` on push.forward for this PID (ingress path mismatch remains).

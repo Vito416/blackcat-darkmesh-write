@@ -134,14 +134,88 @@ async function sendSchedulerMessage({ baseUrl, pid, jwk, action, data, variant }
 }
 
 async function probeCompute(baseUrl, pid, slot) {
-  const url = `${baseUrl}/${pid}~process@1.0/compute=${slot}`
-  const res = await fetchWithTimeout(url, { method: 'GET' }, 12000)
-  const text = await res.text().catch(() => '')
+  const url = `${baseUrl}/${pid}~process@1.0/compute=${slot}?accept-bundle=true&require-codec=application/json`
+  let res = null
+  let text = ''
+  let lastError = null
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      res = await fetchWithTimeout(url, { method: 'GET' }, 30000)
+      text = await res.text().catch(() => '')
+      break
+    } catch (e) {
+      lastError = e
+      if (attempt < 3) {
+        await new Promise((r) => setTimeout(r, 3000))
+      }
+    }
+  }
+
+  if (!res) {
+    return {
+      url,
+      status: 'error',
+      ok: false,
+      error: lastError?.message || String(lastError)
+    }
+  }
+  let parsed = null
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    parsed = null
+  }
+
+  // Some nodes may return a results link instead of inline results.
+  let resultsLinkProbe = null
+  if (parsed && !parsed.results && parsed['results+link']) {
+    const linkUrl = `${baseUrl}/${parsed['results+link']}?process-id=${pid}&accept-bundle=true&require-codec=application/json`
+    try {
+      const linkRes = await fetchWithTimeout(linkUrl, { method: 'GET' }, 15000)
+      const linkText = await linkRes.text().catch(() => '')
+      let linkParsed = null
+      try {
+        linkParsed = JSON.parse(linkText)
+      } catch {
+        linkParsed = null
+      }
+      if (linkParsed && !parsed.results) {
+        if (linkParsed.raw) parsed.results = { raw: linkParsed.raw }
+        else parsed.results = linkParsed
+      }
+      resultsLinkProbe = {
+        url: linkUrl,
+        status: linkRes.status,
+        ok: linkRes.ok
+      }
+    } catch (e) {
+      resultsLinkProbe = {
+        url: linkUrl,
+        status: 'error',
+        error: e?.message || String(e)
+      }
+    }
+  }
+
+  const raw = parsed?.results?.raw || parsed?.raw || null
   return {
     url,
     status: res.status,
     ok: res.ok,
-    bodyPreview: text.slice(0, 240)
+    bodyPreview: text.slice(0, 240),
+    parsed: parsed
+      ? {
+          atSlot: parsed['at-slot'] ?? null,
+          status: parsed.status ?? null,
+          hasResults: Boolean(parsed.results || parsed.raw),
+          output: raw?.Output ?? null,
+          messagesCount: Array.isArray(raw?.Messages) ? raw.Messages.length : null,
+          spawnsCount: Array.isArray(raw?.Spawns) ? raw.Spawns.length : null,
+          assignmentsCount: Array.isArray(raw?.Assignments) ? raw.Assignments.length : null,
+          hasError: raw?.Error ? Object.keys(raw.Error).length > 0 : false
+        }
+      : null,
+    resultsLinkProbe
   }
 }
 
@@ -263,7 +337,10 @@ async function main() {
       `slot/current: status=${step.slotCurrent.status} body=${step.slotCurrent.body}`
     )
     for (const cmp of step.computeChecks) {
-      console.log(`compute: status=${cmp.status} url=${cmp.url}`)
+      const p = cmp.parsed || {}
+      console.log(
+        `compute: status=${cmp.status} slot=${p.atSlot ?? ''} output=${p.output ?? ''} messages=${p.messagesCount ?? ''} error=${p.hasError === true ? 'yes' : p.hasError === false ? 'no' : ''}`
+      )
     }
   }
 }
