@@ -13,6 +13,7 @@ AO-native command layer for Blackcat Darkmesh. This repository hosts the write-s
 - [Interfaces at a glance](#interfaces-at-a-glance)
 - [Links hub](#links-hub)
 - [AO deploy (current runbook)](#ao-deploy-current-runbook)
+- [Release gate / deep test](#release-gate--deep-test)
 - [Development](#development)
 - [Env toggles (write process)](#env-toggles-write-process)
 - [CLI helpers](#cli-helpers)
@@ -135,6 +136,28 @@ node scripts/cli/send_write_command.js
 ```
 
 For worker-signed end-to-end tests, set `WORKER_SIGN_URL` + `WORKER_AUTH_TOKEN` (test values are kept locally in `tmp/test-secrets.json`).
+
+### Release gate / deep test
+Run the v1.2.0 readiness gate in one command:
+```bash
+AO_PID=<pid> \
+HB_URLS=https://push.forward.computer,https://push-1.forward.computer \
+AO_SECRETS_PATH=tmp/test-secrets.json \
+scripts/verify/release_gate_v120.sh --strict
+```
+
+Flag form:
+```bash
+scripts/verify/release_gate_v120.sh \
+  --pid <pid> \
+  --urls https://push.forward.computer,https://push-1.forward.computer \
+  --secrets tmp/test-secrets.json \
+  --strict
+```
+
+- The gate runs preflight, luacheck, stylua, the core write smokes, and AO deep checks in a fixed order.
+- Without `--strict`, it still requires the send and primary readback probes to pass.
+- `--strict` extends CU readback assertions to every URL you pass.
 
 ## Repository Layout (blueprint)
 ```

@@ -84,6 +84,7 @@
         "ProviderWebhook",
         "CreateWebhook",
         "GetOpsHealth",
+        "RuntimeSignal",
         "RunWebhookRetries"
       ]
     },
@@ -843,6 +844,15 @@
     },
     "GetOpsHealth": {
       "type": "object",
+      "additionalProperties": true
+    },
+    "RuntimeSignal": {
+      "type": "object",
+      "properties": {
+        "marker": {
+          "type": "string"
+        }
+      },
       "additionalProperties": true
     },
     "RunWebhookRetries": {

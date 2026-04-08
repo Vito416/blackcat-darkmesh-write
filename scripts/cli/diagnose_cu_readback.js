@@ -2,6 +2,11 @@
 import fs from 'fs'
 import { locate } from '@permaweb/ao-scheduler-utils'
 import { connect, createSigner } from '@permaweb/aoconnect'
+import {
+  readResponseWithRetry,
+  runWithRetry,
+  withTimeout
+} from './retry_helpers.js'
 
 function arg(name, fallback) {
   const idx = process.argv.indexOf(`--${name}`)
@@ -14,198 +19,239 @@ function must(v, name) {
   return v
 }
 
-async function fetchWithTimeout(url, init = {}, timeoutMs = 20000) {
-  const ctl = new AbortController()
-  const timer = setTimeout(() => ctl.abort(), timeoutMs)
-  try {
-    return await fetch(url, { ...init, signal: ctl.signal })
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
-function normalizeHeaders(res) {
-  const out = {}
-  res.headers.forEach((v, k) => {
-    out[k] = v
-  })
-  return out
-}
-
 async function safeFetch(url, init = {}, timeoutMs = 20000) {
-  try {
-    const res = await fetchWithTimeout(url, init, timeoutMs)
-    const text = await res.text().catch(() => '')
-    return {
-      ok: true,
-      url,
-      status: res.status,
-      headers: normalizeHeaders(res),
-      bodyPreview: text.slice(0, 500)
-    }
-  } catch (e) {
-    return {
-      ok: false,
-      url,
-      error: e?.message || String(e)
-    }
+  const outcome = await readResponseWithRetry({
+    url,
+    label: 'safe_fetch',
+    attempts: 4,
+    timeoutMs,
+    baseDelayMs: 500,
+    maxDelayMs: 4000,
+    bodyPreviewLimit: 500,
+    request: () => fetch(url, init)
+  })
+  return {
+    ok: outcome.ok,
+    url,
+    status: outcome.status,
+    headers: outcome.headers,
+    bodyPreview: outcome.bodyPreview,
+    attempts: outcome.attempts,
+    retryCount: outcome.retryCount,
+    errorClass: outcome.errorClass,
+    error: outcome.ok ? null : outcome.error || outcome.errorClass
   }
 }
 
-async function safeAoResult({ ao, pid, slot, timeoutMs = 25000 }) {
-  const withTimeout = (promise) =>
-    Promise.race([
-      promise,
-      new Promise((_, rej) =>
-        setTimeout(() => rej(new Error(`timeout_${timeoutMs}ms`)), timeoutMs)
-      )
-    ])
-  try {
-    const out = await withTimeout(ao.result({ process: pid, message: String(slot) }))
+async function safeAoResult({ ao, baseUrl, pid, slot, timeoutMs = 25000 }) {
+  const primary = await runWithRetry(
+    () => withTimeout(ao.result({ process: pid, message: String(slot) }), timeoutMs, 'ao.result'),
+    {
+      label: 'ao.result',
+      attempts: 4,
+      baseDelayMs: 500,
+      maxDelayMs: 4000
+    }
+  )
+  if (primary.ok) {
     return {
       ok: true,
       slot,
       mode: 'aoconnect.result',
-      output: out
+      attempts: primary.attempts,
+      retryCount: primary.retryCount,
+      errorClass: primary.errorClass,
+      output: primary.value
     }
-  } catch (e) {
-    const primaryError = e?.message || String(e)
-    try {
-      const res = await withTimeout(
+  }
+
+  const computeUrl = `${baseUrl}/${pid}~process@1.0/compute=${slot}?accept-bundle=true&require-codec=application/json`
+  const fallback = await readResponseWithRetry({
+    url: computeUrl,
+    label: 'ao.request_fallback',
+    attempts: 4,
+    timeoutMs,
+    baseDelayMs: 500,
+    maxDelayMs: 4000,
+    bodyPreviewLimit: 400,
+    parseJson: true,
+    request: () =>
+      withTimeout(
         ao.request({
           path: `/${pid}~process@1.0/compute=${slot}?accept-bundle=true&require-codec=application/json`,
           target: pid,
           data: '1984',
           'accept-bundle': 'true',
           'require-codec': 'application/json'
-        })
+        }),
+        timeoutMs,
+        'ao.request'
       )
-      const text = await res.text().catch(() => '')
-      let parsed = null
-      try {
-        parsed = JSON.parse(text)
-      } catch {
-        parsed = null
-      }
-      const normalized = parsed?.results?.raw || parsed?.raw || parsed
-      return {
-        ok: res.ok,
-        slot,
-        mode: 'aoconnect.request_fallback',
-        status: res.status,
-        output: {
-          atSlot: parsed?.['at-slot'] ?? null,
-          status: parsed?.status ?? null,
-          hasInlineResults: Boolean(parsed?.results),
-          output: normalized?.Output ?? null,
-          messagesCount: Array.isArray(normalized?.Messages) ? normalized.Messages.length : null,
-          spawnsCount: Array.isArray(normalized?.Spawns) ? normalized.Spawns.length : null,
-          assignmentsCount: Array.isArray(normalized?.Assignments)
-            ? normalized.Assignments.length
-            : null,
-          hasError: normalized?.Error ? Object.keys(normalized.Error).length > 0 : false
-        },
-        bodyPreview: text.slice(0, 400),
-        primaryError
-      }
-    } catch (fallbackError) {
-      return {
-        ok: false,
-        slot,
-        mode: 'failed',
-        error: `${primaryError}; fallback=${fallbackError?.message || String(fallbackError)}`
-      }
+  })
+  if (!fallback.ok) {
+    return {
+      ok: false,
+      slot,
+      mode: 'failed',
+      attempts: fallback.attempts,
+      retryCount: fallback.retryCount,
+      errorClass: fallback.errorClass,
+      error: `${primary.errorClass}:${primary.error}; fallback=${fallback.errorClass}:${fallback.error || fallback.errorClass}`,
+      primaryAttempts: primary.attempts,
+      primaryErrorClass: primary.errorClass,
+      fallbackAttempts: fallback.attempts,
+      fallbackErrorClass: fallback.errorClass
     }
+  }
+
+  const parsed = fallback.parsed || null
+  const normalized = parsed?.results?.raw || parsed?.raw || parsed
+  return {
+    ok: fallback.ok,
+    slot,
+    mode: 'aoconnect.request_fallback',
+    status: fallback.status,
+    attempts: fallback.attempts,
+    retryCount: fallback.retryCount,
+    errorClass: fallback.errorClass,
+    output: {
+      atSlot: parsed?.['at-slot'] ?? null,
+      status: parsed?.status ?? null,
+      hasInlineResults: Boolean(parsed?.results),
+      output: normalized?.Output ?? null,
+      messagesCount: Array.isArray(normalized?.Messages) ? normalized.Messages.length : null,
+      spawnsCount: Array.isArray(normalized?.Spawns) ? normalized.Spawns.length : null,
+      assignmentsCount: Array.isArray(normalized?.Assignments) ? normalized.Assignments.length : null,
+      hasError: normalized?.Error ? Object.keys(normalized.Error).length > 0 : false
+    },
+    bodyPreview: fallback.bodyPreview,
+    primaryErrorClass: primary.errorClass,
+    primaryAttempts: primary.attempts
   }
 }
 
 async function safeAoDryrun({ ao, pid, timeoutMs = 25000 }) {
-  const timeout = new Promise((_, rej) =>
-    setTimeout(() => rej(new Error(`timeout_${timeoutMs}ms`)), timeoutMs)
+  const outcome = await runWithRetry(
+    () =>
+      withTimeout(
+        ao.dryrun({
+          process: pid,
+          tags: [
+            { name: 'Action', value: 'Ping' },
+            { name: 'Type', value: 'Message' },
+            { name: 'Variant', value: 'ao.TN.1' },
+            { name: 'Data-Protocol', value: 'ao' },
+            { name: 'Content-Type', value: 'application/json' },
+            { name: 'Input-Encoding', value: 'JSON-1' },
+            { name: 'Output-Encoding', value: 'JSON-1' }
+          ],
+          data: ''
+        }),
+        timeoutMs,
+        'ao.dryrun'
+      ),
+    {
+      label: 'ao.dryrun',
+      attempts: 4,
+      baseDelayMs: 500,
+      maxDelayMs: 4000
+    }
   )
-  try {
-    const out = await Promise.race([
-      ao.dryrun({
-        process: pid,
-        tags: [
-          { name: 'Action', value: 'Ping' },
-          { name: 'Type', value: 'Message' },
-          { name: 'Variant', value: 'ao.TN.1' },
-          { name: 'Data-Protocol', value: 'ao' },
-          { name: 'Content-Type', value: 'application/json' },
-          { name: 'Input-Encoding', value: 'JSON-1' },
-          { name: 'Output-Encoding', value: 'JSON-1' }
-        ],
-        data: ''
-      }),
-      timeout
-    ])
-    return { ok: true, output: out }
-  } catch (e) {
-    return { ok: false, error: e?.message || String(e) }
+  if (outcome.ok) {
+    return {
+      ok: true,
+      attempts: outcome.attempts,
+      retryCount: outcome.retryCount,
+      errorClass: outcome.errorClass,
+      output: outcome.value
+    }
+  }
+  return {
+    ok: false,
+    attempts: outcome.attempts,
+    retryCount: outcome.retryCount,
+    errorClass: outcome.errorClass,
+    error: outcome.error
   }
 }
 
 async function safeComputeProbe(baseUrl, pid, slot) {
   const url = `${baseUrl}/${pid}~process@1.0/compute=${slot}?accept-bundle=true&require-codec=application/json`
-  try {
-    let res = null
-    let text = ''
-    let lastError = null
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      try {
-        res = await fetchWithTimeout(url, { method: 'GET' }, 30000)
-        text = await res.text().catch(() => '')
-        break
-      } catch (e) {
-        lastError = e
-        if (attempt < 3) {
-          await new Promise((r) => setTimeout(r, 3000))
-        }
-      }
-    }
-    if (!res) {
-      throw lastError || new Error('compute_probe_failed')
-    }
-    let parsed = null
-    try {
-      parsed = JSON.parse(text)
-    } catch {
-      parsed = null
-    }
+  const outcome = await readResponseWithRetry({
+    url,
+    label: 'compute_probe',
+    attempts: 4,
+    timeoutMs: 30000,
+    baseDelayMs: 750,
+    maxDelayMs: 6000,
+    bodyPreviewLimit: 500,
+    parseJson: true,
+    request: () => fetch(url, { method: 'GET' })
+  })
 
-    const out = {
-      ok: true,
-      url,
-      status: res.status,
-      headers: normalizeHeaders(res),
-      bodyPreview: text.slice(0, 500),
-      parsedSummary: parsed
-        ? {
-            atSlot: parsed['at-slot'] ?? null,
-            status: parsed.status ?? null,
-            hasInlineResults: Boolean(parsed.results),
-            hasRaw: Boolean(parsed?.results?.raw || parsed?.raw),
-            resultsLink: parsed['results+link'] || null
-          }
-        : null
-    }
-
-    if (parsed && !parsed.results && parsed['results+link']) {
-      out.resultsLinkProbe = await safeFetch(
-        `${baseUrl}/${parsed['results+link']}?process-id=${pid}&accept-bundle=true&require-codec=application/json`,
-        { method: 'GET' },
-        15000
-      )
-    }
-    return out
-  } catch (e) {
+  if (!outcome.ok) {
     return {
       ok: false,
       url,
-      error: e?.message || String(e)
+      status: outcome.status,
+      error: outcome.error || outcome.errorClass,
+      errorClass: outcome.errorClass,
+      attempts: outcome.attempts,
+      retryCount: outcome.retryCount,
+      bodyPreview: outcome.bodyPreview
     }
   }
+
+  const parsed = outcome.parsed || null
+  const out = {
+    ok: true,
+    url,
+    status: outcome.status,
+    headers: outcome.headers,
+    bodyPreview: outcome.bodyPreview,
+    attempts: outcome.attempts,
+    retryCount: outcome.retryCount,
+    errorClass: outcome.errorClass,
+    parsedSummary: parsed
+      ? {
+          atSlot: parsed['at-slot'] ?? null,
+          status: parsed.status ?? null,
+          hasInlineResults: Boolean(parsed.results),
+          hasRaw: Boolean(parsed?.results?.raw || parsed?.raw),
+          resultsLink: parsed['results+link'] || null
+        }
+      : null
+  }
+
+  if (parsed && !parsed.results && parsed['results+link']) {
+    out.resultsLinkProbe = await safeFetch(
+      `${baseUrl}/${parsed['results+link']}?process-id=${pid}&accept-bundle=true&require-codec=application/json`,
+      { method: 'GET' },
+      15000
+    )
+  }
+  return out
+}
+
+function formatFetchOutcome(item) {
+  if (!item) return 'na'
+  const status = item.status ?? (item.ok ? 'ok' : 'err')
+  const attempts = item.attempts ? `x${item.attempts}` : ''
+  const errorClass = item.errorClass ? `/${item.errorClass}` : ''
+  return `${status}${errorClass}${attempts}`
+}
+
+function formatReadbackOutcome(item) {
+  if (!item) return 'na'
+  if (item.ok) {
+    const mode = item.mode || 'ok'
+    const attempts = item.attempts ? `x${item.attempts}` : ''
+    const errorClass = item.errorClass ? `/${item.errorClass}` : ''
+    return `${mode}${errorClass}${attempts}`
+  }
+  const attempts = item.attempts ? `x${item.attempts}` : ''
+  const errorClass = item.errorClass ? item.errorClass : 'unknown'
+  return `error:${errorClass}${attempts}`
 }
 
 async function main() {
@@ -303,7 +349,7 @@ async function main() {
           SCHEDULER: schedulerAddress,
           signer: createSigner(jwk)
         })
-        sendEntry.aoconnectResultProbe = await safeAoResult({ ao, pid, slot })
+        sendEntry.aoconnectResultProbe = await safeAoResult({ ao, baseUrl, pid, slot })
       }
 
       entry.sends.push(sendEntry)
@@ -327,29 +373,28 @@ async function main() {
   console.log(`saved=${out}`)
   for (const step of results.steps) {
     console.log(`\n[${step.baseUrl}]`)
+    console.log(`slot/current(process) => ${formatFetchOutcome(step.probes.slotCurrentViaProcess)}`)
     console.log(
-      `slot/current(process) => ${step.probes.slotCurrentViaProcess.status || step.probes.slotCurrentViaProcess.error}`
-    )
-    console.log(
-      `slot(current scheduler POST) => ${step.probes.slotCurrentViaScheduler.status || step.probes.slotCurrentViaScheduler.error}`
+      `slot(current scheduler POST) => ${formatFetchOutcome(step.probes.slotCurrentViaScheduler)}`
     )
     if (step.probes.aoconnectDryrunPing) {
-      console.log(`aoconnect dryrun Ping => ${step.probes.aoconnectDryrunPing.ok ? 'ok' : step.probes.aoconnectDryrunPing.error}`)
+      console.log(`aoconnect dryrun Ping => ${formatReadbackOutcome(step.probes.aoconnectDryrunPing)}`)
     }
     for (const send of step.sends) {
-      const c = send.computeProbe?.status || send.computeProbe?.error || 'na'
-      const su = send.schedulerMessageProbe?.status || send.schedulerMessageProbe?.error || 'na'
-      const ar = send.aoconnectResultProbe
-        ? send.aoconnectResultProbe.ok
-          ? `ok:${send.aoconnectResultProbe.mode || 'unknown'}`
-          : send.aoconnectResultProbe.error
-        : 'na'
+      const c = formatFetchOutcome(send.computeProbe)
+      const su = formatFetchOutcome(send.schedulerMessageProbe)
+      const ar = formatReadbackOutcome(send.aoconnectResultProbe)
       console.log(`${send.action}: compute=${c} scheduler-msg=${su} ao.result=${ar}`)
     }
   }
 }
 
-main().catch((err) => {
-  console.error(err)
-  process.exit(1)
-})
+main()
+  .then(() => {
+    // Keep CLI deterministic: close even if downstream libs leave open handles.
+    process.exit(0)
+  })
+  .catch((err) => {
+    console.error(err)
+    process.exit(1)
+  })

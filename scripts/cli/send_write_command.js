@@ -2,6 +2,11 @@ import fs from 'fs'
 import crypto from 'crypto'
 import { connect, createSigner } from '@permaweb/aoconnect'
 import { createData, ArweaveSigner } from 'arbundles'
+import {
+  readResponseWithRetry,
+  runWithRetry,
+  withTimeout
+} from './retry_helpers.js'
 
 function cleanEnv(val) {
   if (!val) return undefined
@@ -67,20 +72,6 @@ function signEd25519Hex(message, pemPath) {
   return Buffer.from(sig).toString('hex')
 }
 
-async function withTimeout(promise, ms, label) {
-  let timer
-  try {
-    return await Promise.race([
-      promise,
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`timeout_${label || 'op'}_${ms}ms`)), ms)
-      })
-    ])
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
 async function sendViaSchedulerDirect({ baseUrl, pid, jwk, data, variant }) {
   const signer = new ArweaveSigner(jwk)
   const tags = [
@@ -132,66 +123,70 @@ async function sendViaSchedulerDirect({ baseUrl, pid, jwk, data, variant }) {
 
 async function fetchResultViaComputeRequest(pid, slotOrMessage) {
   const endpoint = `${HYPERBEAM_URL.replace(/\/$/, '')}/${pid}~process@1.0/compute=${slotOrMessage}?accept-bundle=true&require-codec=application/json`
-  let response = null
-  let lastError = null
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      response = await withTimeout(fetch(endpoint, { method: 'GET' }), 45000, 'compute_fetch')
-      if (response.status >= 500 && attempt < 3) {
-        await new Promise((r) => setTimeout(r, 3000))
-        continue
-      }
-      break
-    } catch (err) {
-      lastError = err
-      if (attempt < 3) {
-        await new Promise((r) => setTimeout(r, 3000))
-      }
-    }
-  }
-  if (!response) {
-    throw lastError || new Error('compute_fetch_failed')
-  }
-  const text = await response.text().catch(() => '')
-  let parsed = null
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    parsed = null
-  }
+  const outcome = await readResponseWithRetry({
+    url: endpoint,
+    label: 'compute_fetch',
+    attempts: 4,
+    timeoutMs: 45000,
+    baseDelayMs: 750,
+    maxDelayMs: 6000,
+    bodyPreviewLimit: 800,
+    parseJson: true,
+    request: () => fetch(endpoint, { method: 'GET' })
+  })
+  const parsed = outcome.parsed || null
   return {
-    ok: response.ok,
-    status: response.status,
+    ok: outcome.ok,
+    status: outcome.status,
     parsed,
     normalized: parsed?.results?.raw || parsed?.raw || parsed,
-    bodyPreview: text.slice(0, 800)
+    bodyPreview: outcome.bodyPreview,
+    attempts: outcome.attempts,
+    retryCount: outcome.retryCount,
+    errorClass: outcome.errorClass,
+    error: outcome.ok ? null : outcome.error || outcome.errorClass
   }
 }
 
 async function resolveResult({ ao, pid, slotOrMessage }) {
-  try {
-    const result = await withTimeout(
-      ao.result({ process: pid, message: slotOrMessage }),
-      45000,
-      'ao.result'
-    )
+  const primary = await runWithRetry(
+    () => withTimeout(ao.result({ process: pid, message: slotOrMessage }), 45000, 'ao.result'),
+    {
+      label: 'ao.result',
+      attempts: 4,
+      baseDelayMs: 750,
+      maxDelayMs: 6000
+    }
+  )
+
+  if (primary.ok) {
     return {
       resultMode: 'aoconnect.result',
-      result
+      result: primary.value,
+      attempts: primary.attempts,
+      retryCount: primary.retryCount,
+      errorClass: primary.errorClass
     }
-  } catch (err) {
-    const fallback = await fetchResultViaComputeRequest(pid, slotOrMessage)
-    if (!fallback.ok) {
-      throw new Error(
-        `result_fetch_failed: primary=${err?.message || err}; fallback_status=${fallback.status}; fallback_preview=${fallback.bodyPreview}`
-      )
-    }
-    return {
-      resultMode: 'aoconnect.request_fallback',
-      status: fallback.status,
-      result: fallback.normalized,
-      raw: fallback.parsed
-    }
+  }
+
+  const fallback = await fetchResultViaComputeRequest(pid, slotOrMessage)
+  if (!fallback.ok) {
+    throw new Error(
+      `result_fetch_failed: primary=${primary.errorClass}:${primary.error}; primary_attempts=${primary.attempts}; fallback=${fallback.errorClass}:${fallback.error || fallback.errorClass}; fallback_attempts=${fallback.attempts}; fallback_status=${fallback.status ?? 'na'}; fallback_preview=${fallback.bodyPreview || ''}`
+    )
+  }
+
+  return {
+    resultMode: 'aoconnect.request_fallback',
+    status: fallback.status,
+    result: fallback.normalized,
+    raw: fallback.parsed,
+    attempts: fallback.attempts,
+    retryCount: fallback.retryCount,
+    errorClass: fallback.errorClass,
+    primaryAttempts: primary.attempts,
+    primaryErrorClass: primary.errorClass,
+    primaryError: primary.error
   }
 }
 
@@ -361,7 +356,12 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err)
-  process.exit(1)
-})
+main()
+  .then(() => {
+    // Keep CLI deterministic: close even if downstream libs leave open handles.
+    process.exit(0)
+  })
+  .catch((err) => {
+    console.error(err)
+    process.exit(1)
+  })

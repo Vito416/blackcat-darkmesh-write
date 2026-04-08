@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 import fs from 'fs'
 import { createData, ArweaveSigner } from 'arbundles'
+import {
+  buildExecutionAssertion,
+  formatAssertionStatus,
+  probeCompute,
+  resolveExecutionMode,
+  summarizeAssertions
+} from './execution_assertions.js'
 
 function arg(name, fallback) {
   const idx = process.argv.indexOf(`--${name}`)
@@ -35,22 +42,34 @@ function loadSecrets(path) {
   return JSON.parse(fs.readFileSync(path, 'utf8'))
 }
 
-function writeCommandBase() {
+function commandPayload(action) {
+  if (action === 'SaveDraftPage') {
+    return {
+      siteId: 'site-demo',
+      pageId: 'page-demo',
+      locale: 'en',
+      blocks: [{ type: 'text', value: 'hello from scheduler direct deep test' }]
+    }
+  }
+  if (action === 'RuntimeSignal') {
+    return {
+      marker: `runtime-signal-${Date.now()}`
+    }
+  }
+  return {}
+}
+
+function writeCommandBase(action, index) {
   return {
-    action: 'SaveDraftPage',
-    requestId: `req-live-${Date.now()}`,
+    action,
+    requestId: `req-live-${Date.now()}-${index}`,
     actor: 'worker-test',
     tenant: 'blackcat',
     role: 'admin',
     timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
     nonce: `nonce-${Math.random().toString(36).slice(2, 10)}`,
     signatureRef: 'worker-ed25519',
-    payload: {
-      siteId: 'site-demo',
-      pageId: 'page-demo',
-      locale: 'en',
-      blocks: [{ type: 'text', value: 'hello from scheduler direct deep test' }]
-    }
+    payload: commandPayload(action)
   }
 }
 
@@ -79,10 +98,11 @@ async function signWriteCommand(cmd, signUrl, token) {
   }
 }
 
-async function sendSchedulerMessage({ baseUrl, pid, jwk, action, data, variant }) {
+async function sendSchedulerMessage({ baseUrl, pid, jwk, action, commandAction, requestId, data, variant }) {
   const signer = new ArweaveSigner(jwk)
   const tags = [
     { name: 'Action', value: action },
+    { name: 'Reply-To', value: pid },
     { name: 'Content-Type', value: 'application/json' },
     { name: 'Input-Encoding', value: 'JSON-1' },
     { name: 'Output-Encoding', value: 'JSON-1' },
@@ -121,7 +141,9 @@ async function sendSchedulerMessage({ baseUrl, pid, jwk, action, data, variant }
   }
   return {
     endpoint,
-    action,
+    envelopeAction: action,
+    action: commandAction || action,
+    requestId: requestId || null,
     dataItemId: item.id,
     txDataLength: Buffer.byteLength(data),
     status: res.status,
@@ -130,92 +152,6 @@ async function sendSchedulerMessage({ baseUrl, pid, jwk, action, data, variant }
     bodyPreview: text.slice(0, 800),
     parsedAction: parsedBody?.body?.action || null,
     parsedSlot: parsedBody?.slot || null
-  }
-}
-
-async function probeCompute(baseUrl, pid, slot) {
-  const url = `${baseUrl}/${pid}~process@1.0/compute=${slot}?accept-bundle=true&require-codec=application/json`
-  let res = null
-  let text = ''
-  let lastError = null
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      res = await fetchWithTimeout(url, { method: 'GET' }, 30000)
-      text = await res.text().catch(() => '')
-      break
-    } catch (e) {
-      lastError = e
-      if (attempt < 3) {
-        await new Promise((r) => setTimeout(r, 3000))
-      }
-    }
-  }
-
-  if (!res) {
-    return {
-      url,
-      status: 'error',
-      ok: false,
-      error: lastError?.message || String(lastError)
-    }
-  }
-  let parsed = null
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    parsed = null
-  }
-
-  // Some nodes may return a results link instead of inline results.
-  let resultsLinkProbe = null
-  if (parsed && !parsed.results && parsed['results+link']) {
-    const linkUrl = `${baseUrl}/${parsed['results+link']}?process-id=${pid}&accept-bundle=true&require-codec=application/json`
-    try {
-      const linkRes = await fetchWithTimeout(linkUrl, { method: 'GET' }, 15000)
-      const linkText = await linkRes.text().catch(() => '')
-      let linkParsed = null
-      try {
-        linkParsed = JSON.parse(linkText)
-      } catch {
-        linkParsed = null
-      }
-      if (linkParsed && !parsed.results) {
-        if (linkParsed.raw) parsed.results = { raw: linkParsed.raw }
-        else parsed.results = linkParsed
-      }
-      resultsLinkProbe = {
-        url: linkUrl,
-        status: linkRes.status,
-        ok: linkRes.ok
-      }
-    } catch (e) {
-      resultsLinkProbe = {
-        url: linkUrl,
-        status: 'error',
-        error: e?.message || String(e)
-      }
-    }
-  }
-
-  const raw = parsed?.results?.raw || parsed?.raw || null
-  return {
-    url,
-    status: res.status,
-    ok: res.ok,
-    bodyPreview: text.slice(0, 240),
-    parsed: parsed
-      ? {
-          atSlot: parsed['at-slot'] ?? null,
-          status: parsed.status ?? null,
-          hasResults: Boolean(parsed.results || parsed.raw),
-          output: raw?.Output ?? null,
-          messagesCount: Array.isArray(raw?.Messages) ? raw.Messages.length : null,
-          spawnsCount: Array.isArray(raw?.Spawns) ? raw.Spawns.length : null,
-          assignmentsCount: Array.isArray(raw?.Assignments) ? raw.Assignments.length : null,
-          hasError: raw?.Error ? Object.keys(raw.Error).length > 0 : false
-        }
-      : null,
-    resultsLinkProbe
   }
 }
 
@@ -249,14 +185,21 @@ async function main() {
   const secrets = loadSecrets(secretsPath)
   const signUrl = cleanEnv(arg('sign-url', process.env.WORKER_SIGN_URL)) ||
     'https://blackcat-inbox-production.vitek-pasek.workers.dev/sign'
+  const executionMode = resolveExecutionMode(process.argv, process.env)
   const token =
     cleanEnv(arg('worker-auth-token', process.env.WORKER_AUTH_TOKEN)) ||
     cleanEnv(secrets.WORKER_AUTH_TOKEN)
 
   if (!token) throw new Error('WORKER_AUTH_TOKEN is required (env, --worker-auth-token, or --secrets)')
 
-  const signedCmd = await signWriteCommand(writeCommandBase(), signUrl, token)
-  fs.writeFileSync('tmp/writecmd-signed-live.json', JSON.stringify(signedCmd, null, 2))
+  const commandActions = ['Ping', 'GetOpsHealth', 'RuntimeSignal']
+  const signedCommands = []
+  for (let i = 0; i < commandActions.length; i += 1) {
+    const action = commandActions[i]
+    const signed = await signWriteCommand(writeCommandBase(action, i + 1), signUrl, token)
+    signedCommands.push(signed)
+  }
+  fs.writeFileSync('tmp/writecmd-signed-live.json', JSON.stringify(signedCommands, null, 2))
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -264,6 +207,11 @@ async function main() {
     urls,
     variant,
     signUrl,
+    commandActions,
+    execution: {
+      mode: executionMode,
+      enforced: executionMode === 'strict'
+    },
     steps: []
   }
 
@@ -272,38 +220,23 @@ async function main() {
       baseUrl,
       sends: [],
       slotCurrent: null,
-      computeChecks: []
+      computeChecks: [],
+      assertions: []
     }
-    step.sends.push(
-      await sendSchedulerMessage({
-        baseUrl,
-        pid,
-        jwk,
-        action: 'Ping',
-        data: '',
-        variant
-      })
-    )
-    step.sends.push(
-      await sendSchedulerMessage({
-        baseUrl,
-        pid,
-        jwk,
-        action: 'GetOpsHealth',
-        data: '',
-        variant
-      })
-    )
-    step.sends.push(
-      await sendSchedulerMessage({
-        baseUrl,
-        pid,
-        jwk,
-        action: 'Write-Command',
-        data: JSON.stringify(signedCmd),
-        variant
-      })
-    )
+    for (const cmd of signedCommands) {
+      step.sends.push(
+        await sendSchedulerMessage({
+          baseUrl,
+          pid,
+          jwk,
+          action: 'Write-Command',
+          commandAction: cmd.action,
+          requestId: cmd.requestId,
+          data: JSON.stringify(cmd),
+          variant
+        })
+      )
+    }
 
     step.slotCurrent = await probeSlotCurrent(baseUrl, pid)
 
@@ -311,16 +244,55 @@ async function main() {
       const slot = Number(send.headers.slot || send.parsedSlot || '')
       if (!Number.isFinite(slot)) continue
       try {
-        step.computeChecks.push(await probeCompute(baseUrl, pid, slot))
+        const compute = await probeCompute(baseUrl, pid, slot, fetchWithTimeout)
+        step.computeChecks.push(compute)
+        send.compute = compute
       } catch (e) {
-        step.computeChecks.push({
+        const failedCompute = {
           url: `${baseUrl}/${pid}~process@1.0/compute=${slot}`,
           status: 'error',
           error: e?.message || String(e)
-        })
+        }
+        step.computeChecks.push(failedCompute)
+        send.compute = failedCompute
       }
     }
+
+    for (const send of step.sends) {
+      send.assertion = {
+        action: send.action,
+        requestId: send.requestId || null,
+        ...buildExecutionAssertion({
+          mode: executionMode,
+          transportOk: send.ok === true,
+          computeProbe: send.compute
+        })
+      }
+      step.assertions.push(send.assertion)
+    }
+    step.summary = {
+      mode: executionMode,
+      enforced: executionMode === 'strict',
+      assertions: summarizeAssertions(step.assertions),
+      failedAssertions: step.assertions
+        .filter((assertion) => assertion.passed === false)
+        .map((assertion) => ({
+          action: assertion.action || 'unknown',
+          requestId: assertion.requestId || null,
+          failures: assertion.failures || []
+        }))
+    }
     report.steps.push(step)
+  }
+
+  const allAssertions = report.steps.flatMap((step) => step.assertions || [])
+  report.summary = {
+    mode: executionMode,
+    enforced: executionMode === 'strict',
+    assertions: summarizeAssertions(allAssertions),
+    steps: report.steps.length,
+    actionAssertions: allAssertions.length,
+    failedAssertions: report.steps.flatMap((step) => step.summary.failedAssertions || [])
   }
 
   fs.writeFileSync(out, JSON.stringify(report, null, 2))
@@ -329,8 +301,9 @@ async function main() {
   for (const step of report.steps) {
     console.log(`\n[${step.baseUrl}]`)
     for (const send of step.sends) {
+      const assertionLabel = send.assertion ? ` assert=${formatAssertionStatus(send.assertion)}` : ''
       console.log(
-        `${send.action}: status=${send.status} slot=${send.headers.slot || send.parsedSlot || ''} action_echo=${send.parsedAction || ''}`
+        `${send.action}: status=${send.status} slot=${send.headers.slot || send.parsedSlot || ''} envelope=${send.envelopeAction || ''} action_echo=${send.parsedAction || ''}${assertionLabel}`
       )
     }
     console.log(
@@ -342,10 +315,26 @@ async function main() {
         `compute: status=${cmp.status} slot=${p.atSlot ?? ''} output=${p.output ?? ''} messages=${p.messagesCount ?? ''} error=${p.hasError === true ? 'yes' : p.hasError === false ? 'no' : ''}`
       )
     }
+    console.log(
+      `assertions: mode=${step.summary.mode} passed=${step.summary.assertions.passed} failed=${step.summary.assertions.failed} runtime_ok=${step.summary.assertions.runtimeOk} transport_ok=${step.summary.assertions.transportOk}`
+    )
+  }
+
+  console.log(
+    `assertion_summary: mode=${report.summary.mode} enforced=${report.summary.enforced ? 'yes' : 'no'} passed=${report.summary.assertions.passed} failed=${report.summary.assertions.failed} runtime_ok=${report.summary.assertions.runtimeOk} transport_ok=${report.summary.assertions.transportOk}`
+  )
+
+  if (executionMode === 'strict' && report.summary.assertions.failed > 0) {
+    throw new Error(`execution_assertions_failed:${report.summary.assertions.failed}`)
   }
 }
 
-main().catch((err) => {
-  console.error(err)
-  process.exit(1)
-})
+main()
+  .then(() => {
+    // Keep CLI deterministic: close even if downstream libs leave open handles.
+    process.exit(0)
+  })
+  .catch((err) => {
+    console.error(err)
+    process.exit(1)
+  })

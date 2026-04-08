@@ -2,6 +2,13 @@
 import fs from 'fs'
 import { createData, ArweaveSigner } from 'arbundles'
 import { locate } from '@permaweb/ao-scheduler-utils'
+import {
+  buildExecutionAssertion,
+  formatAssertionStatus,
+  probeCompute,
+  resolveExecutionMode,
+  summarizeAssertions
+} from './execution_assertions.js'
 
 function arg(name, fallback) {
   const idx = process.argv.indexOf(`--${name}`)
@@ -256,6 +263,7 @@ async function main() {
     'https://blackcat-inbox-production.vitek-pasek.workers.dev/sign'
   const variant = arg('variant', 'ao.TN.1')
   const profile = arg('profile', 'basic')
+  const executionMode = resolveExecutionMode(process.argv, process.env)
   const out = arg(
     'out',
     `tmp/business-matrix-scheduler-direct-${new Date().toISOString().replace(/[:.]/g, '-')}.json`
@@ -279,6 +287,10 @@ async function main() {
     variant,
     profile,
     signUrl,
+    execution: {
+      mode: executionMode,
+      enforced: executionMode === 'strict'
+    },
     tests: []
   }
 
@@ -286,20 +298,73 @@ async function main() {
   for (const baseUrl of urls) {
     const baseReport = {
       baseUrl,
-      results: []
+      results: [],
+      assertions: []
     }
     for (const fixture of fixtures) {
       const signed = await signWithWorker(fixture, signUrl, token)
       const sendRes = await sendSchedulerDirect({ baseUrl, pid, jwk, cmd: signed, variant })
       const schedulerProbe = await probeSchedulerMessage(schedulerUrl, pid, sendRes.messageId)
+      const slot = Number(sendRes.slot || '')
+      let computeProbe = null
+      if (Number.isFinite(slot)) {
+        try {
+          computeProbe = await probeCompute(baseUrl, pid, slot, fetchWithTimeout)
+        } catch (err) {
+          computeProbe = {
+            url: `${baseUrl}/${pid}~process@1.0/compute=${slot}`,
+            status: 'error',
+            ok: false,
+            error: err?.message || String(err)
+          }
+        }
+      }
+      const assertion = buildExecutionAssertion({
+        mode: executionMode,
+        transportOk: sendRes.ok === true,
+        schedulerMessageOk: schedulerProbe.ok === true,
+        computeProbe,
+        requireSchedulerMessage: true
+      })
+      const annotatedAssertion = {
+        baseUrl,
+        action: fixture.action,
+        requestId: fixture.requestId,
+        ...assertion
+      }
       baseReport.results.push({
         action: fixture.action,
         requestId: fixture.requestId,
         send: sendRes,
-        schedulerMessage: schedulerProbe
+        schedulerMessage: schedulerProbe,
+        compute: computeProbe,
+        assertion: annotatedAssertion
       })
+      baseReport.assertions.push(annotatedAssertion)
+    }
+    baseReport.summary = {
+      mode: executionMode,
+      enforced: executionMode === 'strict',
+      assertions: summarizeAssertions(baseReport.assertions),
+      failedAssertions: baseReport.assertions
+        .filter((assertion) => assertion.passed === false)
+        .map((assertion) => ({
+          action: assertion.action,
+          requestId: assertion.requestId,
+          failures: assertion.failures || []
+        }))
     }
     report.tests.push(baseReport)
+  }
+
+  const allAssertions = report.tests.flatMap((test) => test.assertions || [])
+  report.summary = {
+    mode: executionMode,
+    enforced: executionMode === 'strict',
+    assertions: summarizeAssertions(allAssertions),
+    tests: report.tests.length,
+    actions: allAssertions.length,
+    failedAssertions: report.tests.flatMap((test) => test.summary.failedAssertions || [])
   }
 
   fs.writeFileSync(out, JSON.stringify(report, null, 2))
@@ -307,14 +372,31 @@ async function main() {
   for (const t of report.tests) {
     console.log(`\n[${t.baseUrl}]`)
     for (const row of t.results) {
+      const assertionLabel = row.assertion ? ` assert=${formatAssertionStatus(row.assertion)}` : ''
       console.log(
-        `${row.action}: send=${row.send.status} slot=${row.send.slot || ''} scheduler_msg=${row.schedulerMessage.status}`
+        `${row.action}: send=${row.send.status} slot=${row.send.slot || ''} scheduler_msg=${row.schedulerMessage.status}${assertionLabel}`
       )
     }
+    console.log(
+      `assertions: mode=${t.summary.mode} passed=${t.summary.assertions.passed} failed=${t.summary.assertions.failed} runtime_ok=${t.summary.assertions.runtimeOk} transport_ok=${t.summary.assertions.transportOk} scheduler_ok=${t.summary.assertions.schedulerOk}`
+    )
+  }
+
+  console.log(
+    `assertion_summary: mode=${report.summary.mode} enforced=${report.summary.enforced ? 'yes' : 'no'} passed=${report.summary.assertions.passed} failed=${report.summary.assertions.failed} runtime_ok=${report.summary.assertions.runtimeOk} transport_ok=${report.summary.assertions.transportOk} scheduler_ok=${report.summary.assertions.schedulerOk}`
+  )
+
+  if (executionMode === 'strict' && report.summary.assertions.failed > 0) {
+    throw new Error(`execution_assertions_failed:${report.summary.assertions.failed}`)
   }
 }
 
-main().catch((err) => {
-  console.error(err)
-  process.exit(1)
-})
+main()
+  .then(() => {
+    // Keep CLI deterministic: close even if downstream libs leave open handles.
+    process.exit(0)
+  })
+  .catch((err) => {
+    console.error(err)
+    process.exit(1)
+  })

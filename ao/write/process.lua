@@ -190,9 +190,7 @@ end
 
 -- Register AO handlers to accept signed write commands via Data JSON.
 local function register_write_handlers()
-  if type(Handlers) ~= "table" or type(Handlers.add) ~= "function" then
-    return
-  end
+  local has_handlers = type(Handlers) == "table" and type(Handlers.add) == "function"
   local function tag_value(tags, key)
     if type(tags) ~= "table" then
       return nil
@@ -215,22 +213,255 @@ local function register_write_handlers()
     if type(msg) ~= "table" then
       return false
     end
-    local action = msg.Action or msg.action
+    local envelope = msg.Body or msg.body
+    local action = msg.Action
+      or msg.action
+      or (type(envelope) == "table" and (envelope.Action or envelope.action) or nil)
     if action == "Write-Command" then
       return true
     end
-    return tag_value(msg.Tags or msg.tags, "Action") == "Write-Command"
+    local action_tag = tag_value(msg.Tags or msg.tags, "Action")
+    if not action_tag and type(envelope) == "table" then
+      action_tag = tag_value(envelope.Tags or envelope.tags, "Action")
+    end
+    if action_tag == "Write-Command" then
+      return true
+    end
+    if type(M._looks_like_write_command_payload) == "function" then
+      return M._looks_like_write_command_payload(msg)
+    end
+    return false
   end
   local ok_json, cjson = pcall(require, "cjson.safe")
+  local function simple_json_decode(str)
+    local pos = 1
+    local function skip_ws()
+      local _, np = str:find("^[ \n\r\t]*", pos)
+      pos = (np or pos - 1) + 1
+    end
+    local parse_value
+    local function parse_string()
+      pos = pos + 1
+      local start = pos
+      while pos <= #str do
+        local ch = str:sub(pos, pos)
+        if ch == '"' then
+          local out = str:sub(start, pos - 1)
+          pos = pos + 1
+          return out
+        end
+        pos = pos + 1
+      end
+      return nil
+    end
+    local function parse_object()
+      pos = pos + 1
+      local obj = {}
+      skip_ws()
+      if str:sub(pos, pos) == "}" then
+        pos = pos + 1
+        return obj
+      end
+      while true do
+        skip_ws()
+        local key = parse_value()
+        skip_ws()
+        if str:sub(pos, pos) ~= ":" then
+          return nil
+        end
+        pos = pos + 1
+        local value = parse_value()
+        obj[key] = value
+        skip_ws()
+        local sep = str:sub(pos, pos)
+        pos = pos + 1
+        if sep == "}" then
+          break
+        end
+        if sep ~= "," then
+          return nil
+        end
+      end
+      return obj
+    end
+    local function parse_array()
+      pos = pos + 1
+      local arr = {}
+      skip_ws()
+      if str:sub(pos, pos) == "]" then
+        pos = pos + 1
+        return arr
+      end
+      while true do
+        arr[#arr + 1] = parse_value()
+        skip_ws()
+        local sep = str:sub(pos, pos)
+        pos = pos + 1
+        if sep == "]" then
+          break
+        end
+        if sep ~= "," then
+          return nil
+        end
+      end
+      return arr
+    end
+    parse_value = function()
+      skip_ws()
+      local ch = str:sub(pos, pos)
+      if ch == '"' then
+        return parse_string()
+      end
+      if ch == "{" then
+        return parse_object()
+      end
+      if ch == "[" then
+        return parse_array()
+      end
+      local lit = str:match("^[%w%.%-]+", pos)
+      if not lit then
+        return nil
+      end
+      pos = pos + #lit
+      if lit == "true" then
+        return true
+      end
+      if lit == "false" then
+        return false
+      end
+      if lit == "null" then
+        return nil
+      end
+      return tonumber(lit)
+    end
+    local ok, value = pcall(parse_value)
+    if ok then
+      return value
+    end
+    return nil
+  end
+  local json_decode
+  if ok_json and cjson and type(cjson.decode) == "function" then
+    json_decode = cjson.decode
+  else
+    local ok_cjson, cjson_std = pcall(require, "cjson")
+    if ok_cjson and cjson_std and type(cjson_std.decode) == "function" then
+      json_decode = cjson_std.decode
+    else
+      local ok_dkjson, dkjson = pcall(require, "dkjson")
+      if ok_dkjson and dkjson and type(dkjson.decode) == "function" then
+        json_decode = dkjson.decode
+      else
+        json_decode = simple_json_decode
+      end
+    end
+  end
   local function decode_json(raw)
-    if not ok_json or not raw or raw == "" then
+    if type(json_decode) ~= "function" or not raw or raw == "" then
       return {}
     end
-    local ok, parsed = pcall(cjson.decode, raw)
+    local ok, parsed = pcall(json_decode, raw)
     if ok and type(parsed) == "table" then
       return parsed
     end
     return {}
+  end
+  local function normalize_command_candidate(candidate)
+    if type(candidate) == "string" then
+      return decode_json(candidate)
+    end
+    if type(candidate) == "table" then
+      return candidate
+    end
+    return {}
+  end
+  local function extract_command_from_candidate(candidate)
+    local parsed = normalize_command_candidate(candidate)
+    if type(parsed) ~= "table" or next(parsed) == nil then
+      return {}
+    end
+    -- Some runtimes nest user payload under data/body fields.
+    for _, key in ipairs { "data", "Data", "body", "Body" } do
+      local nested = parsed[key]
+      if type(nested) == "string" then
+        local inner = decode_json(nested)
+        if type(inner) == "table" and next(inner) ~= nil then
+          return inner
+        end
+      elseif type(nested) == "table" and next(nested) ~= nil then
+        return nested
+      end
+    end
+    return parsed
+  end
+  local function resolve_command(msg)
+    local envelope = msg.Body or msg.body
+    local candidates = {}
+    local function add_candidate(value)
+      if value ~= nil then
+        candidates[#candidates + 1] = value
+      end
+    end
+    add_candidate(msg.Data)
+    add_candidate(msg.data)
+    if type(envelope) == "table" then
+      add_candidate(envelope.Data)
+      add_candidate(envelope.data)
+      add_candidate(envelope.Body)
+      add_candidate(envelope.body)
+    end
+    add_candidate(envelope)
+    for _, candidate in ipairs(candidates) do
+      local extracted = extract_command_from_candidate(candidate)
+      if type(extracted) == "table" and next(extracted) ~= nil then
+        return extracted
+      end
+    end
+    return {}
+  end
+  local function looks_like_write_command_payload(msg)
+    if type(msg) ~= "table" then
+      return false
+    end
+    local envelope = msg.Body or msg.body
+    local candidates = {}
+    local function add_candidate(value)
+      if value ~= nil then
+        candidates[#candidates + 1] = value
+      end
+    end
+    add_candidate(msg.Data)
+    add_candidate(msg.data)
+    if type(envelope) == "table" then
+      add_candidate(envelope.Data)
+      add_candidate(envelope.data)
+      add_candidate(envelope.Body)
+      add_candidate(envelope.body)
+    end
+    add_candidate(envelope)
+    add_candidate(msg)
+    for _, candidate in ipairs(candidates) do
+      local extracted = extract_command_from_candidate(candidate)
+      if type(extracted) == "table" and next(extracted) ~= nil then
+        local action = extracted.action or extracted.Action
+        local request_id = extracted.requestId or extracted.RequestId or extracted["Request-Id"]
+        local has_signature = extracted.signature
+          or extracted.Signature
+          or extracted.signatureRef
+          or extracted.SignatureRef
+          or extracted["Signature-Ref"]
+        if
+          type(action) == "string"
+          and action ~= ""
+          and type(request_id) == "string"
+          and request_id ~= ""
+          and has_signature
+        then
+          return true
+        end
+      end
+    end
+    return false
   end
   local function json_quote(value)
     if ok_json and cjson then
@@ -325,18 +556,12 @@ local function register_write_handlers()
     end
     return encode_json_fallback(value, {})
   end
-  local function pick(tags, key)
-    if not tags then
-      return nil
-    end
-    return tags[key] or tags[key:lower()]
-  end
   local function resolve_reply_target(msg, tags)
     local target = msg.From
       or msg.from
-      or pick(tags, "Reply-To")
-      or pick(tags, "ReplyTo")
-      or pick(tags, "From")
+      or tag_value(tags, "Reply-To")
+      or tag_value(tags, "ReplyTo")
+      or tag_value(tags, "From")
     if type(target) == "string" and target ~= "" then
       return target
     end
@@ -355,24 +580,93 @@ local function register_write_handlers()
     return false, tostring(send_err)
   end
 
-  Handlers.add("Write-Command", is_write_command, function(msg)
-    local cmd = {}
-    if type(msg.Data) == "string" then
-      cmd = decode_json(msg.Data)
-    elseif type(msg.Data) == "table" then
-      cmd = msg.Data
-    end
-    local tags = msg.Tags or {}
-    cmd.action = cmd.action or cmd.Action or pick(tags, "Command-Action")
-    cmd.requestId = cmd.requestId or cmd["Request-Id"] or pick(tags, "Request-Id")
-    cmd.actor = cmd.actor or cmd.Actor or pick(tags, "Actor")
-    cmd.tenant = cmd.tenant or cmd.Tenant or pick(tags, "Tenant")
-    cmd.role = cmd.role or cmd.Role or pick(tags, "Role")
-    cmd.nonce = cmd.nonce or cmd.Nonce or pick(tags, "Nonce")
-    cmd.timestamp = cmd.timestamp or cmd.ts or cmd["X-Timestamp"] or pick(tags, "Timestamp")
-    cmd.signatureRef = cmd.signatureRef or cmd["Signature-Ref"] or pick(tags, "Signature-Ref")
-    cmd.signature = cmd.signature or cmd.Signature or pick(tags, "Signature")
-    cmd.payload = cmd.payload or cmd.Payload or {}
+  local function handle_write_message(msg)
+    local envelope = msg.Body or msg.body or {}
+    local cmd = resolve_command(msg)
+    local tags = msg.Tags or msg.tags or envelope.Tags or envelope.tags or {}
+    cmd.action = cmd.action
+      or cmd.Action
+      or msg.Action
+      or msg.action
+      or envelope.Action
+      or envelope.action
+      or tag_value(tags, "Command-Action")
+      or tag_value(tags, "Action")
+    cmd.requestId = cmd.requestId
+      or cmd.RequestId
+      or cmd["Request-Id"]
+      or msg.requestId
+      or msg.RequestId
+      or msg["Request-Id"]
+      or msg["request-id"]
+      or envelope.requestId
+      or envelope.RequestId
+      or envelope["Request-Id"]
+      or envelope["request-id"]
+      or tag_value(tags, "Request-Id")
+    cmd.actor = cmd.actor
+      or cmd.Actor
+      or msg.actor
+      or msg.Actor
+      or envelope.actor
+      or envelope.Actor
+      or tag_value(tags, "Actor")
+    cmd.tenant = cmd.tenant
+      or cmd.Tenant
+      or msg.tenant
+      or msg.Tenant
+      or envelope.tenant
+      or envelope.Tenant
+      or tag_value(tags, "Tenant")
+    cmd.role = cmd.role
+      or cmd.Role
+      or msg.role
+      or msg.Role
+      or envelope.role
+      or envelope.Role
+      or tag_value(tags, "Role")
+    cmd.nonce = cmd.nonce
+      or cmd.Nonce
+      or msg.nonce
+      or msg.Nonce
+      or envelope.nonce
+      or envelope.Nonce
+      or tag_value(tags, "Nonce")
+    cmd.timestamp = cmd.timestamp
+      or cmd.Timestamp
+      or cmd.ts
+      or cmd["X-Timestamp"]
+      or msg.timestamp
+      or msg.Timestamp
+      or msg["X-Timestamp"]
+      or envelope.timestamp
+      or envelope.Timestamp
+      or envelope["X-Timestamp"]
+      or tag_value(tags, "Timestamp")
+    cmd.signatureRef = cmd.signatureRef
+      or cmd.SignatureRef
+      or cmd["Signature-Ref"]
+      or msg.signatureRef
+      or msg.SignatureRef
+      or msg["Signature-Ref"]
+      or envelope.signatureRef
+      or envelope.SignatureRef
+      or envelope["Signature-Ref"]
+      or tag_value(tags, "Signature-Ref")
+    cmd.signature = cmd.signature
+      or cmd.Signature
+      or msg.signature
+      or msg.Signature
+      or envelope.signature
+      or envelope.Signature
+      or tag_value(tags, "Signature")
+    cmd.payload = cmd.payload
+      or cmd.Payload
+      or msg.payload
+      or msg.Payload
+      or envelope.payload
+      or envelope.Payload
+      or {}
     local ok_route, route_result = pcall(M.route, cmd)
     local resp
     if ok_route then
@@ -410,7 +704,15 @@ local function register_write_handlers()
     -- Return a value as well so AO compute result has observability even when
     -- caller is not waiting on the outbound message channel.
     return resp_json
-  end)
+  end
+
+  M._handle_write_message = handle_write_message
+  M._tag_value = tag_value
+  M._looks_like_write_command_payload = looks_like_write_command_payload
+
+  if has_handlers then
+    Handlers.add("Write-Command", is_write_command, handle_write_message)
+  end
 end
 
 -- simple in-memory state; AO runtime would persist
@@ -459,6 +761,57 @@ local state = persist.load("write_state", {
 })
 
 register_write_handlers()
+
+-- Some runtimes dispatch via global Handle/msg entrypoints instead of Handlers.
+-- Keep a fallback so Write-Command is still processed in those environments.
+local function fallback_handle(msg)
+  if type(msg) ~= "table" or type(M._handle_write_message) ~= "function" then
+    return nil
+  end
+  local envelope = msg.Body or msg.body
+  local tags = msg.Tags or msg.tags or {}
+  local envelope_tags = (type(envelope) == "table" and (envelope.Tags or envelope.tags)) or {}
+  local tag_value = M._tag_value
+  local looks_like = M._looks_like_write_command_payload
+  local action = msg.Action
+    or msg.action
+    or (type(envelope) == "table" and (envelope.Action or envelope.action) or nil)
+  if type(tag_value) == "function" then
+    action = action or tag_value(tags, "Action") or tag_value(envelope_tags, "Action")
+  end
+  if action == "Write-Command" or (type(looks_like) == "function" and looks_like(msg)) then
+    return M._handle_write_message(msg)
+  end
+  return nil
+end
+
+-- Always chain into runtime-provided global handlers instead of only setting
+-- when missing. Some runtimes predefine Handle/handle and bypass Handlers.add.
+local previous_Handle = _G.Handle
+local previous_handle = _G.handle
+
+local function merged_global_handle(original, msg)
+  local routed = fallback_handle(msg)
+  if routed ~= nil then
+    return routed
+  end
+  if type(original) == "function" then
+    return original(msg)
+  end
+  return nil
+end
+
+_G.Handle = function(msg)
+  return merged_global_handle(previous_Handle, msg)
+end
+
+_G.handle = function(msg)
+  local original = previous_handle
+  if type(original) ~= "function" then
+    original = previous_Handle
+  end
+  return merged_global_handle(original, msg)
+end
 
 -- load persisted carts if available
 do
@@ -887,6 +1240,43 @@ function handlers.Ping(cmd)
     requestId = cmd and (cmd.requestId or cmd.RequestId or cmd.Id),
     actor = cmd and (cmd.actor or cmd.Actor),
   }
+end
+
+-- Explicit runtime signal for deep tests:
+-- emits a lightweight outbound message (when Send + ao.id are available)
+-- and prints a marker so compute results can expose deterministic activity.
+function handlers.RuntimeSignal(cmd)
+  local payload = (type(cmd) == "table" and type(cmd.payload) == "table") and cmd.payload or {}
+  local marker = payload.marker or ("runtime-signal-" .. tostring(os.time()))
+  local emitted = false
+  local ao_global = rawget(_G, "ao")
+  local target = (
+    type(ao_global) == "table"
+    and type(ao_global.id) == "string"
+    and ao_global.id ~= ""
+  )
+      and ao_global.id
+    or nil
+
+  if type(Send) == "function" and target then
+    local ok_send = pcall(function()
+      Send {
+        Target = target,
+        Action = "Runtime-Signal",
+        Data = marker,
+      }
+    end)
+    emitted = ok_send and true or false
+  end
+
+  if type(print) == "function" then
+    pcall(print, "runtime_signal:" .. tostring(marker))
+  end
+
+  return ok(cmd.requestId, {
+    marker = marker,
+    emitted = emitted,
+  })
 end
 
 local function b64url(x)
