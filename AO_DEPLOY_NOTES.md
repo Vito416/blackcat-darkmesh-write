@@ -268,7 +268,7 @@
   - `GET /metrics` with `METRICS_BEARER_TOKEN` => `200`.
   - `POST /sign` with `WORKER_AUTH_TOKEN` => `200` + `{signature, signatureRef}`.
 - AO transport checks:
-  - Direct process path `POST /<PID>` with `send-msg.js --direct --action Ping` => `200`, body `1984` (state fetch path behavior).
+  - Direct process path `POST /<PID>` with `scripts/cli/debug/send-msg.js --direct --action Ping` => `200`, body `1984` (state fetch path behavior).
   - Raw HTTPSIG helper (`scripts/cli/hb_push_httpsig.js`) to `/<PID>~process@1.0/push` => `400 "Message is not valid."` (schema mismatch when bypassing aoconnect request construction).
   - aoconnect request path (`scripts/cli/send_write_command.js` and `scripts/cli/diagnose_message.js`) => `200` and slot progression observed: `27 -> 28 -> 29 -> 30 -> 31`.
 - Message/result payload outcome is still the blocker:
@@ -460,7 +460,7 @@ Response: 500 `/push`, HTML body with `unsupported_tx_format` (ar_bundles:deseri
   - GetHealth: returns version, uptime, drafts count, outbox depth, ts.
   - SaveDraftPage: stores payload in `state.drafts`, returns `{status:OK,id}`.
   - Eval: gated by `ENABLE_EVAL=1`; otherwise returns `{status:DISABLED}`.
-- CLI presets (send-msg.js):
+- CLI presets (`scripts/cli/debug/send-msg.js`):
   - savedraft (exists), notify (Event/Tenant/Actor/Timestamp, default payload), writecmd (Write-Command tags + demo payload; accepts signature/refs).
 - Live smoke on push-1 (PID `26hrLuQ...`):
   - Ping → 200, body `1984` (current deployed module still old handlers).
@@ -510,10 +510,10 @@ curl -X POST https://push-1.forward.computer/26hrLuQBsVFcsqHMLhP1LjifRh8WYMerYyd
         "data":""
       }'
 ```
-- Node helper (repo): `node send-ping-push1.js`
-- Generic sender: `node send-msg.js --pid <PID> --action Ping --data "" --url https://push-1.forward.computer --variant ao.TN.1 --type Message --content-type application/json`
-- Eval helper: `node send-eval.js --pid <PID> --code "return 'pong'"` (or `--file code.lua`), sends Action=Eval to `/PID` with HTTPSIG JSON.
-- SaveDraft preset (example): `node send-msg.js --preset savedraft --pid <PID> --url https://push-1.forward.computer`
+- Node helper (repo): `node scripts/cli/debug/send-ping-push1.js`
+- Generic sender: `node scripts/cli/debug/send-msg.js --pid <PID> --action Ping --data "" --url https://push-1.forward.computer --variant ao.TN.1 --type Message --content-type application/json`
+- Eval helper: `node scripts/cli/debug/send-eval.js --pid <PID> --code "return 'pong'"` (or `--file code.lua`), sends Action=Eval to `/PID` with HTTPSIG JSON.
+- SaveDraft preset (example): `node scripts/cli/debug/send-msg.js --preset savedraft --pid <PID> --url https://push-1.forward.computer`
   - Defaults: Action=SaveDraftPage, Request-Id=req-demo-uuid, Actor=demo-actor, Tenant=demo-tenant, Timestamp=now, Content-Type=application/json, Variant=ao.TN.1. Override via `--request-id`, `--actor`, `--tenant`, `--timestamp`, `--data`.
 
 ## Local deep test (2026-04-05) — aoconnect message/result
@@ -992,7 +992,7 @@ console.log(res);
 ## 2026-04-05 — Local HB spawn + ping confirmed (httpsig)
 - Local HB spawn works with aoconnect: `connect({ MODE: 'mainnet', URL: 'http://localhost:8734', SCHEDULER: n_XZ... })` + `spawn({ module: O1gXF..., scheduler/authority: n_XZ..., data: '1984' })`.
 - Local PID returned: `RSVTuHEIVcR9L4J2KHDbO9xRSSs1u7d5099DVo4Bmwc`.
-- Local ping works via HTTPSIG JSON: `node send-msg.js --pid <PID> --url http://localhost:8734 --action Ping --data ""` → **200 OK**, body `1984`.
+- Local ping works via HTTPSIG JSON: `node scripts/cli/debug/send-msg.js --pid <PID> --url http://localhost:8734 --action Ping --data ""` → **200 OK**, body `1984`.
 - Key takeaway: local HB can only resolve **local** PIDs; trying to hit a mainnet PID locally causes 502 fetch from `arweave.net/raw/<PID>` and leads to 500s. Use local spawn first, then message `/PID` directly (no `/message`, no ANS‑104).
 - Local smoke (HTTPSIG JSON to `/PID`): Ping, GetOpsHealth, SaveDraft preset, and Write-Command (signed) all returned **200 OK** with body `1984`. This confirms the local request shape is accepted; handler output still needs validation once we have a result/observe pipeline.
 

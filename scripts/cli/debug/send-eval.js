@@ -3,8 +3,8 @@
  * Eval helper: sends Action=Eval with Lua code in "data" to the given PID.
  *
  * Usage:
- *   node send-eval.js --pid <PID> --code "return 'pong'"
- *   node send-eval.js --pid <PID> --file path/to/code.lua
+ *   node scripts/cli/debug/send-eval.js --pid <PID> --code "return 'pong'"
+ *   node scripts/cli/debug/send-eval.js --pid <PID> --file path/to/code.lua
  *   # optional: --url https://push-1.forward.computer --variant ao.TN.1
  */
 

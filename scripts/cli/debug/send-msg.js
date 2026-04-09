@@ -3,7 +3,7 @@
  * Generic AO message sender (HTTPSIG/structured) for push-1 or any HB.
  *
  * Usage:
- *   node send-msg.js --pid <processId> --action Ping --data "" \
+ *   node scripts/cli/debug/send-msg.js --pid <processId> --action Ping --data "" \
  *     --url https://push-1.forward.computer --variant ao.TN.1 \
  *     --type Message --content-type application/json
  *

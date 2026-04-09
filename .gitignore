@@ -30,6 +30,7 @@ dev/write-rate-store.json
 wallet.json
 .wallet.json
 **/wallet.json
+arweave-second.json
 
 # Tests / fixtures outputs
 *.snap
