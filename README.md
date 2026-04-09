@@ -85,6 +85,7 @@ Legend: teal = queues/events, gray = WAL/audit paths.
 - Env template: `ops/env.prod.example`
 - Schemas: `schemas/`
 - PSP/webhook specs: `scripts/verify/webhook_psp_spec.lua`, `gopay_webhook_spec.lua`
+- Gateway security manifest snapshot (internalized): `../blackcat-darkmesh-gateway/security/crypto-manifests/`
 
 ## AO deploy (current runbook)
 - Canonical endpoint: `https://push.forward.computer`
@@ -309,6 +310,8 @@ Notes: the image ships with Lua openssl + luasodium so PSP/webhook specs run wit
 
 ## License
 Blackcat Darkmesh Write is licensed under `BFNL-1.0` (see `LICENSE`). Contribution and relicensing rules are governed by the companion documents in `blackcat-darkmesh-ao/docs/`. This repository is an official component of the Blackcat Covered System; the repo split inside `BLACKCAT_MESH_NEXUS` is only for maintenance/safety/auditability and does **not** trigger a separate fee event for the same deployment.
+
+Current active covered-system repos are: `blackcat-darkmesh-ao`, `blackcat-darkmesh-gateway`, `blackcat-darkmesh-web`, `blackcat-darkmesh-write`, and `blackcat-templates`. Legacy backend/crypto modules are tracked as internalized packages inside `blackcat-darkmesh-gateway` (for example `libs/legacy/`, `kernel-migration/`, and `security/crypto-manifests/`).
 
 Canonical licensing bundle:
 - BFNL 1.0: https://github.com/Vito416/blackcat-darkmesh-ao/blob/main/docs/BFNL-1.0.md
