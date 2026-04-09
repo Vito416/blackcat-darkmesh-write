@@ -1863,3 +1863,27 @@ console.log(res);
   - `push.forward`: `ao.result` available, dryrun may still return `Error running dryrun`.
   - `push-1`: compute/scheduler healthy, `ao.result` may be `na` on this endpoint.
 - One transient strict run failed once with a temporary `compute_not_ok`; immediate rerun passed fully, confirming a network/readback transient rather than a code regression.
+
+## 2026-04-09 — Post-finalization retest and endpoint stability decision
+- User confirmed finalization/indexing of latest `ConfirmPayment` messages:
+  - `T8WKxFh7PEODxKVMaN7COWaeIHbCvDGS2CNJByZMjT4`
+  - `3XCffeafQPbWJTDY4xnqjyJ1iAMwdqzUD9GokBoNsz0`
+- Target PID under test remained:
+  - `b_h5zjpSysjil3dQhVRNdBHTGwEfsjKYP8xwNgE5epk`
+- `ConfirmPayment` targeted rerun (robust retries) passed on both endpoints:
+  - `push.forward.computer`: `send=200`, `scheduler=200`, `compute=200`
+  - `push-1.forward.computer`: `send=200`, `scheduler=200`, `compute=200`
+  - report: `tmp/confirmpayment-rerun-bh5-robust-2026-04-08T23-57-04-322Z.json`
+- Full extended strict matrix rerun across both endpoints still showed intermittent transport failures:
+  - report: `tmp/business-matrix-scheduler-direct-bh5-extended-finalized-rerun-2026-04-09.json`
+  - failures were transient `send=500` with missing slot on individual actions (scheduler fetch still often retrievable).
+- Focused flaky reproduction (`UpsertRoute` + `ConfirmPayment`, 3 rounds):
+  - `push.forward.computer` showed repeated intermittent `ConfirmPayment send=500`
+  - `push-1.forward.computer` remained stable (`200` path)
+  - report: `tmp/flaky-rerun-upsert-confirm-2026-04-09T00-53-46-666Z.json`
+- Strict release gate rerun scoped to `push-1` passed end-to-end again:
+  - command: `bash scripts/verify/release_gate_v120.sh --strict --pid b_h5... --urls https://push-1.forward.computer --secrets tmp/test-secrets.json --wallet wallet.json`
+  - result: **PASS** (14/14 phases)
+- Operational conclusion (v1.2.0 release profile):
+  - use `https://push-1.forward.computer` as primary deep/prod endpoint,
+  - keep `https://push.forward.computer` as fallback/retry path until transport flakiness is removed.
