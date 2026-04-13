@@ -580,6 +580,15 @@ local function register_write_handlers()
     return false, tostring(send_err)
   end
 
+  local function emit_response_json(json_text)
+    pcall(function()
+      if type(print) == "function" then
+        print(json_text)
+      end
+    end)
+    return json_text
+  end
+
   local function handle_write_message(msg)
     local envelope = msg.Body or msg.body or {}
     local cmd = resolve_command(msg)
@@ -684,7 +693,7 @@ local function register_write_handlers()
     local reply_target = resolve_reply_target(msg, tags)
     if not reply_target then
       counter("write.ao.reply_target_missing", 1)
-      return resp_json
+      return emit_response_json(resp_json)
     end
     local sent, send_err = safe_send {
       Target = reply_target,
@@ -693,17 +702,18 @@ local function register_write_handlers()
     }
     if not sent then
       counter("write.ao.send_failed", 1)
-      return encode_json {
+      local send_fail_json = encode_json {
         status = "ERROR",
         code = "SEND_FAILED",
         message = send_err or "send_failed",
         requestId = cmd.requestId,
         result = resp,
       }
+      return emit_response_json(send_fail_json)
     end
     -- Return a value as well so AO compute result has observability even when
     -- caller is not waiting on the outbound message channel.
-    return resp_json
+    return emit_response_json(resp_json)
   end
 
   M._handle_write_message = handle_write_message
@@ -2794,11 +2804,32 @@ function compute_totals(cart, coupon_code, vatRate, shipping, address)
 end
 
 function handlers.CreateOrder(cmd)
-  local cart = state.carts[cmd.payload.cartId]
+  local payload = cmd.payload or {}
+  local cart = payload.cartId and state.carts[payload.cartId] or nil
+  if
+    (not cart or #(cart.items or {}) == 0)
+    and type(payload.items) == "table"
+    and #payload.items > 0
+  then
+    cart = {
+      siteId = payload.siteId,
+      currency = payload.currency or "USD",
+      items = payload.items,
+    }
+  end
   if not cart or #(cart.items or {}) == 0 then
     return err(cmd.requestId, "NOT_FOUND", "cart empty or missing")
   end
-  local existing_order_id = cmd.payload.orderId or ("ord_" .. tostring(cmd.payload.cartId))
+
+  local existing_order_id = payload.orderId
+  if not existing_order_id or existing_order_id == "" then
+    if payload.cartId and payload.cartId ~= "" then
+      existing_order_id = "ord_" .. tostring(payload.cartId)
+    else
+      existing_order_id = "ord_"
+        .. string.sub(sha256_str(tostring(cmd.requestId or cmd.nonce or os.time())), 1, 16)
+    end
+  end
   if state.orders[existing_order_id] then
     local existing = state.orders[existing_order_id]
     local total = existing.totals and existing.totals.total
@@ -2809,15 +2840,14 @@ function handlers.CreateOrder(cmd)
     })
   end
   -- derive vatRate from tax table if not provided
-  local vatRate = cmd.payload.vatRate
+  local vatRate = payload.vatRate
   if not vatRate then
     local site = cart.siteId or "default"
     local rates = state.tax_rates[site] or {}
     for _, r in ipairs(rates) do
       local country_match = not r.country
-        or (cmd.payload.address and r.country == string.upper(cmd.payload.address.country or ""))
-      local region_match = not r.region
-        or (cmd.payload.address and r.region == cmd.payload.address.region)
+        or (payload.address and r.country == string.upper(payload.address.country or ""))
+      local region_match = not r.region or (payload.address and r.region == payload.address.region)
       if country_match and region_match then
         vatRate = r.rate
         break
@@ -2826,36 +2856,34 @@ function handlers.CreateOrder(cmd)
   end
   vatRate = vatRate or tonumber(os.getenv "TAX_RATE_DEFAULT" or "0")
   local totals, total_err =
-    compute_totals(cart, cmd.payload.coupon, vatRate, cmd.payload.shipping, cmd.payload.address)
+    compute_totals(cart, payload.coupon, vatRate, payload.shipping, payload.address)
   if not totals then
     return err(cmd.requestId, "INVALID_INPUT", total_err)
   end
   local orderId = existing_order_id
   state.orders[orderId] = {
-    siteId = cmd.payload.siteId or cart.siteId,
-    customerId = cmd.payload.customerId,
+    siteId = payload.siteId or cart.siteId,
+    customerId = payload.customerId,
     currency = cart.currency,
     items = cart.items,
     status = "draft",
     version = 1,
     totals = totals,
-    coupon = cmd.payload.coupon, -- legacy
-    coupons = cmd.payload.coupon and { cmd.payload.coupon } or {},
+    coupon = payload.coupon, -- legacy
+    coupons = payload.coupon and { payload.coupon } or {},
     vatRate = vatRate,
     shipping = totals.shipping,
-    address = cmd.payload.address,
+    address = payload.address,
     createdAt = cmd.timestamp,
   }
-  if cmd.payload.coupon then
-    state.coupon_redemptions[cmd.payload.coupon] = (
-      state.coupon_redemptions[cmd.payload.coupon] or 0
-    ) + 1
+  if payload.coupon then
+    state.coupon_redemptions[payload.coupon] = (state.coupon_redemptions[payload.coupon] or 0) + 1
   end
   local ev = {
     type = "OrderCreated",
     orderId = orderId,
     siteId = state.orders[orderId].siteId,
-    customerId = cmd.payload.customerId,
+    customerId = payload.customerId,
     currency = cart.currency,
     totalAmount = totals.total,
     requestId = cmd.requestId,

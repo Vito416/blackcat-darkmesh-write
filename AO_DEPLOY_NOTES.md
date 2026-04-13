@@ -1887,3 +1887,110 @@ console.log(res);
 - Operational conclusion (v1.2.0 release profile):
   - use `https://push-1.forward.computer` as primary deep/prod endpoint,
   - keep `https://push.forward.computer` as fallback/retry path until transport flakiness is removed.
+
+## 2026-04-13 — New write deploy (module+PID) for gateway checkout routing
+- Published write WASM module:
+  - `6F2ddsxhQy0qsMZOlVvxN0_Xln6tq4F28dzVf9iooFA`
+  - tags include `Type=Module`, `Variant=ao.TN.1`, `accept-bundle=true`, `accept-codec=httpsig@1.0`.
+- Spawned write process:
+  - `hWVmV6rDu8h6PiPMOvmbV4csn8KmBa87p7WRI4j94cM`
+  - scheduler: `n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo`
+  - spawn mode: `extended` (via shared AO deploy helper).
+- Auth flags set on spawn:
+  - `WRITE_REQUIRE_SIGNATURE=1`
+  - `WRITE_REQUIRE_NONCE=1`
+  - `WRITE_REQUIRE_TIMESTAMP=1`
+  - `WRITE_SIG_TYPE=ed25519`
+  - `WRITE_SIG_PUBLIC=<WRITE_SIG_PUBLIC_HEX from tmp/test-secrets.json>`
+
+Fix landed during this deploy cycle:
+- `scripts/cli/spawn_wasm_raw.js` now uses `connect({ URL })` (uppercase key) instead of `url`,
+  which prevented accidental fallback to `tee-6.forward.computer`.
+
+## 2026-04-13 — Rebuild + redeploy after Docker restore (authoritative pair)
+- Docker was restored in WSL, so write WASM was rebuilt from current source before publish.
+
+Rebuild sequence:
+- `node scripts/build-write-bundle.js`
+- `ao-dev build`
+- `cp process.wasm dist/write/process.wasm`
+
+Authoritative deployment pair (use this one):
+- module: `PIR_EwJ4fozE4d4HC5vRHsHElzqC_pIVe_QWsinChgg`
+- pid: `7zFI3P5Ik1bSvftlRQflfC6WnhLbI9Yw3174Ub5TeG0`
+
+Note:
+- previous same-day pair (`6F2d...` / `hWVm...`) is superseded by this rebuilt deploy.
+
+## 2026-04-13 — Post-finalization deep tests on authoritative write PID
+
+Target under test:
+- module: `PIR_EwJ4fozE4d4HC5vRHsHElzqC_pIVe_QWsinChgg`
+- pid: `7zFI3P5Ik1bSvftlRQflfC6WnhLbI9Yw3174Ub5TeG0`
+
+Strict deep test (both endpoints):
+- command:
+  - `node scripts/cli/deep_test_scheduler_direct.js --pid 7zFI... --urls https://push.forward.computer,https://push-1.forward.computer --secrets tmp/test-secrets.json --wallet wallet.json --execution-mode strict --out tmp/deep-test-7zFI-strict-2026-04-13.json`
+- result:
+  - push: strict pass (`3/3`)
+  - push-1: one transient transport failure (`GetOpsHealth send=500`) -> strict fail (`2/3`)
+- rerun on push-1 only:
+  - `node scripts/cli/deep_test_scheduler_direct.js --pid 7zFI... --urls https://push-1.forward.computer --secrets tmp/test-secrets.json --wallet wallet.json --execution-mode strict --out tmp/deep-test-7zFI-push1-strict-rerun-2026-04-13.json`
+  - result: strict pass (`3/3`)
+
+Extended strict business matrix:
+- command:
+  - `node scripts/cli/business_matrix_scheduler_direct.js --pid 7zFI... --urls https://push.forward.computer,https://push-1.forward.computer --wallet wallet.json --secrets tmp/test-secrets.json --profile extended --execution-mode strict --out tmp/business-matrix-7zFI-extended-strict-2026-04-13.json`
+- result:
+  - push: 16 pass / 1 transient transport fail (`SubmitForm send=500`)
+  - push-1: 15 pass / 2 transient transport fails (`UpsertRoute`, `ProviderWebhook`)
+  - scheduler message probes remained `200` for all actions.
+
+CU/readback diagnostic:
+- command:
+  - `node scripts/cli/diagnose_cu_readback.js --pid 7zFI... --report tmp/deep-test-7zFI-strict-2026-04-13.json --wallet wallet.json --out tmp/diag-cureadback-7zFI-2026-04-13.json`
+- result:
+  - compute `200`, scheduler message `200` across tested actions/endpoints.
+  - `ao.result` available on `push.forward`, `na` on `push-1` (known endpoint difference).
+
+Adapter probe (`scripts/http/checkout_api_server.mjs`) note:
+- health endpoint is green with signer enabled.
+- checkout calls currently normalize to:
+  - `{ "status": "ERROR", "code": "INVALID_OUTPUT", "message": "" }`
+- indicates runtime output/body normalization gap (transport accepted, but command-result envelope is empty for these calls).
+
+## 2026-04-13 — Rebuild + redeploy (authoritative write pair) and fresh strict runs
+
+Authoritative deploy pair (rebuilt from current source before publish):
+- module: `cr40snlVSdBvDn6yCSNamUz7RaaImr_MO5p8pqRNXv8`
+- pid: `oGtuWIv6-q_UNYKeC-gdwPPp65JHxqs74R4t7LacgQY`
+
+Deployment artifact reference:
+- `../blackcat-darkmesh-ao/tmp/deploy-write-pid.json`
+
+Strict deep test (scheduler direct):
+- command output file:
+  - `tmp/deep-test-oGtu-strict-2026-04-13.json`
+- result:
+  - `https://push.forward.computer`: **PASS** (3/3)
+  - `https://push-1.forward.computer`: **PASS** (3/3)
+
+Extended strict business matrix:
+- full dual-node run:
+  - `tmp/business-matrix-oGtu-extended-strict-2026-04-13.json`
+  - result: 33/34 pass; one transient transport `500` on `CreatePaymentIntent` (`push-1`)
+- push-1 rerun:
+  - `tmp/business-matrix-oGtu-extended-strict-push1-rerun-2026-04-13.json`
+  - result: **PASS** (17/17)
+
+CU/readback diagnostic:
+- `tmp/diag-cureadback-oGtu-2026-04-13.json`
+- summary:
+  - compute `200` on both push nodes for all tested actions
+  - scheduler message probes `200` on both push nodes
+  - `ao.result` available on `push.forward`, `na` on `push-1` (known endpoint behavior difference)
+
+Release gate check note:
+- `scripts/verify/release_gate_v120.sh --strict ...` was run against this PID.
+- runtime/static checks passed up to `stylua`.
+- gate ended FAIL only on formatting drift in local `ao/write/process.lua` (`stylua --check`), not on deployed runtime behavior.
