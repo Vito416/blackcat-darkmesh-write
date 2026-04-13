@@ -246,6 +246,9 @@ scripts/cli/       # local helpers (run command)
   - `WRITE_SIG_PUBLIC` (single key; PEM path or `hex:<pubkey>` form),
   - `WRITE_SIG_PUBLICS` (rotation/keyring map keyed by `signatureRef`, supports `default`),
   - `WRITE_SIG_SECRET` (for `hmac` mode).
+- SignatureRef policy gate:
+  - `WRITE_SIGNATURE_POLICY_JSON` or `WRITE_SIGNATURE_POLICY_PATH` (JSON map keyed by `signatureRef` with per-key `actions` and optional `roles`; unknown or missing refs fail closed with deterministic `signature_policy_*` errors),
+  - policy is enforced after signature verification and before the existing role checks.
 - Optional JWT gate: set `WRITE_JWT_HS_SECRET` (HS256) and optionally `WRITE_REQUIRE_JWT=1` to fail-closed; claims `sub/tenant/role/nonce` populate `actor/tenant/role/nonce` when missing.
 - `WRITE_WAL_PATH=/var/lib/ao/write-wal.ndjson` — append-only WAL with request/response hashes.
 - `WRITE_IDEM_PATH=/var/lib/ao/write-idem.json` — persist idempotent responses across restarts (optional).

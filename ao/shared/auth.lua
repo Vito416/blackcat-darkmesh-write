@@ -1,5 +1,5 @@
 -- Minimal-but-stricter auth helpers for write process.
--- Intent: avoid accepting obvious replay/flood, enforce role policy, leave crypto ops to gateway/worker.
+-- Intent: avoid accepting obvious replay/flood, enforce signatureRef policy + role policy, leave crypto ops to gateway/worker.
 
 local Auth = {}
 local os_time = os.time
@@ -43,6 +43,8 @@ local SIG_TYPE = getenv_multi("WRITE_SIG_TYPE", "AUTH_SIG_TYPE") or "ed25519"
 local SIG_PUBLIC = getenv_multi("WRITE_SIG_PUBLIC", "AUTH_SIG_PUBLIC")
 local SIG_PUBLICS = getenv_multi("WRITE_SIG_PUBLICS", "AUTH_SIG_PUBLICS")
 local SIG_SECRET = getenv_multi("WRITE_SIG_SECRET", "AUTH_SIG_SECRET")
+local SIG_POLICY_JSON = getenv_multi("WRITE_SIGNATURE_POLICY_JSON", "AUTH_SIGNATURE_POLICY_JSON")
+local SIG_POLICY_PATH = getenv_multi("WRITE_SIGNATURE_POLICY_PATH", "AUTH_SIGNATURE_POLICY_PATH")
 local REQUIRE_JWT = getenv_multi("WRITE_REQUIRE_JWT", "AUTH_REQUIRE_JWT") == "1"
 local JWT_SECRET = getenv_multi("WRITE_JWT_HS_SECRET", "AUTH_JWT_HS_SECRET")
 local RATE_STORE_PATH = getenv_multi("WRITE_RATE_STORE_PATH", "AUTH_RATE_STORE_PATH")
@@ -236,6 +238,141 @@ local function resolve_sig_public(sig_ref)
     end
   end
   return SIG_PUBLIC
+end
+
+local function list_from_value(value)
+  if value == nil then
+    return nil
+  end
+  if value == "*" then
+    return "*"
+  end
+  if type(value) == "string" then
+    if value == "" then
+      return nil
+    end
+    return { value }
+  end
+  if type(value) ~= "table" then
+    return nil
+  end
+  if value[1] == "*" and #value == 1 then
+    return "*"
+  end
+  local out = {}
+  for i = 1, #value do
+    local item = value[i]
+    if type(item) ~= "string" or item == "" then
+      return nil
+    end
+    out[#out + 1] = item
+  end
+  if #out == 0 then
+    return nil
+  end
+  return out
+end
+
+local function normalize_policy_entry(entry)
+  if type(entry) == "string" then
+    local actions = list_from_value(entry)
+    if not actions then
+      return nil
+    end
+    return { actions = actions }
+  end
+  if type(entry) ~= "table" then
+    return nil
+  end
+
+  local actions = entry.actions or entry.action or entry.allowedActions
+  local roles = entry.roles or entry.role or entry.allowedRoles
+  if actions == nil and roles == nil then
+    if #entry > 0 then
+      actions = entry
+    else
+      return nil
+    end
+  end
+
+  local normalized = {}
+  if actions ~= nil then
+    normalized.actions = list_from_value(actions)
+    if not normalized.actions then
+      return nil
+    end
+  end
+  if roles ~= nil then
+    normalized.roles = list_from_value(roles)
+    if not normalized.roles then
+      return nil
+    end
+  end
+  if not normalized.actions and not normalized.roles then
+    return nil
+  end
+  return normalized
+end
+
+local SIGNATURE_POLICY_CONFIGURED = (SIG_POLICY_JSON and SIG_POLICY_JSON ~= "")
+  or (SIG_POLICY_PATH and SIG_POLICY_PATH ~= "")
+local SIGNATURE_POLICY_CACHE = nil
+local SIGNATURE_POLICY_ERROR = nil
+local SIGNATURE_POLICY_LOADED = false
+
+local function load_signature_policy()
+  if not SIGNATURE_POLICY_CONFIGURED then
+    return nil, nil
+  end
+  if not cjson_ok or not cjson then
+    return nil, "signature_policy_json_unavailable"
+  end
+
+  local raw = SIG_POLICY_JSON
+  if (not raw or raw == "") and SIG_POLICY_PATH and SIG_POLICY_PATH ~= "" then
+    local f = io.open(SIG_POLICY_PATH, "r")
+    if not f then
+      return nil, "signature_policy_unreadable"
+    end
+    raw = f:read "*a"
+    f:close()
+  end
+
+  if not raw or raw == "" then
+    return nil, "signature_policy_missing_source"
+  end
+
+  local ok, decoded = pcall(cjson.decode, raw)
+  if not ok or type(decoded) ~= "table" then
+    return nil, "signature_policy_invalid"
+  end
+
+  local map = {}
+  for sig_ref, entry in pairs(decoded) do
+    if type(sig_ref) ~= "string" or sig_ref == "" then
+      return nil, "signature_policy_invalid"
+    end
+    local normalized = normalize_policy_entry(entry)
+    if not normalized then
+      return nil, "signature_policy_invalid"
+    end
+    map[sig_ref] = normalized
+  end
+
+  if not next(map) then
+    return nil, "signature_policy_invalid"
+  end
+
+  return map, nil
+end
+
+local function ensure_signature_policy()
+  if SIGNATURE_POLICY_LOADED then
+    return SIGNATURE_POLICY_CACHE, SIGNATURE_POLICY_ERROR, SIGNATURE_POLICY_CONFIGURED
+  end
+  SIGNATURE_POLICY_LOADED = true
+  SIGNATURE_POLICY_CACHE, SIGNATURE_POLICY_ERROR = load_signature_policy()
+  return SIGNATURE_POLICY_CACHE, SIGNATURE_POLICY_ERROR, SIGNATURE_POLICY_CONFIGURED
 end
 
 function Auth.require_role(msg, allowed_roles)
@@ -862,6 +999,48 @@ function Auth.require_role_or_capability(msg, roles, _caps)
 end
 
 function Auth.check_policy(_msg)
+  local policy_map, policy_err, configured = ensure_signature_policy()
+  if not configured then
+    return true
+  end
+  if not policy_map then
+    return false, policy_err or "signature_policy_invalid"
+  end
+  local msg = _msg or {}
+  local sig_ref = msg.signatureRef or msg["Signature-Ref"] or msg.signature_ref
+  if not sig_ref or sig_ref == "" then
+    m_counter "write_auth_signature_policy_missing_ref_total"
+    return false, "signature_policy_missing_signature_ref"
+  end
+
+  local entry = policy_map[tostring(sig_ref)]
+  if not entry then
+    m_counter "write_auth_signature_policy_unknown_ref_total"
+    return false, "signature_policy_not_found"
+  end
+
+  local action = msg.action or msg.Action
+  if not action or action == "" then
+    m_counter "write_auth_signature_policy_missing_action_total"
+    return false, "signature_policy_missing_action"
+  end
+  if entry.actions ~= "*" and not contains(entry.actions, action) then
+    m_counter "write_auth_signature_policy_action_forbidden_total"
+    return false, "signature_policy_action_forbidden"
+  end
+
+  if entry.roles then
+    local role = msg["Actor-Role"] or msg.actorRole or msg.role
+    if not role or role == "" then
+      m_counter "write_auth_signature_policy_missing_role_total"
+      return false, "signature_policy_missing_role"
+    end
+    if entry.roles ~= "*" and not contains(entry.roles, role) then
+      m_counter "write_auth_signature_policy_role_forbidden_total"
+      return false, "signature_policy_role_forbidden"
+    end
+  end
+
   return true
 end
 
