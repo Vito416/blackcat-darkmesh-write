@@ -251,9 +251,19 @@
         }
       },
       "required": [
-        "orderId",
-        "siteId",
-        "currency"
+        "siteId"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "cartId"
+          ]
+        },
+        {
+          "required": [
+            "items"
+          ]
+        }
       ],
       "additionalProperties": true
     },

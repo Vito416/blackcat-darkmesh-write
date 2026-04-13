@@ -294,19 +294,13 @@ local validators = {
     if not p then
       return false, { "missing:payload" }
     end
-    -- permit cart-driven flow (cartId required) or direct order payload (items + totals)
+    -- permit cart-driven flow (cartId) or direct order payload (siteId + items)
     local missing = {}
-    if not p.orderId then
-      table.insert(missing, "orderId")
-    end
     if not p.siteId then
       table.insert(missing, "siteId")
     end
     if not p.cartId and not p.items then
       table.insert(missing, "cartId|items")
-    end
-    if not p.currency then
-      table.insert(missing, "currency")
     end
     if #missing > 0 then
       return false, { "missing:" .. table.concat(missing, ",") }

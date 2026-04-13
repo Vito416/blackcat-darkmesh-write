@@ -6,6 +6,7 @@
   "scripts": {
     "build:ao": "esbuild ao/handler.ts --bundle --platform=node --format=esm --outfile=dist/ao-write.js",
     "bundle:write": "node scripts/build-write-bundle.js",
+    "api:checkout": "node scripts/http/checkout_api_server.mjs",
     "ao:upload": "node scripts/ao-upload.js",
     "ao:spawn": "node scripts/ao-spawn.js",
     "build:bundle": "node scripts/build-write-bundle.js",

@@ -35,6 +35,9 @@ AO-native command layer for Blackcat Darkmesh. This repository hosts the write-s
 - Identity & auth: signed commands or capability tokens; gateway is never an implicit authority.
 - Idempotence: `requestId` registry and optimistic `expectedVersion` guards to prevent duplicate writes.
 - Audit: append-only log with correlation to requestId and actor; deterministic status codes.
+- Gateway compatibility: `CreateOrder` supports both cart-driven payloads
+  (`cartId`) and direct template payloads (`siteId + items`) with safe
+  `orderId`/`currency` fallback generation.
 
 ```mermaid
 flowchart LR
@@ -136,6 +139,29 @@ node scripts/cli/send_write_command.js
 ```
 
 For worker-signed end-to-end tests, set `WORKER_SIGN_URL` + `WORKER_AUTH_TOKEN` (test values are kept locally in `tmp/test-secrets.json`).
+
+### HTTP checkout adapter (for WEDOS/PHP bridge)
+
+Gateway template contract expects write endpoints:
+- `POST /api/checkout/order`
+- `POST /api/checkout/payment-intent`
+
+This repo now ships a lightweight adapter:
+
+```bash
+WRITE_PROCESS_ID=<write_pid> \
+WRITE_WALLET_PATH=wallet.json \
+WRITE_HB_URL=https://push.forward.computer \
+WRITE_HB_SCHEDULER=n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo \
+WRITE_SIGNER_URL=https://<worker-host>/sign \
+WRITE_SIGNER_TOKEN=<worker_bearer_token> \
+node scripts/http/checkout_api_server.mjs
+```
+
+Notes:
+- Adapter accepts already signed envelopes, or can call worker `/sign` when signature fields are missing.
+- It forwards envelope as `Write-Command` AO message and returns normalized write result.
+- Default listen address is `0.0.0.0:8789` (`PORT` can override).
 
 ### Release gate / deep test
 Run the v1.2.0 readiness gate in one command:

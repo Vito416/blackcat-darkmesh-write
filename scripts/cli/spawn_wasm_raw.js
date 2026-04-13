@@ -22,7 +22,7 @@ const WRITE_SIG_PUBLIC = process.env.WRITE_SIG_PUBLIC || ''
 const WRITE_SIG_PUBLICS = process.env.WRITE_SIG_PUBLICS || ''
 
 const signer = createSigner(JSON.parse(fs.readFileSync('wallet.json', 'utf8')))
-const ao = connect({ MODE: 'mainnet', url: URL, SCHEDULER: SCHED, signer })
+const ao = connect({ MODE: 'mainnet', URL, SCHEDULER: SCHED, signer })
 
 async function main() {
   const params = {
