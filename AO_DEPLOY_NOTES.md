@@ -1994,3 +1994,36 @@ Release gate check note:
 - `scripts/verify/release_gate_v120.sh --strict ...` was run against this PID.
 - runtime/static checks passed up to `stylua`.
 - gate ended FAIL only on formatting drift in local `ao/write/process.lua` (`stylua --check`), not on deployed runtime behavior.
+
+## 2026-04-13 — Fresh write deploy (v2) + post-finalization verification
+
+Authoritative v2 pair:
+- module: `sC4m0etGwDG0dEa-4wTlSBsQqvP1o1vy4BdQPUCGf8Y`
+- pid: `KvIVdxIEj3x6-B8mzIErc2cqCDQpRET2U1uWmbhACoE`
+
+Artifacts:
+- `tmp/deploy-write-module-v2-2026-04-13.json`
+- `tmp/deploy-write-pid-v2-2026-04-13.json`
+
+Finalization status check:
+- module finalized quickly (`scripts/deploy/wait_finalized.sh` via AO repo helper).
+- PID indexing/finalization lagged initially (`Not Found`) and then stabilized.
+
+Strict deep tests:
+- initial run right after spawn:
+  - `tmp/deep-test-KvIV-strict-2026-04-13.json`
+  - transient propagation failures (`compute_not_ok` / transport 500)
+- stabilized rerun:
+  - `tmp/deep-test-KvIV-strict-r3-2026-04-13.json`
+  - **PASS 6/6** (`push` + `push-1`)
+
+Extended strict business matrix:
+- report: `tmp/business-matrix-KvIV-extended-strict-2026-04-13.json`
+- result: **PASS 34/34** across both push nodes
+
+CU/readback diagnostic on passing run:
+- report: `tmp/diag-cureadback-KvIV-2026-04-13-r3.json`
+- summary:
+  - compute 200 for all tested actions on both push nodes
+  - scheduler message probes 200 on both push nodes
+  - `ao.result` available on `push.forward`, `na` on `push-1` (known endpoint behavior difference)
