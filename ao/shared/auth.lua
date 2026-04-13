@@ -558,6 +558,7 @@ local function canonical_detached_message(msg)
     pick(msg.actor, msg.Actor),
     pick(msg.ts, msg.timestamp, msg["X-Timestamp"]),
     pick(msg.nonce, msg.Nonce, msg["X-Nonce"]),
+    pick(msg.role, msg.Role, msg["Actor-Role"], msg.actorRole),
     canonical_payload(msg),
     msg.requestId or msg["Request-Id"] or "",
   }

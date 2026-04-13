@@ -48,6 +48,7 @@ function canonicalDetachedMessage(cmd) {
     cmd.actor || '',
     cmd.timestamp || '',
     cmd.nonce || '',
+    cmd.role || cmd['Actor-Role'] || '',
     stableStringify(cmd.payload || {}),
     cmd.requestId || ''
   ]

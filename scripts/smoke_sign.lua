@@ -3,7 +3,7 @@
 --   WRITE_SIG_PRIV_HEX (required)
 --   WRITE_SIG_REF (optional, default "write-ed25519-test")
 --
--- Input: JSON on stdin with fields action/tenant/actor/nonce/ts/payload/requestId
+-- Input: JSON on stdin with fields action/tenant/actor/nonce/role/ts/payload/requestId
 -- Output: JSON with signature, signatureRef, cmd
 
 local cjson = require "cjson.safe"
@@ -40,6 +40,7 @@ local function canonical_detached(cmd)
     cmd.actor or cmd.Actor or "",
     cmd.ts or cmd.timestamp or cmd["X-Timestamp"] or "",
     cmd.nonce or cmd.Nonce or cmd["X-Nonce"] or "",
+    cmd.role or cmd.Role or cmd["Actor-Role"] or "",
     canonical_payload(cmd.payload or cmd.Payload or {}),
     cmd.requestId or cmd["Request-Id"] or "",
   }, "|")
