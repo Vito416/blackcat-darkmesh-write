@@ -4,10 +4,17 @@
 local Auth = {}
 local os_time = os.time
 local START_EPOCH = os_time()
+local getenv_override = package.loaded["ao.shared.auth.getenv_override"]
 
 -- Allow WRITE_* aliases for ops/env parity
 local function getenv_multi(...)
   for _, key in ipairs { ... } do
+    if type(getenv_override) == "function" then
+      local override = getenv_override(key)
+      if override ~= nil then
+        return override
+      end
+    end
     local val = os.getenv(key)
     if val ~= nil then
       return val
@@ -19,7 +26,8 @@ end
 local NONCE_TTL =
   tonumber(getenv_multi("AUTH_NONCE_TTL_SECONDS", "WRITE_NONCE_TTL_SECONDS") or "300")
 local NONCE_MAX = tonumber(getenv_multi("AUTH_NONCE_MAX_ENTRIES", "WRITE_NONCE_MAX") or "2048")
-local REQUIRE_NONCE = getenv_multi("AUTH_REQUIRE_NONCE", "WRITE_REQUIRE_NONCE") ~= "0" -- default ON
+-- default ON
+local REQUIRE_NONCE = getenv_multi("AUTH_REQUIRE_NONCE", "WRITE_REQUIRE_NONCE") ~= "0"
 local REQUIRE_TS = getenv_multi("AUTH_REQUIRE_TIMESTAMP", "WRITE_REQUIRE_TIMESTAMP") ~= "0"
 local TS_DRIFT = tonumber(getenv_multi("AUTH_MAX_CLOCK_SKEW", "WRITE_MAX_CLOCK_SKEW") or "300")
 local RL_WINDOW =
@@ -998,7 +1006,7 @@ function Auth.require_role_or_capability(msg, roles, _caps)
   return Auth.require_role(msg, roles)
 end
 
-function Auth.check_policy(_msg)
+function Auth.check_policy(msg)
   local policy_map, policy_err, configured = ensure_signature_policy()
   if not configured then
     return true
@@ -1006,7 +1014,7 @@ function Auth.check_policy(_msg)
   if not policy_map then
     return false, policy_err or "signature_policy_invalid"
   end
-  local msg = _msg or {}
+  msg = msg or {}
   local sig_ref = msg.signatureRef or msg["Signature-Ref"] or msg.signature_ref
   if not sig_ref or sig_ref == "" then
     m_counter "write_auth_signature_policy_missing_ref_total"

@@ -29,17 +29,16 @@ package.preload["cjson"] = function()
   }
 end
 
-local real_getenv = os.getenv
-os.getenv = function(key)
+package.loaded["ao.shared.auth.getenv_override"] = function(key)
   if key == "WRITE_SIGNATURE_POLICY_JSON" or key == "AUTH_SIGNATURE_POLICY_JSON" then
     return policy_json
   end
-  return real_getenv(key)
+  return nil
 end
 
 package.loaded["ao.shared.auth"] = nil
 local auth = require "ao.shared.auth"
-os.getenv = real_getenv
+package.loaded["ao.shared.auth.getenv_override"] = nil
 
 local function assert_denied(msg, expected_code)
   local ok, code = auth.check_policy(msg)
@@ -54,31 +53,22 @@ local allowed, allowed_err = auth.check_policy {
 }
 assert(allowed, "allowed policy should pass: " .. tostring(allowed_err))
 
-assert_denied(
-  {
-    action = "RunWebhookRetries",
-    signatureRef = "sig-editor",
-    ["Actor-Role"] = "editor",
-  },
-  "signature_policy_action_forbidden"
-)
+assert_denied({
+  action = "RunWebhookRetries",
+  signatureRef = "sig-editor",
+  ["Actor-Role"] = "editor",
+}, "signature_policy_action_forbidden")
 
-assert_denied(
-  {
-    action = "PublishPageVersion",
-    signatureRef = "sig-editor",
-    ["Actor-Role"] = "viewer",
-  },
-  "signature_policy_role_forbidden"
-)
+assert_denied({
+  action = "PublishPageVersion",
+  signatureRef = "sig-editor",
+  ["Actor-Role"] = "viewer",
+}, "signature_policy_role_forbidden")
 
-assert_denied(
-  {
-    action = "PublishPageVersion",
-    signatureRef = "missing-ref",
-    ["Actor-Role"] = "editor",
-  },
-  "signature_policy_not_found"
-)
+assert_denied({
+  action = "PublishPageVersion",
+  signatureRef = "missing-ref",
+  ["Actor-Role"] = "editor",
+}, "signature_policy_not_found")
 
 print "signature_policy_spec: ok"
