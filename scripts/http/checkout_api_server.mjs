@@ -9,6 +9,9 @@ const DEFAULT_SCHEDULER = 'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo'
 const DEFAULT_PORT = 8789
 const DEFAULT_TIMEOUT_MS = 45000
 const DEFAULT_RETRIES = 4
+const SAFE_TRACE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/
+const CORS_ALLOW_HEADERS = 'content-type,authorization,x-api-token,x-request-id,x-trace-id'
+export const WRITE_API_CORS_ALLOW_HEADERS = CORS_ALLOW_HEADERS
 
 const PRODUCTION_LIKE_MODES = new Set(['production', 'prod', 'staging', 'stage', 'preprod', 'pre-production'])
 const UNSAFE_NO_TOKEN_OVERRIDE = 'WRITE_API_UNSAFE_ALLOW_NO_TOKEN'
@@ -105,7 +108,11 @@ function json(res, status, body) {
   res.setHeader('referrer-policy', 'no-referrer')
   res.setHeader('access-control-allow-origin', env.allowOrigin)
   res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS')
-  res.setHeader('access-control-allow-headers', 'content-type,authorization,x-api-token,x-request-id')
+  res.setHeader('access-control-allow-headers', CORS_ALLOW_HEADERS)
+  const requestId = firstString(body?.requestId)
+  if (requestId) res.setHeader('x-request-id', requestId)
+  const traceId = resolveTraceId(firstString(body?.traceId))
+  if (traceId) res.setHeader('x-trace-id', traceId)
   res.end(JSON.stringify(body))
 }
 
@@ -155,11 +162,21 @@ function firstString(...values) {
   return ''
 }
 
+export function resolveTraceId(value) {
+  const normalized = firstString(value)
+  if (!normalized) return ''
+  return SAFE_TRACE_ID_RE.test(normalized) ? normalized : ''
+}
+
 function commandRequestId(req, body) {
   return (
     firstString(req.headers['x-request-id'], body.requestId, body['request-id']) ||
     `gw-write-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`
   )
+}
+
+function commandTraceId(req, body) {
+  return resolveTraceId(firstString(req.headers['x-trace-id'], body.traceId, body['trace-id']))
 }
 
 function commandNonce(body) {
@@ -236,7 +253,7 @@ function buildCommand(req, body, expectedAction) {
   return { ok: true, command }
 }
 
-async function maybeSignCommand(command) {
+async function maybeSignCommand(command, traceId = '') {
   if (command.signature && command.signatureRef) return command
   if (!env.signerUrl) {
     throw new Error('signature_required_no_signer')
@@ -249,6 +266,7 @@ async function maybeSignCommand(command) {
     headers: {
       'content-type': 'application/json',
       authorization: `Bearer ${env.signerToken}`,
+      ...(traceId ? { 'x-trace-id': traceId } : {}),
     },
     body: JSON.stringify(command),
   })
@@ -299,8 +317,8 @@ async function withTimeout(label, promiseFactory, ms) {
   return Promise.race([promiseFactory(), timeoutPromise(label, ms)])
 }
 
-function writeMessageTags() {
-  return [
+function writeMessageTags(traceId = '') {
+  const tags = [
     { name: 'Action', value: 'Write-Command' },
     { name: 'Variant', value: 'ao.TN.1' },
     { name: 'Content-Type', value: 'application/json' },
@@ -309,9 +327,11 @@ function writeMessageTags() {
     { name: 'Data-Protocol', value: 'ao' },
     { name: 'Type', value: 'Message' },
   ]
+  if (traceId) tags.push({ name: 'Trace-Id', value: traceId })
+  return tags
 }
 
-async function sendWriteCommand(command) {
+async function sendWriteCommand(command, traceId = '') {
   if (!env.writePid) throw new Error('WRITE_PROCESS_ID missing')
 
   const data = JSON.stringify(command)
@@ -323,7 +343,7 @@ async function sendWriteCommand(command) {
         () =>
           ao.message({
             process: env.writePid,
-            tags: writeMessageTags(),
+            tags: writeMessageTags(traceId),
             data,
           }),
         env.timeoutMs,
@@ -508,16 +528,17 @@ async function handleCheckout(req, res, pathname) {
     json(res, 400, { ok: false, error: 'invalid_json' })
     return
   }
+  const traceId = commandTraceId(req, body)
 
   const built = buildCommand(req, body, expectedAction)
   if (!built.ok) {
-    json(res, 400, { ok: false, error: built.error, detail: built.detail || null })
+    json(res, 400, { ok: false, error: built.error, detail: built.detail || null, traceId: traceId || undefined })
     return
   }
 
   try {
-    const signed = await maybeSignCommand(built.command)
-    const transport = await sendWriteCommand(signed)
+    const signed = await maybeSignCommand(built.command, traceId)
+    const transport = await sendWriteCommand(signed, traceId)
     const normalized = normalizeWriteResult(transport.raw, {
       requestId: signed.requestId,
       action: signed.action,
@@ -536,12 +557,14 @@ async function handleCheckout(req, res, pathname) {
       }
     }
 
+    if (traceId) normalized.body.traceId = traceId
     json(res, normalized.status, normalized.body)
   } catch (error) {
     json(res, 502, {
       ok: false,
       error: 'write_command_failed',
       message: error instanceof Error ? error.message : String(error),
+      traceId: traceId || undefined,
     })
   }
 }
@@ -555,7 +578,7 @@ export function createServer() {
       res.statusCode = 204
       res.setHeader('access-control-allow-origin', env.allowOrigin)
       res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS')
-      res.setHeader('access-control-allow-headers', 'content-type,authorization,x-api-token,x-request-id')
+      res.setHeader('access-control-allow-headers', CORS_ALLOW_HEADERS)
       res.end('')
       return
     }

@@ -1,7 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { buildEnv, normalizeWriteResult } from '../../scripts/http/checkout_api_server.mjs'
+import {
+  WRITE_API_CORS_ALLOW_HEADERS,
+  buildEnv,
+  normalizeWriteResult,
+  resolveTraceId,
+} from '../../scripts/http/checkout_api_server.mjs'
 
 test('WRITE_API_ACCEPT_EMPTY_RESULT defaults fail-closed', () => {
   const env = buildEnv({ NODE_ENV: 'test' })
@@ -80,4 +85,15 @@ test('normalizeWriteResult returns clear contract for AO runtime error payload',
   assert.equal(result.body.requestId, 'rid-4')
   assert.equal(result.body.action, 'CreateOrder')
   assert.equal(result.body.details.runtimeError.message, 'runtime boom')
+})
+
+test('trace id sanitizer accepts safe IDs and rejects invalid values', () => {
+  assert.equal(resolveTraceId('trace-abc_123.DEF'), 'trace-abc_123.DEF')
+  assert.equal(resolveTraceId('short'), '')
+  assert.equal(resolveTraceId('trace with space'), '')
+  assert.equal(resolveTraceId('trace\nnewline'), '')
+})
+
+test('CORS allow-headers include x-trace-id', () => {
+  assert.match(WRITE_API_CORS_ALLOW_HEADERS, /\bx-trace-id\b/)
 })
