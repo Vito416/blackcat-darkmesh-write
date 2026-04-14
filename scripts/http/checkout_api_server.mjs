@@ -2,7 +2,7 @@
 import http from 'node:http'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
-import { connect, createSigner } from '@permaweb/aoconnect'
+import { fileURLToPath } from 'node:url'
 
 const DEFAULT_HB_URL = 'https://push.forward.computer'
 const DEFAULT_SCHEDULER = 'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo'
@@ -10,35 +10,11 @@ const DEFAULT_PORT = 8789
 const DEFAULT_TIMEOUT_MS = 45000
 const DEFAULT_RETRIES = 4
 
-const env = {
-  host: clean(process.env.HOST) || '0.0.0.0',
-  port: positiveInt(process.env.PORT, DEFAULT_PORT),
-  hbUrl: clean(process.env.WRITE_HB_URL) || clean(process.env.HB_URL) || DEFAULT_HB_URL,
-  scheduler: clean(process.env.WRITE_HB_SCHEDULER) || clean(process.env.HB_SCHEDULER) || DEFAULT_SCHEDULER,
-  mode: clean(process.env.WRITE_AO_MODE) || clean(process.env.AO_MODE) || 'mainnet',
-  writePid: clean(process.env.WRITE_PROCESS_ID) || clean(process.env.AO_PID) || '',
-  walletPath: clean(process.env.WRITE_WALLET_PATH) || clean(process.env.AO_WALLET_PATH) || 'wallet.json',
-  walletJson: clean(process.env.WRITE_WALLET_JSON),
-  apiToken: clean(process.env.WRITE_API_TOKEN) || '',
-  signerUrl: clean(process.env.WRITE_SIGNER_URL) || clean(process.env.WORKER_SIGN_URL) || '',
-  signerToken: clean(process.env.WRITE_SIGNER_TOKEN) || clean(process.env.WORKER_AUTH_TOKEN) || '',
-  defaultActor: clean(process.env.WRITE_GATEWAY_ACTOR) || 'gateway-template',
-  defaultRole: clean(process.env.WRITE_GATEWAY_ROLE) || 'admin',
-  tenantFallback: clean(process.env.WRITE_TENANT_FALLBACK) || '',
-  allowOrigin: clean(process.env.WRITE_API_ALLOW_ORIGIN) || '*',
-  timeoutMs: positiveInt(process.env.WRITE_RESULT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS),
-  retries: positiveInt(process.env.WRITE_RESULT_RETRIES, DEFAULT_RETRIES),
-  acceptEmptyResult: isTrue(clean(process.env.WRITE_API_ACCEPT_EMPTY_RESULT) || '1'),
-  debug: isTrue(process.env.WRITE_API_DEBUG),
-}
-
-const wallet = loadWallet()
-const ao = connect({
-  MODE: env.mode,
-  URL: env.hbUrl,
-  SCHEDULER: env.scheduler,
-  signer: createSigner(wallet),
-})
+const PRODUCTION_LIKE_MODES = new Set(['production', 'prod', 'staging', 'stage', 'preprod', 'pre-production'])
+const UNSAFE_NO_TOKEN_OVERRIDE = 'WRITE_API_UNSAFE_ALLOW_NO_TOKEN'
+let env = null
+let ao = null
+let aoConnectLibPromise = null
 
 function clean(value) {
   if (!value) return ''
@@ -57,14 +33,63 @@ function positiveInt(value, fallback) {
   return parsed
 }
 
-function loadWallet() {
-  if (env.walletJson) {
-    return JSON.parse(env.walletJson)
+async function loadAoConnectLib() {
+  if (!aoConnectLibPromise) {
+    aoConnectLibPromise = import('@permaweb/aoconnect')
   }
-  if (!env.walletPath || !fs.existsSync(env.walletPath)) {
-    throw new Error(`wallet_missing:${env.walletPath}`)
+  return aoConnectLibPromise
+}
+
+function isProductionLike(rawEnv = process.env) {
+  const explicit = clean(rawEnv.WRITE_API_PRODUCTION_LIKE)
+  if (explicit) {
+    return isTrue(explicit)
   }
-  return JSON.parse(fs.readFileSync(env.walletPath, 'utf8'))
+  const mode = clean(rawEnv.WRITE_API_MODE || rawEnv.APP_ENV || rawEnv.NODE_ENV).toLowerCase()
+  return PRODUCTION_LIKE_MODES.has(mode)
+}
+
+export function buildEnv(rawEnv = process.env) {
+  const built = {
+    host: clean(rawEnv.HOST) || '0.0.0.0',
+    port: positiveInt(rawEnv.PORT, DEFAULT_PORT),
+    hbUrl: clean(rawEnv.WRITE_HB_URL) || clean(rawEnv.HB_URL) || DEFAULT_HB_URL,
+    scheduler: clean(rawEnv.WRITE_HB_SCHEDULER) || clean(rawEnv.HB_SCHEDULER) || DEFAULT_SCHEDULER,
+    mode: clean(rawEnv.WRITE_AO_MODE) || clean(rawEnv.AO_MODE) || 'mainnet',
+    writePid: clean(rawEnv.WRITE_PROCESS_ID) || clean(rawEnv.AO_PID) || '',
+    walletPath: clean(rawEnv.WRITE_WALLET_PATH) || clean(rawEnv.AO_WALLET_PATH) || 'wallet.json',
+    walletJson: clean(rawEnv.WRITE_WALLET_JSON),
+    apiToken: clean(rawEnv.WRITE_API_TOKEN) || '',
+    signerUrl: clean(rawEnv.WRITE_SIGNER_URL) || clean(rawEnv.WORKER_SIGN_URL) || '',
+    signerToken: clean(rawEnv.WRITE_SIGNER_TOKEN) || clean(rawEnv.WORKER_AUTH_TOKEN) || '',
+    defaultActor: clean(rawEnv.WRITE_GATEWAY_ACTOR) || 'gateway-template',
+    defaultRole: clean(rawEnv.WRITE_GATEWAY_ROLE) || 'admin',
+    tenantFallback: clean(rawEnv.WRITE_TENANT_FALLBACK) || '',
+    allowOrigin: clean(rawEnv.WRITE_API_ALLOW_ORIGIN) || '*',
+    timeoutMs: positiveInt(rawEnv.WRITE_RESULT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS),
+    retries: positiveInt(rawEnv.WRITE_RESULT_RETRIES, DEFAULT_RETRIES),
+    acceptEmptyResult: isTrue(clean(rawEnv.WRITE_API_ACCEPT_EMPTY_RESULT) || '0'),
+    debug: isTrue(rawEnv.WRITE_API_DEBUG),
+    productionLike: isProductionLike(rawEnv),
+    unsafeAllowNoToken: isTrue(rawEnv[UNSAFE_NO_TOKEN_OVERRIDE]),
+  }
+  if (built.productionLike && !built.apiToken && !built.unsafeAllowNoToken) {
+    throw new Error(`write_api_token_required:${UNSAFE_NO_TOKEN_OVERRIDE}`)
+  }
+  return built
+}
+
+function loadWallet(config = env) {
+  if (!config) {
+    throw new Error('env_not_initialized')
+  }
+  if (config.walletJson) {
+    return JSON.parse(config.walletJson)
+  }
+  if (!config.walletPath || !fs.existsSync(config.walletPath)) {
+    throw new Error(`wallet_missing:${config.walletPath}`)
+  }
+  return JSON.parse(fs.readFileSync(config.walletPath, 'utf8'))
 }
 
 function nowIso() {
@@ -353,7 +378,22 @@ async function sendWriteCommand(command) {
   }
 }
 
-function normalizeWriteResult(rawResult, context = {}) {
+export function normalizeWriteResult(rawResult, context = {}, runtimeEnv = env) {
+  const cfg = runtimeEnv || { acceptEmptyResult: false, debug: false }
+  const failResult = (error, code, message, details) => ({
+    status: 502,
+    body: {
+      ok: false,
+      error,
+      code,
+      message,
+      requestId: context.requestId || null,
+      action: context.action || null,
+      ...(details ? { details } : {}),
+      ...(cfg.debug ? { raw: rawResult } : {}),
+    },
+  })
+
   const normalized = rawResult?.results?.raw || rawResult?.raw || rawResult || {}
   const output = normalized?.Output ?? normalized?.output ?? null
 
@@ -363,7 +403,12 @@ function normalizeWriteResult(rawResult, context = {}) {
       try {
         envelope = JSON.parse(output)
       } catch {
-        envelope = { status: 'ERROR', code: 'INVALID_OUTPUT', message: output }
+        return failResult(
+          'invalid_ao_result_payload',
+          'INVALID_AO_RESULT',
+          'AO returned non-JSON write result payload',
+          { outputPreview: output.slice(0, 180) },
+        )
       }
     }
   } else if (output && typeof output === 'object') {
@@ -378,7 +423,7 @@ function normalizeWriteResult(rawResult, context = {}) {
       maybeError &&
       typeof maybeError === 'object' &&
       Object.keys(maybeError).length > 0
-    if (!hasRuntimeError && env.acceptEmptyResult) {
+    if (!hasRuntimeError && cfg.acceptEmptyResult) {
       return {
         status: 202,
         body: {
@@ -390,17 +435,38 @@ function normalizeWriteResult(rawResult, context = {}) {
         },
       }
     }
-    return {
-      status: 502,
-      body: {
-        ok: false,
-        error: 'invalid_write_response',
-        raw: env.debug ? rawResult : undefined,
-      },
+    if (hasRuntimeError) {
+      return failResult(
+        'ao_runtime_error',
+        'AO_RUNTIME_ERROR',
+        'AO compute returned runtime error payload',
+        { runtimeError: maybeError },
+      )
     }
+    return failResult(
+      'empty_ao_result',
+      'EMPTY_AO_RESULT',
+      'AO transport succeeded but no write result envelope was returned',
+    )
+  }
+
+  if (typeof envelope !== 'object' || Array.isArray(envelope) || !envelope) {
+    return failResult(
+      'invalid_ao_result_payload',
+      'INVALID_AO_RESULT',
+      'AO result envelope is not an object',
+    )
   }
 
   const statusText = String(envelope.status || '').toUpperCase()
+  if (!statusText) {
+    return failResult(
+      'invalid_ao_result_payload',
+      'INVALID_AO_RESULT',
+      'AO result envelope missing status field',
+      { envelope },
+    )
+  }
   if (statusText === 'OK') {
     return { status: 200, body: envelope }
   }
@@ -480,51 +546,69 @@ async function handleCheckout(req, res, pathname) {
   }
 }
 
-const server = http.createServer(async (req, res) => {
-  const method = (req.method || 'GET').toUpperCase()
-  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
+export function createServer() {
+  return http.createServer(async (req, res) => {
+    const method = (req.method || 'GET').toUpperCase()
+    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
 
-  if (method === 'OPTIONS') {
-    res.statusCode = 204
-    res.setHeader('access-control-allow-origin', env.allowOrigin)
-    res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS')
-    res.setHeader('access-control-allow-headers', 'content-type,authorization,x-api-token,x-request-id')
-    res.end('')
-    return
-  }
+    if (method === 'OPTIONS') {
+      res.statusCode = 204
+      res.setHeader('access-control-allow-origin', env.allowOrigin)
+      res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS')
+      res.setHeader('access-control-allow-headers', 'content-type,authorization,x-api-token,x-request-id')
+      res.end('')
+      return
+    }
 
-  if (url.pathname === '/healthz' && method === 'GET') {
-    json(res, 200, {
-      ok: true,
-      service: 'write-checkout-api',
-      writePidConfigured: Boolean(env.writePid),
-      signerConfigured: Boolean(env.signerUrl),
-      hbUrl: env.hbUrl,
-      scheduler: env.scheduler,
-      now: nowIso(),
-    })
-    return
-  }
+    if (url.pathname === '/healthz' && method === 'GET') {
+      json(res, 200, {
+        ok: true,
+        service: 'write-checkout-api',
+        writePidConfigured: Boolean(env.writePid),
+        signerConfigured: Boolean(env.signerUrl),
+        hbUrl: env.hbUrl,
+        scheduler: env.scheduler,
+        now: nowIso(),
+      })
+      return
+    }
 
-  if (!requireAuth(req)) {
-    json(res, 401, { ok: false, error: 'unauthorized' })
-    return
-  }
+    if (!requireAuth(req)) {
+      json(res, 401, { ok: false, error: 'unauthorized' })
+      return
+    }
 
-  if (method !== 'POST') {
-    json(res, 405, { ok: false, error: 'method_not_allowed' })
-    return
-  }
+    if (method !== 'POST') {
+      json(res, 405, { ok: false, error: 'method_not_allowed' })
+      return
+    }
 
-  if (url.pathname === '/api/checkout/order' || url.pathname === '/api/checkout/payment-intent') {
-    await handleCheckout(req, res, url.pathname)
-    return
-  }
+    if (url.pathname === '/api/checkout/order' || url.pathname === '/api/checkout/payment-intent') {
+      await handleCheckout(req, res, url.pathname)
+      return
+    }
 
-  json(res, 404, { ok: false, error: 'not_found' })
-})
+    json(res, 404, { ok: false, error: 'not_found' })
+  })
+}
 
-server.listen(env.port, env.host, () => {
+export async function startServer(rawEnv = process.env) {
+  env = buildEnv(rawEnv)
+  const wallet = loadWallet(env)
+  const { connect, createSigner } = await loadAoConnectLib()
+  ao = connect({
+    MODE: env.mode,
+    URL: env.hbUrl,
+    SCHEDULER: env.scheduler,
+    signer: createSigner(wallet),
+  })
+
+  const server = createServer()
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(env.port, env.host, () => resolve())
+  })
+
   console.log(
     JSON.stringify({
       event: 'write_checkout_api_started',
@@ -534,7 +618,27 @@ server.listen(env.port, env.host, () => {
       signerConfigured: Boolean(env.signerUrl),
       hbUrl: env.hbUrl,
       scheduler: env.scheduler,
+      productionLike: env.productionLike,
+      requiresAuth: Boolean(env.apiToken),
       startedAt: nowIso(),
     }),
   )
-})
+
+  return server
+}
+
+function isMainModule() {
+  if (!process.argv[1]) return false
+  try {
+    return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))
+  } catch {
+    return false
+  }
+}
+
+if (isMainModule()) {
+  startServer().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  })
+}
