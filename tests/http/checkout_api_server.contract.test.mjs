@@ -5,12 +5,18 @@ import {
   WRITE_API_CORS_ALLOW_HEADERS,
   buildEnv,
   normalizeWriteResult,
+  resolveTargetWritePid,
   resolveTraceId,
 } from '../../scripts/http/checkout_api_server.mjs'
 
 test('WRITE_API_ACCEPT_EMPTY_RESULT defaults fail-closed', () => {
   const env = buildEnv({ NODE_ENV: 'test' })
   assert.equal(env.acceptEmptyResult, false)
+})
+
+test('WRITE_API_ALLOW_PID_OVERRIDE defaults disabled', () => {
+  const env = buildEnv({ NODE_ENV: 'test' })
+  assert.equal(env.allowWritePidOverride, false)
 })
 
 test('production-like mode requires WRITE_API_TOKEN by default', () => {
@@ -27,6 +33,60 @@ test('production-like mode allows explicit unsafe override', () => {
   })
   assert.equal(env.productionLike, true)
   assert.equal(env.apiToken, '')
+})
+
+test('WRITE_API_ALLOW_PID_OVERRIDE requires WRITE_API_TOKEN', () => {
+  assert.throws(
+    () => buildEnv({ NODE_ENV: 'test', WRITE_API_ALLOW_PID_OVERRIDE: '1' }),
+    /write_pid_override_requires_token:WRITE_API_ALLOW_PID_OVERRIDE:WRITE_API_TOKEN/,
+  )
+})
+
+test('target write PID stays static when per-request override is disabled', () => {
+  const basePid = 'A'.repeat(43)
+  const result = resolveTargetWritePid(
+    { headers: { 'x-write-process-id': 'B'.repeat(43) } },
+    { writeProcessId: 'C'.repeat(43) },
+    { writePid: basePid, allowWritePidOverride: false, apiToken: '' },
+  )
+  assert.equal(result.ok, true)
+  assert.equal(result.pid, basePid)
+  assert.equal(result.overridden, false)
+})
+
+test('target write PID override requires token-authenticated request', () => {
+  const result = resolveTargetWritePid(
+    { headers: { 'x-write-process-id': 'B'.repeat(43) } },
+    {},
+    { writePid: 'A'.repeat(43), allowWritePidOverride: true, apiToken: 'secret-token' },
+  )
+  assert.equal(result.ok, false)
+  assert.equal(result.status, 401)
+  assert.equal(result.error, 'unauthorized')
+})
+
+test('target write PID override accepts trusted header when enabled and authenticated', () => {
+  const overridePid = 'B'.repeat(43)
+  const result = resolveTargetWritePid(
+    { headers: { 'x-write-process-id': overridePid, authorization: 'Bearer secret-token' } },
+    {},
+    { writePid: 'A'.repeat(43), allowWritePidOverride: true, apiToken: 'secret-token' },
+  )
+  assert.equal(result.ok, true)
+  assert.equal(result.pid, overridePid)
+  assert.equal(result.overridden, true)
+  assert.equal(result.source, 'header')
+})
+
+test('target write PID override rejects invalid override values', () => {
+  const result = resolveTargetWritePid(
+    { headers: { authorization: 'Bearer secret-token' } },
+    { writeProcessId: 'bad pid with spaces' },
+    { writePid: 'A'.repeat(43), allowWritePidOverride: true, apiToken: 'secret-token' },
+  )
+  assert.equal(result.ok, false)
+  assert.equal(result.status, 400)
+  assert.equal(result.error, 'invalid_write_process_id_override')
 })
 
 test('normalizeWriteResult returns clear contract for empty AO result payload', () => {
@@ -96,4 +156,8 @@ test('trace id sanitizer accepts safe IDs and rejects invalid values', () => {
 
 test('CORS allow-headers include x-trace-id', () => {
   assert.match(WRITE_API_CORS_ALLOW_HEADERS, /\bx-trace-id\b/)
+})
+
+test('CORS allow-headers include write PID override header', () => {
+  assert.match(WRITE_API_CORS_ALLOW_HEADERS, /\bx-write-process-id\b/)
 })

@@ -162,6 +162,8 @@ Notes:
 - Adapter accepts already signed envelopes, or can call worker `/sign` when signature fields are missing.
 - It forwards envelope as `Write-Command` AO message and returns normalized write result.
 - Default listen address is `0.0.0.0:8789` (`PORT` can override).
+- Optional multi-site PID override is disabled by default. To enable safely, set both `WRITE_API_ALLOW_PID_OVERRIDE=1`
+  and `WRITE_API_TOKEN`, then pass `X-Write-Process-Id` (or body `writeProcessId`) per request.
 
 ### Release gate / deep test
 Run the v1.2.0 readiness gate in one command:

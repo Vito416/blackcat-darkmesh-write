@@ -10,11 +10,15 @@ const DEFAULT_PORT = 8789
 const DEFAULT_TIMEOUT_MS = 45000
 const DEFAULT_RETRIES = 4
 const SAFE_TRACE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/
-const CORS_ALLOW_HEADERS = 'content-type,authorization,x-api-token,x-request-id,x-trace-id'
+const SAFE_WRITE_PID_RE = /^[A-Za-z0-9_-]{20,128}$/
+const WRITE_PID_OVERRIDE_HEADER = 'x-write-process-id'
+const WRITE_PID_OVERRIDE_BODY_FIELD = 'writeProcessId'
+const CORS_ALLOW_HEADERS = `content-type,authorization,x-api-token,x-request-id,x-trace-id,${WRITE_PID_OVERRIDE_HEADER}`
 export const WRITE_API_CORS_ALLOW_HEADERS = CORS_ALLOW_HEADERS
 
 const PRODUCTION_LIKE_MODES = new Set(['production', 'prod', 'staging', 'stage', 'preprod', 'pre-production'])
 const UNSAFE_NO_TOKEN_OVERRIDE = 'WRITE_API_UNSAFE_ALLOW_NO_TOKEN'
+const WRITE_PID_OVERRIDE_FLAG = 'WRITE_API_ALLOW_PID_OVERRIDE'
 let env = null
 let ao = null
 let aoConnectLibPromise = null
@@ -75,9 +79,13 @@ export function buildEnv(rawEnv = process.env) {
     debug: isTrue(rawEnv.WRITE_API_DEBUG),
     productionLike: isProductionLike(rawEnv),
     unsafeAllowNoToken: isTrue(rawEnv[UNSAFE_NO_TOKEN_OVERRIDE]),
+    allowWritePidOverride: isTrue(rawEnv[WRITE_PID_OVERRIDE_FLAG]),
   }
   if (built.productionLike && !built.apiToken && !built.unsafeAllowNoToken) {
     throw new Error(`write_api_token_required:${UNSAFE_NO_TOKEN_OVERRIDE}`)
+  }
+  if (built.allowWritePidOverride && !built.apiToken) {
+    throw new Error(`write_pid_override_requires_token:${WRITE_PID_OVERRIDE_FLAG}:WRITE_API_TOKEN`)
   }
   return built
 }
@@ -116,12 +124,12 @@ function json(res, status, body) {
   res.end(JSON.stringify(body))
 }
 
-function requireAuth(req) {
-  if (!env.apiToken) return true
+function requireAuth(req, runtimeEnv = env) {
+  if (!runtimeEnv.apiToken) return true
   const authHeader = clean(req.headers.authorization)
   const tokenHeader = clean(req.headers['x-api-token'])
   const bearer = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : ''
-  return bearer === env.apiToken || tokenHeader === env.apiToken
+  return bearer === runtimeEnv.apiToken || tokenHeader === runtimeEnv.apiToken
 }
 
 function readJsonBody(req, maxBytes = 256 * 1024) {
@@ -181,6 +189,33 @@ function commandTraceId(req, body) {
 
 function commandNonce(body) {
   return firstString(body.nonce) || `nonce-${crypto.randomBytes(8).toString('hex')}`
+}
+
+function requestedWritePid(req, body = {}) {
+  const fromHeader = firstString(req?.headers?.[WRITE_PID_OVERRIDE_HEADER])
+  if (fromHeader) return { pid: fromHeader, source: 'header' }
+  const fromBody = firstString(body?.[WRITE_PID_OVERRIDE_BODY_FIELD])
+  if (fromBody) return { pid: fromBody, source: 'body' }
+  return { pid: '', source: '' }
+}
+
+export function resolveTargetWritePid(req, body = {}, runtimeEnv = env) {
+  const cfg = runtimeEnv || {}
+  const basePid = firstString(cfg.writePid)
+  const requested = requestedWritePid(req, body)
+  if (!requested.pid || !cfg.allowWritePidOverride) {
+    return { ok: true, pid: basePid, overridden: false, source: '' }
+  }
+  if (!cfg.apiToken) {
+    return { ok: false, status: 503, error: 'write_pid_override_not_configured' }
+  }
+  if (!requireAuth(req, cfg)) {
+    return { ok: false, status: 401, error: 'unauthorized' }
+  }
+  if (!SAFE_WRITE_PID_RE.test(requested.pid)) {
+    return { ok: false, status: 400, error: 'invalid_write_process_id_override' }
+  }
+  return { ok: true, pid: requested.pid, overridden: true, source: requested.source }
 }
 
 function buildPayload(body) {
@@ -331,8 +366,8 @@ function writeMessageTags(traceId = '') {
   return tags
 }
 
-async function sendWriteCommand(command, traceId = '') {
-  if (!env.writePid) throw new Error('WRITE_PROCESS_ID missing')
+async function sendWriteCommand(command, traceId = '', writePid = env.writePid) {
+  if (!writePid) throw new Error('WRITE_PROCESS_ID missing')
 
   const data = JSON.stringify(command)
   const slotOrMessage = await withRetry(
@@ -342,7 +377,7 @@ async function sendWriteCommand(command, traceId = '') {
         'ao_message',
         () =>
           ao.message({
-            process: env.writePid,
+            process: writePid,
             tags: writeMessageTags(traceId),
             data,
           }),
@@ -356,7 +391,7 @@ async function sendWriteCommand(command, traceId = '') {
     () =>
       withTimeout(
         'ao_result',
-        () => ao.result({ process: env.writePid, message: String(slotOrMessage) }),
+        () => ao.result({ process: writePid, message: String(slotOrMessage) }),
         env.timeoutMs,
       ),
     env.retries,
@@ -371,7 +406,7 @@ async function sendWriteCommand(command, traceId = '') {
   }
 
   const computeEndpoint =
-    `${env.hbUrl.replace(/\/$/, '')}/${env.writePid}~process@1.0/compute=${slotOrMessage}` +
+    `${env.hbUrl.replace(/\/$/, '')}/${writePid}~process@1.0/compute=${slotOrMessage}` +
     '?accept-bundle=true&require-codec=application/json'
 
   const fallback = await withRetry(
@@ -535,10 +570,18 @@ async function handleCheckout(req, res, pathname) {
     json(res, 400, { ok: false, error: built.error, detail: built.detail || null, traceId: traceId || undefined })
     return
   }
+  const writeTarget = resolveTargetWritePid(req, body)
+  if (!writeTarget.ok) {
+    json(res, writeTarget.status, { ok: false, error: writeTarget.error, traceId: traceId || undefined })
+    return
+  }
+  if (writeTarget.overridden && writeTarget.source === 'body') {
+    delete built.command.payload[WRITE_PID_OVERRIDE_BODY_FIELD]
+  }
 
   try {
     const signed = await maybeSignCommand(built.command, traceId)
-    const transport = await sendWriteCommand(signed, traceId)
+    const transport = await sendWriteCommand(signed, traceId, writeTarget.pid)
     const normalized = normalizeWriteResult(transport.raw, {
       requestId: signed.requestId,
       action: signed.action,
@@ -548,6 +591,7 @@ async function handleCheckout(req, res, pathname) {
       normalized.body.transport = {
         mode: transport.transport,
         slotOrMessage: transport.slotOrMessage,
+        writePid: writeTarget.pid,
       }
       normalized.body.command = {
         action: signed.action,
@@ -588,6 +632,7 @@ export function createServer() {
         ok: true,
         service: 'write-checkout-api',
         writePidConfigured: Boolean(env.writePid),
+        writePidOverrideEnabled: Boolean(env.allowWritePidOverride),
         signerConfigured: Boolean(env.signerUrl),
         hbUrl: env.hbUrl,
         scheduler: env.scheduler,
@@ -638,6 +683,7 @@ export async function startServer(rawEnv = process.env) {
       host: env.host,
       port: env.port,
       writePidConfigured: Boolean(env.writePid),
+      writePidOverrideEnabled: Boolean(env.allowWritePidOverride),
       signerConfigured: Boolean(env.signerUrl),
       hbUrl: env.hbUrl,
       scheduler: env.scheduler,
