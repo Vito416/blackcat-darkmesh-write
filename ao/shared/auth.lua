@@ -1,5 +1,8 @@
 -- Minimal-but-stricter auth helpers for write process.
--- Intent: avoid accepting obvious replay/flood, enforce signatureRef policy + role policy, leave crypto ops to gateway/worker.
+-- Intent:
+--   avoid obvious replay/flood,
+--   enforce signatureRef policy + role policy,
+--   keep crypto ops at gateway/worker layer.
 
 local Auth = {}
 local os_time = os.time
