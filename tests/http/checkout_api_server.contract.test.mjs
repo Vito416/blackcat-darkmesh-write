@@ -42,6 +42,37 @@ test('WRITE_API_ALLOW_PID_OVERRIDE requires WRITE_API_TOKEN', () => {
   )
 })
 
+test('WRITE_PROCESS_ID must be valid when configured', () => {
+  assert.throws(
+    () => buildEnv({ NODE_ENV: 'test', WRITE_PROCESS_ID: 'bad pid with spaces' }),
+    /invalid_write_process_id/,
+  )
+})
+
+test('WRITE_API_REQUIRE_PID_OVERRIDE requires WRITE_API_ALLOW_PID_OVERRIDE', () => {
+  assert.throws(
+    () =>
+      buildEnv({
+        NODE_ENV: 'test',
+        WRITE_API_TOKEN: 'secret-token',
+        WRITE_API_REQUIRE_PID_OVERRIDE: '1',
+      }),
+    /write_pid_require_override_needs_flag:WRITE_API_REQUIRE_PID_OVERRIDE:WRITE_API_ALLOW_PID_OVERRIDE/,
+  )
+})
+
+test('WRITE_API_SITE_WRITE_PID_MAP requires WRITE_API_ALLOW_PID_OVERRIDE', () => {
+  assert.throws(
+    () =>
+      buildEnv({
+        NODE_ENV: 'test',
+        WRITE_API_TOKEN: 'secret-token',
+        WRITE_API_SITE_WRITE_PID_MAP: JSON.stringify({ 'site-1': 'A'.repeat(43) }),
+      }),
+    /write_pid_site_map_requires_override:WRITE_API_SITE_WRITE_PID_MAP:WRITE_API_ALLOW_PID_OVERRIDE/,
+  )
+})
+
 test('target write PID stays static when per-request override is disabled', () => {
   const basePid = 'A'.repeat(43)
   const result = resolveTargetWritePid(
@@ -87,6 +118,55 @@ test('target write PID override rejects invalid override values', () => {
   assert.equal(result.ok, false)
   assert.equal(result.status, 400)
   assert.equal(result.error, 'invalid_write_process_id_override')
+})
+
+test('target write PID override can be required in dynamic mode', () => {
+  const result = resolveTargetWritePid(
+    { headers: {} },
+    {},
+    {
+      writePid: 'A'.repeat(43),
+      allowWritePidOverride: true,
+      requireWritePidOverride: true,
+      apiToken: 'secret-token',
+    },
+  )
+  assert.equal(result.ok, false)
+  assert.equal(result.status, 400)
+  assert.equal(result.error, 'missing_write_process_id_override')
+})
+
+test('target write PID override enforces per-site PID route map', () => {
+  const result = resolveTargetWritePid(
+    { headers: { authorization: 'Bearer secret-token', 'x-write-process-id': 'B'.repeat(43) } },
+    { siteId: 'site-1' },
+    {
+      writePid: 'A'.repeat(43),
+      allowWritePidOverride: true,
+      apiToken: 'secret-token',
+      siteWritePidMap: { 'site-1': 'C'.repeat(43) },
+    },
+  )
+  assert.equal(result.ok, false)
+  assert.equal(result.status, 403)
+  assert.equal(result.error, 'write_pid_route_mismatch')
+})
+
+test('target write PID override accepts mapped site route', () => {
+  const overridePid = 'B'.repeat(43)
+  const result = resolveTargetWritePid(
+    { headers: { authorization: 'Bearer secret-token', 'x-write-process-id': overridePid } },
+    { payload: { siteId: 'site-2' } },
+    {
+      writePid: 'A'.repeat(43),
+      allowWritePidOverride: true,
+      apiToken: 'secret-token',
+      siteWritePidMap: { 'site-2': overridePid },
+    },
+  )
+  assert.equal(result.ok, true)
+  assert.equal(result.pid, overridePid)
+  assert.equal(result.overridden, true)
 })
 
 test('normalizeWriteResult returns clear contract for empty AO result payload', () => {

@@ -19,6 +19,8 @@ export const WRITE_API_CORS_ALLOW_HEADERS = CORS_ALLOW_HEADERS
 const PRODUCTION_LIKE_MODES = new Set(['production', 'prod', 'staging', 'stage', 'preprod', 'pre-production'])
 const UNSAFE_NO_TOKEN_OVERRIDE = 'WRITE_API_UNSAFE_ALLOW_NO_TOKEN'
 const WRITE_PID_OVERRIDE_FLAG = 'WRITE_API_ALLOW_PID_OVERRIDE'
+const WRITE_PID_REQUIRE_OVERRIDE_FLAG = 'WRITE_API_REQUIRE_PID_OVERRIDE'
+const WRITE_PID_SITE_MAP_FLAG = 'WRITE_API_SITE_WRITE_PID_MAP'
 let env = null
 let ao = null
 let aoConnectLibPromise = null
@@ -40,6 +42,33 @@ function positiveInt(value, fallback) {
   return parsed
 }
 
+function parseWritePidSiteMap(rawMap) {
+  const raw = clean(rawMap)
+  if (!raw) return { ok: true, map: null }
+  let parsed = null
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return { ok: false, error: 'write_pid_site_map_invalid_json' }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, error: 'write_pid_site_map_must_be_object' }
+  }
+  const normalized = {}
+  for (const [keyRaw, valueRaw] of Object.entries(parsed)) {
+    const key = clean(keyRaw)
+    const value = clean(valueRaw)
+    if (!key || !value) {
+      return { ok: false, error: 'write_pid_site_map_invalid_entry' }
+    }
+    if (!SAFE_WRITE_PID_RE.test(value)) {
+      return { ok: false, error: `write_pid_site_map_invalid_pid:${key}` }
+    }
+    normalized[key] = value
+  }
+  return { ok: true, map: normalized }
+}
+
 async function loadAoConnectLib() {
   if (!aoConnectLibPromise) {
     aoConnectLibPromise = import('@permaweb/aoconnect')
@@ -57,6 +86,10 @@ function isProductionLike(rawEnv = process.env) {
 }
 
 export function buildEnv(rawEnv = process.env) {
+  const parsedSitePidMap = parseWritePidSiteMap(rawEnv[WRITE_PID_SITE_MAP_FLAG])
+  if (!parsedSitePidMap.ok) {
+    throw new Error(parsedSitePidMap.error)
+  }
   const built = {
     host: clean(rawEnv.HOST) || '0.0.0.0',
     port: positiveInt(rawEnv.PORT, DEFAULT_PORT),
@@ -80,12 +113,26 @@ export function buildEnv(rawEnv = process.env) {
     productionLike: isProductionLike(rawEnv),
     unsafeAllowNoToken: isTrue(rawEnv[UNSAFE_NO_TOKEN_OVERRIDE]),
     allowWritePidOverride: isTrue(rawEnv[WRITE_PID_OVERRIDE_FLAG]),
+    requireWritePidOverride: isTrue(rawEnv[WRITE_PID_REQUIRE_OVERRIDE_FLAG]),
+    siteWritePidMap: parsedSitePidMap.map,
+  }
+  if (built.writePid && !SAFE_WRITE_PID_RE.test(built.writePid)) {
+    throw new Error('invalid_write_process_id')
   }
   if (built.productionLike && !built.apiToken && !built.unsafeAllowNoToken) {
     throw new Error(`write_api_token_required:${UNSAFE_NO_TOKEN_OVERRIDE}`)
   }
+  if (built.requireWritePidOverride && !built.allowWritePidOverride) {
+    throw new Error(`write_pid_require_override_needs_flag:${WRITE_PID_REQUIRE_OVERRIDE_FLAG}:${WRITE_PID_OVERRIDE_FLAG}`)
+  }
   if (built.allowWritePidOverride && !built.apiToken) {
     throw new Error(`write_pid_override_requires_token:${WRITE_PID_OVERRIDE_FLAG}:WRITE_API_TOKEN`)
+  }
+  if (built.siteWritePidMap && !built.allowWritePidOverride) {
+    throw new Error(`write_pid_site_map_requires_override:${WRITE_PID_SITE_MAP_FLAG}:${WRITE_PID_OVERRIDE_FLAG}`)
+  }
+  if (built.siteWritePidMap && !built.apiToken) {
+    throw new Error(`write_pid_site_map_requires_token:${WRITE_PID_SITE_MAP_FLAG}:WRITE_API_TOKEN`)
   }
   return built
 }
@@ -203,7 +250,13 @@ export function resolveTargetWritePid(req, body = {}, runtimeEnv = env) {
   const cfg = runtimeEnv || {}
   const basePid = firstString(cfg.writePid)
   const requested = requestedWritePid(req, body)
-  if (!requested.pid || !cfg.allowWritePidOverride) {
+  if (!requested.pid) {
+    if (cfg.allowWritePidOverride && cfg.requireWritePidOverride) {
+      return { ok: false, status: 400, error: 'missing_write_process_id_override' }
+    }
+    return { ok: true, pid: basePid, overridden: false, source: '' }
+  }
+  if (!cfg.allowWritePidOverride) {
     return { ok: true, pid: basePid, overridden: false, source: '' }
   }
   if (!cfg.apiToken) {
@@ -215,26 +268,42 @@ export function resolveTargetWritePid(req, body = {}, runtimeEnv = env) {
   if (!SAFE_WRITE_PID_RE.test(requested.pid)) {
     return { ok: false, status: 400, error: 'invalid_write_process_id_override' }
   }
+  if (cfg.siteWritePidMap && typeof cfg.siteWritePidMap === 'object') {
+    const routeKey = firstString(body.siteId, body.tenant, body?.payload?.siteId, body?.payload?.tenant)
+    if (!routeKey) {
+      return { ok: false, status: 400, error: 'write_pid_route_key_missing' }
+    }
+    const expectedPid = firstString(cfg.siteWritePidMap[routeKey])
+    if (!expectedPid) {
+      return { ok: false, status: 403, error: 'write_pid_route_not_allowed' }
+    }
+    if (expectedPid !== requested.pid) {
+      return { ok: false, status: 403, error: 'write_pid_route_mismatch' }
+    }
+  }
   return { ok: true, pid: requested.pid, overridden: true, source: requested.source }
 }
 
 function buildPayload(body) {
+  let payload = null
   if (body.payload && typeof body.payload === 'object' && !Array.isArray(body.payload)) {
-    return { ...body.payload }
+    payload = { ...body.payload }
+  } else {
+    payload = { ...body }
+    delete payload.action
+    delete payload.requestId
+    delete payload['request-id']
+    delete payload.actor
+    delete payload.tenant
+    delete payload.role
+    delete payload.timestamp
+    delete payload.nonce
+    delete payload.signatureRef
+    delete payload.signature
+    delete payload.siteId
+    delete payload.templateAction
   }
-  const payload = { ...body }
-  delete payload.action
-  delete payload.requestId
-  delete payload['request-id']
-  delete payload.actor
-  delete payload.tenant
-  delete payload.role
-  delete payload.timestamp
-  delete payload.nonce
-  delete payload.signatureRef
-  delete payload.signature
-  delete payload.siteId
-  delete payload.templateAction
+  delete payload[WRITE_PID_OVERRIDE_BODY_FIELD]
   return payload
 }
 
