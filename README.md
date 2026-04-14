@@ -140,7 +140,7 @@ node scripts/cli/send_write_command.js
 
 For worker-signed end-to-end tests, set `WORKER_SIGN_URL` + `WORKER_AUTH_TOKEN` (test values are kept locally in `tmp/test-secrets.json`).
 
-### HTTP checkout adapter (for WEDOS/PHP bridge)
+### HTTP checkout adapter (for PHP/bridge mode)
 
 Gateway template contract expects write endpoints:
 - `POST /api/checkout/order`
