@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   WRITE_API_CORS_ALLOW_HEADERS,
+  buildCommand,
   buildEnv,
   normalizeWriteResult,
   resolveTargetWritePid,
@@ -240,4 +241,20 @@ test('CORS allow-headers include x-trace-id', () => {
 
 test('CORS allow-headers include write PID override header', () => {
   assert.match(WRITE_API_CORS_ALLOW_HEADERS, /\bx-write-process-id\b/)
+})
+
+test('buildCommand defaults timestamp to epoch seconds when missing', () => {
+  const built = buildCommand({ headers: {} }, { payload: { siteId: 'site-1' } }, 'CreateOrder')
+  assert.equal(built.ok, true)
+  assert.match(built.command.timestamp, /^[0-9]{10,}$/)
+})
+
+test('buildCommand resolves tenant from payload.tenant', () => {
+  const built = buildCommand(
+    { headers: {} },
+    { payload: { tenant: 'tenant-payload', siteId: 'site-1' } },
+    'CreateOrder',
+  )
+  assert.equal(built.ok, true)
+  assert.equal(built.command.tenant, 'tenant-payload')
 })

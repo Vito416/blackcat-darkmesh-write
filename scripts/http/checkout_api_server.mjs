@@ -154,6 +154,10 @@ function nowIso() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
+function nowEpochSeconds() {
+  return String(Math.floor(Date.now() / 1000))
+}
+
 function json(res, status, body) {
   res.statusCode = status
   res.setHeader('content-type', 'application/json; charset=utf-8')
@@ -336,7 +340,8 @@ function validateRouteAction(bodyAction, expectedAction) {
   return { ok: false, error: 'action_route_mismatch', detail: { expectedAction, providedAction: normalized } }
 }
 
-function buildCommand(req, body, expectedAction) {
+export function buildCommand(req, body, expectedAction, runtimeEnv = env) {
+  const runtime = runtimeEnv || {}
   const payload = buildPayload(body)
   const siteId = firstString(body.siteId, payload.siteId)
   if (siteId && !payload.siteId) payload.siteId = siteId
@@ -344,7 +349,7 @@ function buildCommand(req, body, expectedAction) {
   const actionCheck = validateRouteAction(body.action, expectedAction)
   if (!actionCheck.ok) return actionCheck
 
-  const tenant = firstString(body.tenant, payload.tenant, payload.siteId, env.tenantFallback)
+  const tenant = firstString(body.tenant, payload.tenant, payload.siteId, runtime.tenantFallback)
   if (!tenant) {
     return {
       ok: false,
@@ -356,10 +361,10 @@ function buildCommand(req, body, expectedAction) {
   const command = {
     action: expectedAction,
     requestId: commandRequestId(req, body),
-    actor: firstString(body.actor, env.defaultActor),
+    actor: firstString(body.actor, runtime.defaultActor),
     tenant,
-    role: firstString(body.role, env.defaultRole),
-    timestamp: firstString(body.timestamp, nowIso()),
+    role: firstString(body.role, runtime.defaultRole),
+    timestamp: firstString(body.timestamp, nowEpochSeconds()),
     nonce: commandNonce(body),
     payload,
   }
@@ -700,7 +705,13 @@ async function handleCheckout(req, res, pathname) {
 export function createServer() {
   return http.createServer(async (req, res) => {
     const method = (req.method || 'GET').toUpperCase()
-    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
+    let url = null
+    try {
+      url = new URL(req.url || '/', 'http://localhost')
+    } catch {
+      json(res, 400, { ok: false, error: 'invalid_request_url' })
+      return
+    }
 
     if (method === 'OPTIONS') {
       res.statusCode = 204
