@@ -419,7 +419,16 @@ local function ensure_signature_policy()
 end
 
 function Auth.require_role(msg, allowed_roles)
-  if not allowed_roles or #allowed_roles == 0 then
+  if not allowed_roles then
+    return true
+  end
+  if allowed_roles == "*" then
+    return true
+  end
+  if type(allowed_roles) ~= "table" then
+    allowed_roles = { tostring(allowed_roles) }
+  end
+  if #allowed_roles == 0 or contains(allowed_roles, "*") then
     return true
   end
   local role = msg["Actor-Role"] or msg.actorRole or msg.role
