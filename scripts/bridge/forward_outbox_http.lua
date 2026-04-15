@@ -45,7 +45,7 @@ end
 
 -- refresh outbox mirror
 write._outbox()
-local events = storage.all "outbox"
+local events = storage.get "outbox_queue" or storage.all "outbox"
 
 local ok, cjson = pcall(require, "cjson")
 if not ok then

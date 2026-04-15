@@ -1099,7 +1099,42 @@ function Auth.check_policy(msg)
   return true
 end
 
+local function normalize_scope_value(value)
+  if value == nil then
+    return nil
+  end
+  local normalized = tostring(value)
+  if normalized == "" then
+    return nil
+  end
+  return normalized
+end
+
 function Auth.check_caller_scope(_msg)
+  local msg = _msg or {}
+  local payload = msg.payload or msg.Payload
+  if type(payload) ~= "table" then
+    payload = {}
+  end
+
+  local tenant_msg = normalize_scope_value(msg.tenant or msg.Tenant or msg["Tenant-Id"])
+  local tenant_payload =
+    normalize_scope_value(payload.tenant or payload.Tenant or payload["Tenant-Id"])
+  if tenant_msg and tenant_payload and tenant_msg ~= tenant_payload then
+    return false, "caller_scope_tenant_mismatch"
+  end
+
+  local site_msg = normalize_scope_value(msg.siteId or msg["Site-Id"] or msg.SiteId)
+  local site_payload = normalize_scope_value(payload.siteId or payload["Site-Id"] or payload.SiteId)
+  if site_msg and site_payload and site_msg ~= site_payload then
+    return false, "caller_scope_site_mismatch"
+  end
+
+  if os.getenv "WRITE_REQUIRE_CALLER_SCOPE" == "1" then
+    if not tenant_msg and not tenant_payload and not site_msg and not site_payload then
+      return false, "caller_scope_missing"
+    end
+  end
   return true
 end
 

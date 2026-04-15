@@ -205,6 +205,9 @@ function Validation.validate_envelope(cmd)
   if not ok_tags then
     return false, missing
   end
+  if tostring(cmd.requestId):match "^%s*$" then
+    return false, { "invalid_request_id" }
+  end
   return true
 end
 
@@ -235,8 +238,8 @@ local validators = {
     return true
   end,
   CreateWebhook = function(p)
-    if not p or not p.siteId or not p.url then
-      return false, { "missing:siteId,url" }
+    if not p or not p.tenant or not p.url then
+      return false, { "missing:tenant,url" }
     end
     if p.events and type(p.events) ~= "table" then
       return false, { "invalid:events" }

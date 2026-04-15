@@ -55,12 +55,12 @@ end
 
 -- Ensure we have the latest outbox mirrored to storage
 local _ = write._outbox() -- triggers any pending updates
-local events = storage.all "outbox"
+local events = storage.get "outbox_queue" or storage.all "outbox"
 
 -- refresh from persisted store if configured
 if persistence then
   storage.load(persistence)
-  events = storage.all "outbox"
+  events = storage.get "outbox_queue" or storage.all "outbox"
 end
 
 ensure_dir(out)

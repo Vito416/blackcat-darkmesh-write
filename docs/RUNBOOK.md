@@ -29,8 +29,9 @@
   before applying.
 
 ## Receipts
-- Accepts generic `CreateReceipt`; provider-specific callbacks stay in
-  gateway/web layers and should only send normalized receipts here if needed.
+- Provider-specific callbacks stay in gateway/web layers.
+- The write process currently persists normalized payment/order state changes
+  (`ProviderWebhook`, `GoPayWebhook`, `ConfirmPayment`, `IssueRefund`).
 
 ## Key rotation SOP (ed25519)
 - Rotate every 90 days or on incident.

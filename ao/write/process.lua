@@ -2221,13 +2221,18 @@ function handlers.UpsertOrderStatus(cmd)
   local order = state.orders[oid]
 
   local expected_version = cmd.expectedVersion or (cmd.payload and cmd.payload.expectedVersion)
-  if expected_version and order.version and order.version ~= expected_version then
-    return err(
-      cmd.requestId,
-      "VERSION_CONFLICT",
-      "expectedVersion mismatch",
-      { current = order.version }
-    )
+  local current_version = order.version
+  if current_version ~= nil and expected_version ~= nil then
+    local current_cmp = tostring(current_version)
+    local expected_cmp = tostring(expected_version)
+    if current_cmp ~= expected_cmp then
+      return err(
+        cmd.requestId,
+        "VERSION_CONFLICT",
+        "expectedVersion mismatch",
+        { current = order.version }
+      )
+    end
   end
 
   local target = cmd.payload.status
@@ -3924,6 +3929,10 @@ function M._outbox()
 end
 
 function M._storage_outbox()
+  local queue = storage.get "outbox_queue"
+  if type(queue) == "table" then
+    return queue
+  end
   return storage.all "outbox"
 end
 

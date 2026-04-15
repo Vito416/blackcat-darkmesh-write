@@ -19,28 +19,42 @@ local function api_base()
   return os.getenv "GOPAY_API_BASE" or "https://gate.gopay.com/api"
 end
 
+local function shell_escape(value)
+  return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
+end
+
 local function curl_json(method, path, body)
   local cid = os.getenv "GOPAY_CLIENT_ID"
   local secret = os.getenv "GOPAY_CLIENT_SECRET"
   if not cid or not secret then
     return nil, "missing_credentials"
   end
-  local payload = body and (string.format("--data-binary @- <<'EOF'\n%s\nEOF", body)) or ""
-  local cmd = string.format(
-    "curl -s -w '\\n%%{http_code}' -X %s -u %q:%q -H 'Content-Type: application/json' --max-time %s %s%s",
-    method,
-    cid,
-    secret,
-    os.getenv "GOPAY_TIMEOUT" or "10",
-    api_base(),
-    path
-  )
-  local pipe = io.popen(cmd, "w")
+  local timeout = os.getenv "GOPAY_TIMEOUT" or "10"
+  local url = api_base() .. path
+  local cmd
+  if body then
+    cmd = string.format(
+      "printf %%s %s | curl -s -w '\\n%%{http_code}' -X %s -u %q:%q -H 'Content-Type: application/json' --max-time %s --data-binary @- %s",
+      shell_escape(body),
+      method,
+      cid,
+      secret,
+      timeout,
+      shell_escape(url)
+    )
+  else
+    cmd = string.format(
+      "curl -s -w '\\n%%{http_code}' -X %s -u %q:%q -H 'Content-Type: application/json' --max-time %s %s",
+      method,
+      cid,
+      secret,
+      timeout,
+      shell_escape(url)
+    )
+  end
+  local pipe = io.popen(cmd, "r")
   if not pipe then
     return nil, "curl_failed"
-  end
-  if body then
-    pipe:write(body)
   end
   local resp = pipe:read "*a" or ""
   pipe:close()

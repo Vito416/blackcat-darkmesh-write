@@ -204,7 +204,7 @@ scripts/cli/       # local helpers (run command)
 
 ## Minimal Command Envelope
 - Required tags: `Action`, `Request-Id`, `Actor`, `Tenant`, `Expected-Version`, `Nonce`, `Signature-Ref`, `Timestamp`.
-- Core handlers (initial set): `SaveDraftPage`, `PublishPageVersion`, `UpsertRoute`, `UpsertProduct`, `UpsertProfile`, `AssignRole`, `GrantEntitlement`, `LinkDomain`, `RotateKey`, `CreateReceipt`.
+- Core handlers (initial set): `SaveDraftPage`, `PublishPageVersion`, `UpsertRoute`, `UpsertProduct`, `UpsertProfile`, `AssignRole`, `GrantEntitlement`, `CreateOrder`, `CreatePaymentIntent`, `ConfirmPayment`.
 - Conflict strategy: reject on missing/expired nonce, replayed `Request-Id`, or mismatched `Expected-Version`; return prior result when replayed.
 
 ## Development
