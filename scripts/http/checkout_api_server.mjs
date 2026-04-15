@@ -609,7 +609,7 @@ export function normalizeWriteResult(rawResult, context = {}, runtimeEnv = env) 
               ? 409
               : code === 'RATE_LIMITED'
                 ? 429
-                : 422
+                : 502
   return { status, body: envelope }
 }
 

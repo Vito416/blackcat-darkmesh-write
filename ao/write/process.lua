@@ -3753,14 +3753,10 @@ local function idempotency_key(command)
   end
   local action = command.action or command.Action or ""
   local tenant = command.tenant or command.Tenant or command["Tenant-Id"] or ""
-  local caller = command.callerId
-    or command["Caller-Id"]
-    or command.gatewayId
-    or command["Gateway-Id"]
-    or command.actor
-    or command.Actor
-    or ""
-  return table.concat({ request_id, tenant, action, tostring(caller) }, "|")
+  local actor = command.actor or command.Actor or ""
+  -- Keep key stable across gateway failover/retries; caller/gateway metadata
+  -- can change between attempts for the same logical request.
+  return table.concat({ request_id, tenant, action, tostring(actor) }, "|")
 end
 
 -- route(command) validates and dispatches.
