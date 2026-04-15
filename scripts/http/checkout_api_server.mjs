@@ -646,7 +646,7 @@ export function normalizeWriteResult(rawResult, context = {}, runtimeEnv = env) 
           ? 403
           : code === 'NOT_FOUND'
             ? 404
-            : code === 'CONFLICT'
+            : code === 'CONFLICT' || code === 'VERSION_CONFLICT'
               ? 409
               : code === 'RATE_LIMITED'
                 ? 429

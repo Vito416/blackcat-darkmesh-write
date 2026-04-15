@@ -3951,7 +3951,15 @@ end
 function M._storage_outbox()
   local queue = storage.get "outbox_queue"
   if type(queue) == "table" then
-    return queue
+    local out = {}
+    for i, entry in ipairs(queue) do
+      if type(entry) == "table" and entry.event ~= nil then
+        out[i] = entry.event
+      else
+        out[i] = entry
+      end
+    end
+    return out
   end
   return storage.all "outbox"
 end
