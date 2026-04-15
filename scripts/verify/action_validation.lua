@@ -198,7 +198,10 @@ local idem_cross_tenant = write.route {
   ts = os.time(),
   payload = { siteId = "s1" },
 }
-assert(expect_error(idem_cross_tenant), "idempotency should not short-circuit before auth/validation")
+assert(
+  expect_error(idem_cross_tenant),
+  "idempotency should not short-circuit before auth/validation"
+)
 
 print "action_validation: ok"
 -- luacheck: max_line_length 200
