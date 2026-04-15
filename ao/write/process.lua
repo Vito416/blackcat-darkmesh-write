@@ -119,16 +119,6 @@ end
 
 local M = {}
 
-local role_policy = {
-  PublishPageVersion = { "admin", "editor" },
-  UpsertRoute = { "admin", "editor" },
-  CreateWebhook = { "admin", "ops" },
-  RunWebhookRetries = { "ops", "admin" },
-  ProviderWebhook = { "ops", "admin" },
-  ProviderShippingWebhook = { "ops", "admin" },
-  CreateShipment = { "admin", "ops" },
-}
-
 local function sha256_str(str)
   local tmp = os.tmpname()
   local f = io.open(tmp, "w")
@@ -1218,6 +1208,11 @@ end
 
 local handlers = {}
 local role_policy = {
+  PublishPageVersion = { "admin", "editor" },
+  UpsertRoute = { "admin", "editor" },
+  CreateWebhook = { "admin", "ops" },
+  ProviderWebhook = { "ops", "admin" },
+  CreateShipment = { "admin", "ops" },
   ProviderShippingWebhook = { "support", "admin", "catalog-admin" },
   AddDisputeEvidence = { "support", "admin" },
   SubmitForReview = { "editor", "admin", "publisher" },
@@ -2805,16 +2800,34 @@ end
 
 function handlers.CreateOrder(cmd)
   local payload = cmd.payload or {}
+  local normalized_items = nil
+  if type(payload.items) == "table" then
+    normalized_items = {}
+    for i, item in ipairs(payload.items) do
+      if type(item) == "table" then
+        local next_item = {}
+        for k, v in pairs(item) do
+          next_item[k] = v
+        end
+        if next_item.qty == nil and next_item.quantity ~= nil then
+          next_item.qty = next_item.quantity
+        end
+        normalized_items[i] = next_item
+      else
+        normalized_items[i] = item
+      end
+    end
+  end
   local cart = payload.cartId and state.carts[payload.cartId] or nil
   if
     (not cart or #(cart.items or {}) == 0)
-    and type(payload.items) == "table"
-    and #payload.items > 0
+    and type(normalized_items) == "table"
+    and #normalized_items > 0
   then
     cart = {
       siteId = payload.siteId,
       currency = payload.currency or "USD",
-      items = payload.items,
+      items = normalized_items,
     }
   end
   if not cart or #(cart.items or {}) == 0 then
@@ -2836,6 +2849,7 @@ function handlers.CreateOrder(cmd)
     return ok(cmd.requestId, {
       orderId = existing_order_id,
       totalAmount = total,
+      total = total,
       currency = existing.currency,
     })
   end
@@ -2889,10 +2903,12 @@ function handlers.CreateOrder(cmd)
     requestId = cmd.requestId,
   }
   enqueue_event(ev)
-  return ok(
-    cmd.requestId,
-    { orderId = orderId, totalAmount = totals.total, currency = cart.currency }
-  )
+  return ok(cmd.requestId, {
+    orderId = orderId,
+    totalAmount = totals.total,
+    total = totals.total,
+    currency = cart.currency,
+  })
 end
 
 function handlers.AddShippingRate(cmd)
@@ -3002,9 +3018,27 @@ function handlers.GetShippingQuote(cmd)
 end
 
 function handlers.CreatePaymentIntent(cmd)
-  local provider = cmd.payload.provider or os.getenv "PAYMENT_PROVIDER" or "manual"
-  local pid = string.format("pay_%s", cmd.payload.orderId)
-  local existing_pid = state.order_payment and state.order_payment[cmd.payload.orderId]
+  local payload = cmd.payload or {}
+  cmd.payload = payload
+  if payload.amount == nil or payload.currency == nil then
+    local linked_order = state.orders[payload.orderId]
+    if linked_order then
+      local order_total = linked_order.totals and linked_order.totals.total
+      if payload.amount == nil and order_total ~= nil then
+        payload.amount = order_total
+      end
+      if payload.currency == nil and linked_order.currency ~= nil then
+        payload.currency = linked_order.currency
+      end
+    end
+  end
+  if payload.amount == nil or payload.currency == nil then
+    return err(cmd.requestId, "INVALID_INPUT", "missing:amount,currency")
+  end
+
+  local provider = payload.provider or os.getenv "PAYMENT_PROVIDER" or "manual"
+  local pid = string.format("pay_%s", payload.orderId)
+  local existing_pid = state.order_payment and state.order_payment[payload.orderId]
   if not existing_pid then
     for p_id, p in pairs(state.payments) do
       if p.orderId == cmd.payload.orderId then
@@ -3037,12 +3071,12 @@ function handlers.CreatePaymentIntent(cmd)
     if provider == "gopay" then
       if gopay_ok then
         local pid_out, gw, state = gopay.create_payment {
-          orderId = cmd.payload.orderId,
-          amount = cmd.payload.amount,
-          currency = cmd.payload.currency,
-          returnUrl = cmd.payload.returnUrl,
-          description = cmd.payload.description,
-          paymentMethodToken = cmd.payload.paymentMethodToken,
+          orderId = payload.orderId,
+          amount = payload.amount,
+          currency = payload.currency,
+          returnUrl = payload.returnUrl,
+          description = payload.description,
+          paymentMethodToken = payload.paymentMethodToken,
         }
         providerPaymentId, gatewayUrl = pid_out, gw
         if state == "CREATED" or state == "AUTHORIZED" then
@@ -3057,74 +3091,73 @@ function handlers.CreatePaymentIntent(cmd)
       end
     elseif provider == "stripe" then
       if stripe_ok then
-        if cmd.payload.customerId and not cmd.payload.paymentMethodToken then
-          local token = state.payment_tokens[cmd.payload.customerId]
-            and state.payment_tokens[cmd.payload.customerId].stripe
+        if payload.customerId and not payload.paymentMethodToken then
+          local token = state.payment_tokens[payload.customerId]
+            and state.payment_tokens[payload.customerId].stripe
           if token then
-            cmd.payload.paymentMethodToken = token
+            payload.paymentMethodToken = token
           end
         end
         providerPaymentId, gatewayUrl, status = stripe.create_payment {
-          orderId = cmd.payload.orderId,
-          amount = cmd.payload.amount,
-          currency = cmd.payload.currency,
-          returnUrl = cmd.payload.returnUrl,
-          description = cmd.payload.description,
-          metadata = cmd.payload.providerMetadata,
-          paymentMethodToken = cmd.payload.paymentMethodToken,
-          saveForFuture = cmd.payload.saveForFuture,
+          orderId = payload.orderId,
+          amount = payload.amount,
+          currency = payload.currency,
+          returnUrl = payload.returnUrl,
+          description = payload.description,
+          metadata = payload.providerMetadata,
+          paymentMethodToken = payload.paymentMethodToken,
+          saveForFuture = payload.saveForFuture,
         }
       end
     elseif provider == "paypal" then
       if paypal_ok then
-        if cmd.payload.customerId and not cmd.payload.paymentMethodToken then
-          local token = state.payment_tokens[cmd.payload.customerId]
-            and state.payment_tokens[cmd.payload.customerId].paypal
+        if payload.customerId and not payload.paymentMethodToken then
+          local token = state.payment_tokens[payload.customerId]
+            and state.payment_tokens[payload.customerId].paypal
           if token then
-            cmd.payload.paymentMethodToken = token
+            payload.paymentMethodToken = token
           end
         end
         providerPaymentId, gatewayUrl, status = paypal.create_payment {
-          orderId = cmd.payload.orderId,
-          amount = cmd.payload.amount,
-          currency = cmd.payload.currency,
-          returnUrl = cmd.payload.returnUrl,
-          description = cmd.payload.description,
-          metadata = cmd.payload.providerMetadata,
-          paymentMethodToken = cmd.payload.paymentMethodToken,
+          orderId = payload.orderId,
+          amount = payload.amount,
+          currency = payload.currency,
+          returnUrl = payload.returnUrl,
+          description = payload.description,
+          metadata = payload.providerMetadata,
+          paymentMethodToken = payload.paymentMethodToken,
         }
       end
     end
   end -- PSP_HOSTED_ONLY
   state.payments[pid] = {
-    orderId = cmd.payload.orderId,
-    amount = cmd.payload.amount,
-    currency = cmd.payload.currency,
+    orderId = payload.orderId,
+    amount = payload.amount,
+    currency = payload.currency,
     provider = provider,
     status = status,
     refundedAmount = 0,
     risk = (os.getenv "PAYMENT_RISK_REQUIRED" == "1") and "review" or "pass",
-    returnUrl = cmd.payload.returnUrl,
-    description = cmd.payload.description,
+    returnUrl = payload.returnUrl,
+    description = payload.description,
     providerUrl = (
       provider == "gopay" and (os.getenv "GOPAY_GATEWAY_URL" or "https://gw.gopay.com")
     ) or nil,
     providerPaymentId = providerPaymentId,
     gatewayUrl = gatewayUrl,
-    tokenized = cmd.payload.paymentMethodToken ~= nil,
+    tokenized = payload.paymentMethodToken ~= nil,
   }
-  link_payment_to_order(pid, cmd.payload.orderId)
-  if cmd.payload.customerId and cmd.payload.paymentMethodToken then
-    state.payment_tokens[cmd.payload.customerId] = state.payment_tokens[cmd.payload.customerId]
-      or {}
-    state.payment_tokens[cmd.payload.customerId][provider] = cmd.payload.paymentMethodToken
+  link_payment_to_order(pid, payload.orderId)
+  if payload.customerId and payload.paymentMethodToken then
+    state.payment_tokens[payload.customerId] = state.payment_tokens[payload.customerId] or {}
+    state.payment_tokens[payload.customerId][provider] = payload.paymentMethodToken
   end
   local ev = {
     type = "PaymentIntentCreated",
     paymentId = pid,
-    orderId = cmd.payload.orderId,
-    amount = cmd.payload.amount,
-    currency = cmd.payload.currency,
+    orderId = payload.orderId,
+    amount = payload.amount,
+    currency = payload.currency,
     provider = provider,
     risk = state.payments[pid].risk,
     providerUrl = state.payments[pid].providerUrl,
@@ -3140,10 +3173,12 @@ function handlers.CreatePaymentIntent(cmd)
   breaker_note(provider, status ~= "error")
   return ok(cmd.requestId, {
     paymentId = pid,
+    paymentIntentId = pid,
     provider = provider,
     status = status,
     providerPaymentId = providerPaymentId,
     gatewayUrl = gatewayUrl,
+    approvalUrl = gatewayUrl,
   })
 end
 
@@ -3713,7 +3748,14 @@ local function idempotency_key(command)
   end
   local action = command.action or command.Action or ""
   local tenant = command.tenant or command.Tenant or command["Tenant-Id"] or ""
-  return table.concat({ request_id, tenant, action }, "|")
+  local caller = command.callerId
+    or command["Caller-Id"]
+    or command.gatewayId
+    or command["Gateway-Id"]
+    or command.actor
+    or command.Actor
+    or ""
+  return table.concat({ request_id, tenant, action, tostring(caller) }, "|")
 end
 
 -- route(command) validates and dispatches.
@@ -3762,10 +3804,6 @@ function M.route(command)
   if not ok_policy then
     return err(command.requestId, "FORBIDDEN", pol_err or "policy denied")
   end
-  local ok_nonce, nonce_err = auth.require_nonce_and_timestamp(command)
-  if not ok_nonce then
-    return err(command.requestId, "UNAUTHORIZED", nonce_err or "nonce failed")
-  end
   local ok_caller, caller_err = auth.check_caller_scope(command)
   if not ok_caller then
     return err(command.requestId, "FORBIDDEN", caller_err or "caller denied")
@@ -3773,10 +3811,6 @@ function M.route(command)
   local ok_role, role_err = auth.check_role_for_action(command, role_policy)
   if not ok_role then
     return err(command.requestId, "FORBIDDEN", role_err or "role denied")
-  end
-  local ok_rl_scope, rl_err_scope = auth.check_rate_limit(command)
-  if not ok_rl_scope then
-    return err(command.requestId, "RATE_LIMITED", rl_err_scope)
   end
 
   local ok_act, act_errs = validation.validate_action(command.action, command.payload)
@@ -3791,6 +3825,16 @@ function M.route(command)
     counter("idempotency_collisions", 1)
     counter("idempotency_collisions_total", 1)
     return stored
+  end
+
+  local ok_nonce, nonce_err = auth.require_nonce_and_timestamp(command)
+  if not ok_nonce then
+    return err(command.requestId, "UNAUTHORIZED", nonce_err or "nonce failed")
+  end
+
+  local ok_rl_scope, rl_err_scope = auth.check_rate_limit(command)
+  if not ok_rl_scope then
+    return err(command.requestId, "RATE_LIMITED", rl_err_scope)
   end
 
   local handler = handlers[command.action]

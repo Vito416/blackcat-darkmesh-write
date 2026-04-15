@@ -310,7 +310,8 @@ local validators = {
         return false, { "invalid:items" }
       end
       for _, it in ipairs(p.items) do
-        if not it.sku or not it.qty then
+        local qty = it and (it.qty or it.quantity)
+        if not it.sku or not qty then
           return false, { "invalid:items:sku/qty" }
         end
       end
@@ -357,8 +358,14 @@ local validators = {
     return true
   end,
   CreatePaymentIntent = function(p)
-    if not p or not p.orderId or not p.amount or not p.currency then
-      return false, { "missing:orderId,amount,currency" }
+    if not p or not p.orderId then
+      return false, { "missing:orderId" }
+    end
+    if p.amount ~= nil and type(p.amount) ~= "number" then
+      return false, { "invalid:amount" }
+    end
+    if p.currency ~= nil and type(p.currency) ~= "string" then
+      return false, { "invalid:currency" }
     end
     return true
   end,

@@ -206,6 +206,9 @@
               "qty": {
                 "type": "number"
               },
+              "quantity": {
+                "type": "number"
+              },
               "price": {
                 "type": "number"
               },
@@ -214,8 +217,19 @@
               }
             },
             "required": [
-              "sku",
-              "qty"
+              "sku"
+            ],
+            "anyOf": [
+              {
+                "required": [
+                  "qty"
+                ]
+              },
+              {
+                "required": [
+                  "quantity"
+                ]
+              }
             ],
             "additionalProperties": true
           },
@@ -305,9 +319,7 @@
         }
       },
       "required": [
-        "orderId",
-        "amount",
-        "currency"
+        "orderId"
       ],
       "additionalProperties": true
     },
