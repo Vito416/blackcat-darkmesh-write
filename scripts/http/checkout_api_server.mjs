@@ -275,7 +275,12 @@ export function resolveTargetWritePid(req, body = {}, runtimeEnv = env) {
     return { ok: false, status: 400, error: 'invalid_write_process_id_override' }
   }
   if (cfg.siteWritePidMap && typeof cfg.siteWritePidMap === 'object') {
-    const routeKey = firstString(body.siteId, body.tenant, body?.payload?.siteId, body?.payload?.tenant)
+    const routeKey = firstString(
+      body.siteId,
+      body?.payload?.siteId,
+      body.tenant,
+      body?.payload?.tenant,
+    )
     if (!routeKey) {
       return { ok: false, status: 400, error: 'write_pid_route_key_missing' }
     }
