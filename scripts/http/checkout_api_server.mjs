@@ -344,9 +344,13 @@ function buildCommand(req, body, expectedAction) {
   const actionCheck = validateRouteAction(body.action, expectedAction)
   if (!actionCheck.ok) return actionCheck
 
-  const tenant = firstString(body.tenant, payload.siteId, env.tenantFallback)
+  const tenant = firstString(body.tenant, payload.tenant, payload.siteId, env.tenantFallback)
   if (!tenant) {
-    return { ok: false, error: 'tenant_required', detail: 'tenant or payload.siteId is required' }
+    return {
+      ok: false,
+      error: 'tenant_required',
+      detail: 'tenant or payload.tenant or payload.siteId is required',
+    }
   }
 
   const command = {
