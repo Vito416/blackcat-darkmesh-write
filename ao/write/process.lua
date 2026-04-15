@@ -2844,7 +2844,12 @@ function handlers.CreateOrder(cmd)
     if payload.cartId and payload.cartId ~= "" then
       existing_order_id = "ord_" .. tostring(payload.cartId)
     else
-      local hash_seed = tostring(cmd.requestId or cmd.nonce or os.time())
+      local tenant_scope = tostring(payload.siteId or payload.tenant or cmd.tenant or "")
+      local base_seed = tostring(cmd.requestId or cmd.nonce or os.time())
+      local hash_seed = base_seed
+      if tenant_scope ~= "" then
+        hash_seed = tenant_scope .. "|" .. base_seed
+      end
       local hash = sha256_str(hash_seed)
       if not hash or hash == "" then
         hash = hash_seed:gsub("[^%w]", "")

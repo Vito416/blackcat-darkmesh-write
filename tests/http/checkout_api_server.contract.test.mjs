@@ -258,3 +258,24 @@ test('buildCommand resolves tenant from payload.tenant', () => {
   assert.equal(built.ok, true)
   assert.equal(built.command.tenant, 'tenant-payload')
 })
+
+test('buildCommand normalizes ISO timestamp to epoch seconds', () => {
+  const iso = '2026-04-15T20:00:00Z'
+  const built = buildCommand(
+    { headers: {} },
+    { timestamp: iso, payload: { siteId: 'site-1' } },
+    'CreateOrder',
+  )
+  assert.equal(built.ok, true)
+  assert.equal(built.command.timestamp, String(Math.floor(Date.parse(iso) / 1000)))
+})
+
+test('buildCommand rejects malformed timestamp', () => {
+  const built = buildCommand(
+    { headers: {} },
+    { timestamp: 'not-a-timestamp', payload: { siteId: 'site-1' } },
+    'CreateOrder',
+  )
+  assert.equal(built.ok, false)
+  assert.equal(built.error, 'invalid_timestamp')
+})

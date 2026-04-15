@@ -158,6 +158,19 @@ function nowEpochSeconds() {
   return String(Math.floor(Date.now() / 1000))
 }
 
+function normalizeCommandTimestamp(value) {
+  const raw = clean(value)
+  if (!raw) return nowEpochSeconds()
+  if (/^\d+$/.test(raw)) {
+    return String(Math.floor(Number(raw)))
+  }
+  const parsed = Date.parse(raw)
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return String(Math.floor(parsed / 1000))
+  }
+  return ''
+}
+
 function json(res, status, body) {
   res.statusCode = status
   res.setHeader('content-type', 'application/json; charset=utf-8')
@@ -357,6 +370,14 @@ export function buildCommand(req, body, expectedAction, runtimeEnv = env) {
       detail: 'tenant or payload.tenant or payload.siteId is required',
     }
   }
+  const timestamp = normalizeCommandTimestamp(body.timestamp)
+  if (!timestamp) {
+    return {
+      ok: false,
+      error: 'invalid_timestamp',
+      detail: 'timestamp must be epoch seconds or ISO-8601',
+    }
+  }
 
   const command = {
     action: expectedAction,
@@ -364,7 +385,7 @@ export function buildCommand(req, body, expectedAction, runtimeEnv = env) {
     actor: firstString(body.actor, runtime.defaultActor),
     tenant,
     role: firstString(body.role, runtime.defaultRole),
-    timestamp: firstString(body.timestamp, nowEpochSeconds()),
+    timestamp,
     nonce: commandNonce(body),
     payload,
   }

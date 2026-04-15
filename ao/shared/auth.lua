@@ -1079,7 +1079,7 @@ function Auth.check_policy(msg)
     m_counter "write_auth_signature_policy_missing_action_total"
     return false, "signature_policy_missing_action"
   end
-  if entry.actions ~= "*" and not contains(entry.actions, action) then
+  if entry.actions and entry.actions ~= "*" and not contains(entry.actions, action) then
     m_counter "write_auth_signature_policy_action_forbidden_total"
     return false, "signature_policy_action_forbidden"
   end
