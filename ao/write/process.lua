@@ -2803,6 +2803,19 @@ function compute_totals(cart, coupon_code, vatRate, shipping, address)
   }
 end
 
+local function stable_seed_hash(seed)
+  local h1 = 1315423911
+  local h2 = 2654435761
+  local mod = 4294967291
+  local input = tostring(seed or "")
+  for i = 1, #input do
+    local b = string.byte(input, i)
+    h1 = (h1 * 33 + b + i) % mod
+    h2 = (h2 * 97 + b + h1) % mod
+  end
+  return string.format("%08x%08x", h1 % 4294967296, h2 % 4294967296)
+end
+
 function handlers.CreateOrder(cmd)
   local payload = cmd.payload or {}
   local normalized_items = nil
@@ -2852,10 +2865,7 @@ function handlers.CreateOrder(cmd)
       end
       local hash = sha256_str(hash_seed)
       if not hash or hash == "" then
-        hash = hash_seed:gsub("[^%w]", "")
-        if hash == "" then
-          hash = tostring(os.time())
-        end
+        hash = stable_seed_hash(hash_seed)
       end
       if #hash < 16 then
         hash = hash .. string.rep("0", 16 - #hash)
@@ -3768,10 +3778,9 @@ local function idempotency_key(command)
   end
   local action = command.action or command.Action or ""
   local tenant = command.tenant or command.Tenant or command["Tenant-Id"] or ""
-  local actor = command.actor or command.Actor or ""
   -- Keep key stable across gateway failover/retries; caller/gateway metadata
   -- can change between attempts for the same logical request.
-  return table.concat({ request_id, tenant, action, tostring(actor) }, "|")
+  return table.concat({ request_id, tenant, action }, "|")
 end
 
 -- route(command) validates and dispatches.
