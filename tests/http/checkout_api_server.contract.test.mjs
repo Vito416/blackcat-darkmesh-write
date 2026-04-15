@@ -285,6 +285,40 @@ test('buildCommand rejects mismatched site scope values', () => {
   assert.equal(built.error, 'site_id_mismatch')
 })
 
+test('buildCommand preserves signed identity envelope fields', () => {
+  const iso = '2026-04-16T00:00:00Z'
+  const built = buildCommand(
+    { headers: { 'x-request-id': 'header-rid' } },
+    {
+      Action: 'CreateOrder',
+      'Request-Id': 'signed-rid',
+      Actor: 'signed-actor',
+      Tenant: 'signed-tenant',
+      'Actor-Role': 'editor',
+      timestamp: iso,
+      Nonce: 'signed-nonce',
+      payload: { siteId: 'site-1', items: [{ sku: 'sku-1', qty: 1 }] },
+      signature: 'signed-sig',
+      'Signature-Ref': 'signed-ref',
+    },
+    'CreateOrder',
+    {
+      defaultActor: 'gateway-default-actor',
+      defaultRole: 'gateway-default-role',
+      tenantFallback: 'gateway-default-tenant',
+    },
+  )
+  assert.equal(built.ok, true)
+  assert.equal(built.command.requestId, 'signed-rid')
+  assert.equal(built.command.actor, 'signed-actor')
+  assert.equal(built.command.tenant, 'signed-tenant')
+  assert.equal(built.command.role, 'editor')
+  assert.equal(built.command.timestamp, iso)
+  assert.equal(built.command.nonce, 'signed-nonce')
+  assert.equal(built.command.signature, 'signed-sig')
+  assert.equal(built.command.signatureRef, 'signed-ref')
+})
+
 test('buildCommand normalizes ISO timestamp to epoch seconds', () => {
   const iso = '2026-04-15T20:00:00Z'
   const built = buildCommand(

@@ -240,15 +240,11 @@ export function resolveTraceId(value) {
   return SAFE_TRACE_ID_RE.test(normalized) ? normalized : ''
 }
 
-function commandRequestId(req, body) {
+function commandRequestId(req, body, signedEnvelope = false) {
+  const fromBody = firstString(body.requestId, body['request-id'], body['Request-Id'])
+  const fromHeaders = firstString(req.headers['x-request-id'], req.headers['request-id'])
   return (
-    firstString(
-      req.headers['x-request-id'],
-      req.headers['request-id'],
-      body.requestId,
-      body['request-id'],
-      body['Request-Id'],
-    ) ||
+    firstString(signedEnvelope ? fromBody : fromHeaders, signedEnvelope ? fromHeaders : fromBody) ||
     `gw-write-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`
   )
 }
@@ -257,8 +253,30 @@ function commandTraceId(req, body) {
   return resolveTraceId(firstString(req.headers['x-trace-id'], body.traceId, body['trace-id']))
 }
 
-function commandNonce(body) {
-  return firstString(body.nonce) || `nonce-${crypto.randomBytes(8).toString('hex')}`
+function commandNonce(body, signedEnvelope = false) {
+  const nonce = firstString(body.nonce, body.Nonce, body['X-Nonce'])
+  if (nonce) return nonce
+  return signedEnvelope ? '' : `nonce-${crypto.randomBytes(8).toString('hex')}`
+}
+
+function resolveSignatureEnvelope(body = {}) {
+  const signatureRef = firstString(body.signatureRef, body['Signature-Ref'], body.signature_ref)
+  const signature = firstString(body.signature, body.Signature)
+  return {
+    signatureRef,
+    signature,
+    signed: Boolean(signatureRef && signature),
+  }
+}
+
+function buildSignedPayload(body = {}) {
+  if (body.payload && typeof body.payload === 'object' && !Array.isArray(body.payload)) {
+    return { ...body.payload }
+  }
+  if (body.Payload && typeof body.Payload === 'object' && !Array.isArray(body.Payload)) {
+    return { ...body.Payload }
+  }
+  return {}
 }
 
 function resolveSiteScope(body = {}) {
@@ -372,7 +390,9 @@ function validateRouteAction(bodyAction, expectedAction) {
 
 export function buildCommand(req, body, expectedAction, runtimeEnv = env) {
   const runtime = runtimeEnv || {}
-  const payload = buildPayload(body)
+  const signatureEnvelope = resolveSignatureEnvelope(body)
+  const signedEnvelope = signatureEnvelope.signed
+  const payload = signedEnvelope ? buildSignedPayload(body) : buildPayload(body)
   const siteScope = resolveSiteScope({ ...body, payload })
   if (!siteScope.ok) {
     return {
@@ -382,12 +402,31 @@ export function buildCommand(req, body, expectedAction, runtimeEnv = env) {
     }
   }
   const siteId = siteScope.siteId
-  if (siteId && !payload.siteId) payload.siteId = siteId
+  if (!signedEnvelope && siteId && !payload.siteId) payload.siteId = siteId
 
-  const actionCheck = validateRouteAction(body.action, expectedAction)
+  const incomingAction = firstString(body.action, body.Action)
+  const actionCheck = validateRouteAction(incomingAction, expectedAction)
   if (!actionCheck.ok) return actionCheck
+  if (signedEnvelope && incomingAction !== expectedAction) {
+    return {
+      ok: false,
+      error: 'action_route_mismatch',
+      detail: { expectedAction, providedAction: incomingAction },
+    }
+  }
 
-  const tenant = firstString(body.tenant, payload.tenant, payload.siteId, runtime.tenantFallback)
+  const tenant = signedEnvelope
+    ? firstString(body.tenant, body.Tenant, body['Tenant-Id'])
+    : firstString(
+      body.tenant,
+      body.Tenant,
+      body['Tenant-Id'],
+      payload.tenant,
+      payload.Tenant,
+      payload['Tenant-Id'],
+      payload.siteId,
+      runtime.tenantFallback,
+    )
   if (!tenant) {
     return {
       ok: false,
@@ -395,7 +434,8 @@ export function buildCommand(req, body, expectedAction, runtimeEnv = env) {
       detail: 'tenant or payload.tenant or payload.siteId is required',
     }
   }
-  const timestamp = normalizeCommandTimestamp(body.timestamp)
+  const rawTimestamp = firstString(body.timestamp, body.ts, body['X-Timestamp'])
+  const timestamp = signedEnvelope ? rawTimestamp : normalizeCommandTimestamp(rawTimestamp)
   if (!timestamp) {
     return {
       ok: false,
@@ -405,18 +445,22 @@ export function buildCommand(req, body, expectedAction, runtimeEnv = env) {
   }
 
   const command = {
-    action: expectedAction,
-    requestId: commandRequestId(req, body),
-    actor: firstString(body.actor, runtime.defaultActor),
+    action: signedEnvelope ? incomingAction : expectedAction,
+    requestId: commandRequestId(req, body, signedEnvelope),
+    actor: signedEnvelope
+      ? firstString(body.actor, body.Actor)
+      : firstString(body.actor, body.Actor, runtime.defaultActor),
     tenant,
-    role: firstString(body.role, runtime.defaultRole),
+    role: signedEnvelope
+      ? firstString(body.role, body.Role, body['Actor-Role'], body.actorRole)
+      : firstString(body.role, body.Role, body['Actor-Role'], body.actorRole, runtime.defaultRole),
     timestamp,
-    nonce: commandNonce(body),
+    nonce: commandNonce(body, signedEnvelope),
     payload,
   }
 
-  const signatureRef = firstString(body.signatureRef)
-  const signature = firstString(body.signature)
+  const signatureRef = signatureEnvelope.signatureRef
+  const signature = signatureEnvelope.signature
   if (signatureRef) command.signatureRef = signatureRef
   if (signature) command.signature = signature
 
