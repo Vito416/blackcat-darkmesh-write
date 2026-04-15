@@ -1110,8 +1110,8 @@ local function normalize_scope_value(value)
   return normalized
 end
 
-function Auth.check_caller_scope(_msg)
-  local msg = _msg or {}
+function Auth.check_caller_scope(msg)
+  msg = msg or {}
   local payload = msg.payload or msg.Payload
   if type(payload) ~= "table" then
     payload = {}
@@ -1147,8 +1147,8 @@ function Auth.check_role_for_action(msg, policy)
   return Auth.require_role_for_action(msg, policy)
 end
 
-function Auth.check_rate_limit(_msg)
-  local msg = _msg or {}
+function Auth.check_rate_limit(msg)
+  msg = msg or {}
   local action = msg.action or msg.Action or "unknown"
   local tenant = msg.tenant or msg.Tenant or msg["Tenant-Id"] or "global"
   local caller = caller_identity(msg)
