@@ -45,7 +45,10 @@ end
 
 -- refresh outbox mirror
 write._outbox()
-local events = storage.get "outbox_queue" or storage.all "outbox"
+local events = write._storage_outbox()
+if type(events) ~= "table" then
+  events = storage.get "outbox_queue" or storage.all "outbox" or {}
+end
 
 local ok, cjson = pcall(require, "cjson")
 if not ok then
@@ -54,7 +57,13 @@ if not ok then
 end
 
 local sent, failed = 0, 0
-for _, ev in ipairs(events) do
+for _, item in ipairs(events) do
+  local ev = (type(item) == "table" and item.event) or item
+  if type(ev) ~= "table" then
+    failed = failed + 1
+    io.stderr:write "[forward-http] skipped invalid outbox item\n"
+    goto continue
+  end
   if site_id and not ev.siteId then
     ev.siteId = site_id
   end
@@ -71,6 +80,7 @@ for _, ev in ipairs(events) do
       io.stderr:write(string.format("failed (%s): %s\n", tostring(status or err), body))
     end
   end
+  ::continue::
 end
 
 print(string.format("[forward-http] sent=%d failed=%d", sent, failed))
