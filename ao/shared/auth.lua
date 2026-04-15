@@ -283,6 +283,31 @@ local function resolve_sig_public(sig_ref)
   return SIG_PUBLIC
 end
 
+local function table_size(map)
+  if type(map) ~= "table" then
+    return 0
+  end
+  local count = 0
+  for _ in pairs(map) do
+    count = count + 1
+  end
+  return count
+end
+
+local function has_explicit_sig_public(sig_ref)
+  if not SIG_PUBLICS or SIG_PUBLICS == "" then
+    return false
+  end
+  if not SIG_PUBLICS_CACHE_OK then
+    resolve_sig_public(sig_ref)
+  end
+  if type(SIG_PUBLICS_CACHE) ~= "table" then
+    return false
+  end
+  local bound = SIG_PUBLICS_CACHE[tostring(sig_ref or "")]
+  return type(bound) == "string" and bound ~= ""
+end
+
 local function list_from_value(value)
   if value == nil then
     return nil
@@ -1070,6 +1095,11 @@ function Auth.check_policy(msg)
   if not policy_map then
     return false, policy_err or "signature_policy_invalid"
   end
+  local policy_ref_count = table_size(policy_map)
+  if policy_ref_count > 1 and (not SIG_PUBLICS or SIG_PUBLICS == "") then
+    m_counter "write_auth_signature_policy_keyring_required_total"
+    return false, "signature_policy_keyring_required"
+  end
   msg = msg or {}
   local sig_ref = msg.signatureRef or msg["Signature-Ref"] or msg.signature_ref
   if not sig_ref or sig_ref == "" then
@@ -1081,6 +1111,10 @@ function Auth.check_policy(msg)
   if not entry then
     m_counter "write_auth_signature_policy_unknown_ref_total"
     return false, "signature_policy_not_found"
+  end
+  if policy_ref_count > 1 and not has_explicit_sig_public(sig_ref) then
+    m_counter "write_auth_signature_policy_unbound_ref_total"
+    return false, "signature_policy_unbound_signature_ref"
   end
 
   local action = msg.action or msg.Action

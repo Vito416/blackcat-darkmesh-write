@@ -33,6 +33,9 @@ package.loaded["ao.shared.auth.getenv_override"] = function(key)
   if key == "WRITE_SIGNATURE_POLICY_JSON" or key == "AUTH_SIGNATURE_POLICY_JSON" then
     return policy_json
   end
+  if key == "WRITE_SIG_PUBLICS" or key == "AUTH_SIG_PUBLICS" then
+    return "sig-editor=pub-editor,sig-ops=pub-ops"
+  end
   return nil
 end
 

@@ -3811,11 +3811,6 @@ function M.route(command)
     end
   end
 
-  local ok_rl_env, rl_err_env = auth.rate_limit_check(command)
-  if not ok_rl_env then
-    return err(command.requestId, "RATE_LIMITED", rl_err_env or "rate_limited")
-  end
-
   _G.current_caller_id = command.callerId
     or command["Caller-Id"]
     or command.gatewayId
@@ -3850,6 +3845,11 @@ function M.route(command)
     counter("idempotency_collisions", 1)
     counter("idempotency_collisions_total", 1)
     return stored
+  end
+
+  local ok_rl_env, rl_err_env = auth.rate_limit_check(command)
+  if not ok_rl_env then
+    return err(command.requestId, "RATE_LIMITED", rl_err_env or "rate_limited")
   end
 
   local ok_nonce, nonce_err = auth.require_nonce_and_timestamp(command)
