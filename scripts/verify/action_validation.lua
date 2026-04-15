@@ -142,6 +142,16 @@ local bad_pay = write.route {
 }
 assert(expect_error(bad_pay), "missing amount/currency should error")
 
+local bad_inline_order = write.route(sign_cmd {
+  Action = "CreateOrder",
+  ["Request-Id"] = "v5b",
+  ["Actor-Role"] = "admin",
+  nonce = "n5b",
+  ts = os.time(),
+  payload = { siteId = "s1", items = { { sku = "sku-inline", qty = 1, price = 10 } } },
+})
+assert(expect_error(bad_inline_order), "inline CreateOrder without currency should error")
+
 local ok_pay = write.route(sign_cmd {
   Action = "CreatePaymentIntent",
   ["Request-Id"] = "v6",

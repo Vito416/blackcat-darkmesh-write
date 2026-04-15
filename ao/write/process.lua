@@ -2842,9 +2842,13 @@ function handlers.CreateOrder(cmd)
     and type(normalized_items) == "table"
     and #normalized_items > 0
   then
+    local inline_currency = payload.currency
+    if not inline_currency or inline_currency == "" then
+      return err(cmd.requestId, "INVALID_INPUT", "missing:currency")
+    end
     cart = {
       siteId = payload.siteId,
-      currency = payload.currency or "USD",
+      currency = inline_currency,
       items = normalized_items,
     }
   end
@@ -3783,6 +3787,14 @@ local function idempotency_key(command)
   return table.concat({ request_id, tenant, action }, "|")
 end
 
+local function idempotency_legacy_key(command)
+  local request_id = command.requestId or command["Request-Id"]
+  if not request_id or request_id == "" then
+    return nil
+  end
+  return tostring(request_id)
+end
+
 -- route(command) validates and dispatches.
 function M.route(command)
   local ok_jwt, jwt_err = auth.consume_jwt(command)
@@ -3839,7 +3851,14 @@ function M.route(command)
   end
 
   local idem_key = idempotency_key(command)
+  local legacy_idem_key = idempotency_legacy_key(command)
   local stored = idem.lookup(idem_key)
+  if not stored and legacy_idem_key and legacy_idem_key ~= idem_key then
+    stored = idem.lookup(legacy_idem_key)
+    if stored then
+      counter("write.idempotency.legacy_hits", 1)
+    end
+  end
   if stored then
     counter("write.idempotency.collisions", 1)
     counter("idempotency_collisions", 1)
@@ -3914,6 +3933,12 @@ function M.route(command)
   local ok_idem, idem_err = idem.record(idem_key, response)
   if not ok_idem then
     return err(command.requestId, "SERVER_ERROR", idem_err or "idempotency_persist_failed")
+  end
+  if legacy_idem_key and legacy_idem_key ~= idem_key then
+    local ok_legacy = idem.record(legacy_idem_key, response)
+    if not ok_legacy then
+      counter("write.idempotency.legacy_record_failures", 1)
+    end
   end
   audit.append {
     action = command.action,

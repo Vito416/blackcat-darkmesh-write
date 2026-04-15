@@ -261,6 +261,20 @@ function commandNonce(body) {
   return firstString(body.nonce) || `nonce-${crypto.randomBytes(8).toString('hex')}`
 }
 
+function resolveSiteScope(body = {}) {
+  const payload = body?.payload && typeof body.payload === 'object' && !Array.isArray(body.payload) ? body.payload : {}
+  const topLevelSiteId = firstString(body.siteId)
+  const payloadSiteId = firstString(payload.siteId)
+  if (topLevelSiteId && payloadSiteId && topLevelSiteId !== payloadSiteId) {
+    return {
+      ok: false,
+      error: 'site_id_mismatch',
+      detail: { siteId: topLevelSiteId, payloadSiteId },
+    }
+  }
+  return { ok: true, siteId: firstString(topLevelSiteId, payloadSiteId) }
+}
+
 function requestedWritePid(req, body = {}) {
   const fromHeader = firstString(req?.headers?.[WRITE_PID_OVERRIDE_HEADER])
   if (fromHeader) return { pid: fromHeader, source: 'header' }
@@ -292,9 +306,12 @@ export function resolveTargetWritePid(req, body = {}, runtimeEnv = env) {
     return { ok: false, status: 400, error: 'invalid_write_process_id_override' }
   }
   if (cfg.siteWritePidMap && typeof cfg.siteWritePidMap === 'object') {
+    const siteScope = resolveSiteScope(body)
+    if (!siteScope.ok) {
+      return { ok: false, status: 400, error: 'write_pid_route_key_mismatch' }
+    }
     const routeKey = firstString(
-      body.siteId,
-      body?.payload?.siteId,
+      siteScope.siteId,
       body.tenant,
       body?.payload?.tenant,
     )
@@ -356,7 +373,15 @@ function validateRouteAction(bodyAction, expectedAction) {
 export function buildCommand(req, body, expectedAction, runtimeEnv = env) {
   const runtime = runtimeEnv || {}
   const payload = buildPayload(body)
-  const siteId = firstString(body.siteId, payload.siteId)
+  const siteScope = resolveSiteScope({ ...body, payload })
+  if (!siteScope.ok) {
+    return {
+      ok: false,
+      error: 'site_id_mismatch',
+      detail: 'siteId and payload.siteId must match when both are provided',
+    }
+  }
+  const siteId = siteScope.siteId
   if (siteId && !payload.siteId) payload.siteId = siteId
 
   const actionCheck = validateRouteAction(body.action, expectedAction)

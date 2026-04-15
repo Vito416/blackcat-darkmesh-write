@@ -170,6 +170,22 @@ test('target write PID override accepts mapped site route', () => {
   assert.equal(result.overridden, true)
 })
 
+test('target write PID override rejects mismatched site scope values', () => {
+  const result = resolveTargetWritePid(
+    { headers: { authorization: 'Bearer secret-token', 'x-write-process-id': 'B'.repeat(43) } },
+    { siteId: 'site-top', payload: { siteId: 'site-payload' } },
+    {
+      writePid: 'A'.repeat(43),
+      allowWritePidOverride: true,
+      apiToken: 'secret-token',
+      siteWritePidMap: { 'site-top': 'B'.repeat(43) },
+    },
+  )
+  assert.equal(result.ok, false)
+  assert.equal(result.status, 400)
+  assert.equal(result.error, 'write_pid_route_key_mismatch')
+})
+
 test('normalizeWriteResult returns clear contract for empty AO result payload', () => {
   const result = normalizeWriteResult(
     {},
@@ -257,6 +273,16 @@ test('buildCommand resolves tenant from payload.tenant', () => {
   )
   assert.equal(built.ok, true)
   assert.equal(built.command.tenant, 'tenant-payload')
+})
+
+test('buildCommand rejects mismatched site scope values', () => {
+  const built = buildCommand(
+    { headers: {} },
+    { siteId: 'site-top', payload: { siteId: 'site-payload' } },
+    'CreateOrder',
+  )
+  assert.equal(built.ok, false)
+  assert.equal(built.error, 'site_id_mismatch')
 })
 
 test('buildCommand normalizes ISO timestamp to epoch seconds', () => {
