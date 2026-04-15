@@ -2844,8 +2844,18 @@ function handlers.CreateOrder(cmd)
     if payload.cartId and payload.cartId ~= "" then
       existing_order_id = "ord_" .. tostring(payload.cartId)
     else
-      existing_order_id = "ord_"
-        .. string.sub(sha256_str(tostring(cmd.requestId or cmd.nonce or os.time())), 1, 16)
+      local hash_seed = tostring(cmd.requestId or cmd.nonce or os.time())
+      local hash = sha256_str(hash_seed)
+      if not hash or hash == "" then
+        hash = hash_seed:gsub("[^%w]", "")
+        if hash == "" then
+          hash = tostring(os.time())
+        end
+      end
+      if #hash < 16 then
+        hash = hash .. string.rep("0", 16 - #hash)
+      end
+      existing_order_id = "ord_" .. string.sub(hash, 1, 16)
     end
   end
   if state.orders[existing_order_id] then

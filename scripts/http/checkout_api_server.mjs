@@ -225,7 +225,13 @@ export function resolveTraceId(value) {
 
 function commandRequestId(req, body) {
   return (
-    firstString(req.headers['x-request-id'], body.requestId, body['request-id']) ||
+    firstString(
+      req.headers['x-request-id'],
+      req.headers['request-id'],
+      body.requestId,
+      body['request-id'],
+      body['Request-Id'],
+    ) ||
     `gw-write-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`
   )
 }
