@@ -41,6 +41,18 @@ local RL_MAX =
   tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_REQUESTS", "WRITE_RL_MAX_REQUESTS") or "200")
 local RL_CALLER_MAX =
   tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_PER_CALLER", "WRITE_RL_CALLER_MAX") or "120")
+local RL_SCOPE_WINDOW = tonumber(
+  getenv_multi("AUTH_SCOPED_RATE_LIMIT_WINDOW_SECONDS", "WRITE_SCOPED_RL_WINDOW_SECONDS")
+    or tostring(RL_WINDOW)
+)
+local RL_CALLER_ACTION_MAX = tonumber(
+  getenv_multi("AUTH_SCOPED_RATE_LIMIT_MAX_PER_CALLER_ACTION", "WRITE_SCOPED_RL_CALLER_ACTION_MAX")
+    or "80"
+)
+local RL_TENANT_ACTION_MAX = tonumber(
+  getenv_multi("AUTH_SCOPED_RATE_LIMIT_MAX_PER_TENANT_ACTION", "WRITE_SCOPED_RL_TENANT_ACTION_MAX")
+    or "120"
+)
 local UNIQUE_SUBJECT_MAX_PER_IP =
   tonumber(getenv_multi("WRITE_UNIQUE_SUBJECT_MAX_PER_IP", "AUTH_UNIQUE_SUBJECT_MAX_PER_IP") or "0")
 local RL_BUCKET_TTL = tonumber(
@@ -58,8 +70,10 @@ local SIG_PUBLICS = getenv_multi("WRITE_SIG_PUBLICS", "AUTH_SIG_PUBLICS")
 local SIG_SECRET = getenv_multi("WRITE_SIG_SECRET", "AUTH_SIG_SECRET")
 local SIG_POLICY_JSON = getenv_multi("WRITE_SIGNATURE_POLICY_JSON", "AUTH_SIGNATURE_POLICY_JSON")
 local SIG_POLICY_PATH = getenv_multi("WRITE_SIGNATURE_POLICY_PATH", "AUTH_SIGNATURE_POLICY_PATH")
-local REQUIRE_SIGNATURE_POLICY =
-  getenv_multi("WRITE_REQUIRE_SIGNATURE_POLICY", "AUTH_REQUIRE_SIGNATURE_POLICY") ~= "0"
+local REQUIRE_SIGNATURE_POLICY = getenv_multi(
+  "WRITE_REQUIRE_SIGNATURE_POLICY",
+  "AUTH_REQUIRE_SIGNATURE_POLICY"
+) ~= "0"
 local REQUIRE_JWT = getenv_multi("WRITE_REQUIRE_JWT", "AUTH_REQUIRE_JWT") == "1"
 local JWT_SECRET = getenv_multi("WRITE_JWT_HS_SECRET", "AUTH_JWT_HS_SECRET")
 local RATE_STORE_PATH = getenv_multi("WRITE_RATE_STORE_PATH", "AUTH_RATE_STORE_PATH")
@@ -1099,6 +1113,35 @@ function Auth.check_role_for_action(msg, policy)
 end
 
 function Auth.check_rate_limit(_msg)
+  local msg = _msg or {}
+  local action = msg.action or msg.Action or "unknown"
+  local tenant = msg.tenant or msg.Tenant or msg["Tenant-Id"] or "global"
+  local caller = caller_identity(msg)
+
+  if RL_TENANT_ACTION_MAX and RL_TENANT_ACTION_MAX > 0 then
+    local ok_tenant, err_tenant = bump_rate(
+      string.format("scope:tenant:%s:action:%s", tostring(tenant), tostring(action)),
+      RL_SCOPE_WINDOW,
+      RL_TENANT_ACTION_MAX
+    )
+    if not ok_tenant then
+      metrics_counter("write_auth_rate_limited_tenant_action_total", 1)
+      return false, err_tenant or "rate_limited_tenant_action"
+    end
+  end
+
+  if RL_CALLER_ACTION_MAX and RL_CALLER_ACTION_MAX > 0 then
+    local ok_caller, err_caller = bump_rate(
+      string.format("scope:caller:%s:action:%s", tostring(caller), tostring(action)),
+      RL_SCOPE_WINDOW,
+      RL_CALLER_ACTION_MAX
+    )
+    if not ok_caller then
+      metrics_counter("write_auth_rate_limited_caller_action_total", 1)
+      return false, err_caller or "rate_limited_caller_action"
+    end
+  end
+
   return true
 end
 
