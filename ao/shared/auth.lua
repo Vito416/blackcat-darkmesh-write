@@ -58,6 +58,8 @@ local SIG_PUBLICS = getenv_multi("WRITE_SIG_PUBLICS", "AUTH_SIG_PUBLICS")
 local SIG_SECRET = getenv_multi("WRITE_SIG_SECRET", "AUTH_SIG_SECRET")
 local SIG_POLICY_JSON = getenv_multi("WRITE_SIGNATURE_POLICY_JSON", "AUTH_SIGNATURE_POLICY_JSON")
 local SIG_POLICY_PATH = getenv_multi("WRITE_SIGNATURE_POLICY_PATH", "AUTH_SIGNATURE_POLICY_PATH")
+local REQUIRE_SIGNATURE_POLICY =
+  getenv_multi("WRITE_REQUIRE_SIGNATURE_POLICY", "AUTH_REQUIRE_SIGNATURE_POLICY") ~= "0"
 local REQUIRE_JWT = getenv_multi("WRITE_REQUIRE_JWT", "AUTH_REQUIRE_JWT") == "1"
 local JWT_SECRET = getenv_multi("WRITE_JWT_HS_SECRET", "AUTH_JWT_HS_SECRET")
 local RATE_STORE_PATH = getenv_multi("WRITE_RATE_STORE_PATH", "AUTH_RATE_STORE_PATH")
@@ -1036,6 +1038,10 @@ end
 function Auth.check_policy(msg)
   local policy_map, policy_err, configured = ensure_signature_policy()
   if not configured then
+    if REQUIRE_SIGNATURE and REQUIRE_SIGNATURE_POLICY then
+      m_counter "write_auth_signature_policy_required_total"
+      return false, "signature_policy_required"
+    end
     return true
   end
   if not policy_map then

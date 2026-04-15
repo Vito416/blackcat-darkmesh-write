@@ -3744,11 +3744,6 @@ function M.route(command)
     end
   end
 
-  local ok_nonce, nonce_err = auth.require_nonce_and_timestamp(command)
-  if not ok_nonce then
-    return err(command.requestId, "UNAUTHORIZED", nonce_err or "nonce failed")
-  end
-
   local ok_rl_env, rl_err_env = auth.rate_limit_check(command)
   if not ok_rl_env then
     return err(command.requestId, "RATE_LIMITED", rl_err_env or "rate_limited")
@@ -3766,6 +3761,10 @@ function M.route(command)
   local ok_policy, pol_err = auth.check_policy(command, nil)
   if not ok_policy then
     return err(command.requestId, "FORBIDDEN", pol_err or "policy denied")
+  end
+  local ok_nonce, nonce_err = auth.require_nonce_and_timestamp(command)
+  if not ok_nonce then
+    return err(command.requestId, "UNAUTHORIZED", nonce_err or "nonce failed")
   end
   local ok_caller, caller_err = auth.check_caller_scope(command)
   if not ok_caller then
