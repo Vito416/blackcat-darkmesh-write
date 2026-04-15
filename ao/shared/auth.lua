@@ -6,6 +6,8 @@
 
 local Auth = {}
 local os_time = os.time
+local os_date = os.date
+local os_difftime = os.difftime
 local START_EPOCH = os_time()
 local getenv_override = package.loaded["ao.shared.auth.getenv_override"]
 
@@ -189,7 +191,21 @@ local function parse_iso8601(ts)
   if not y then
     return nil
   end
-  return os_time { year = y, month = m, day = d, hour = H, min = M, sec = S, isdst = false }
+  local local_epoch = os_time {
+    year = tonumber(y),
+    month = tonumber(m),
+    day = tonumber(d),
+    hour = tonumber(H),
+    min = tonumber(M),
+    sec = tonumber(S),
+    isdst = false,
+  }
+  if not local_epoch then
+    return nil
+  end
+  local local_t = os_date("*t", local_epoch)
+  local utc_t = os_date("!*t", local_epoch)
+  return local_epoch + os_difftime(os_time(local_t), os_time(utc_t))
 end
 
 -- Accept all for now; upstream caller controls trust.
@@ -400,11 +416,19 @@ function Auth.require_role(msg, allowed_roles)
   return true
 end
 
+local function resolve_action(msg)
+  return msg.action or msg.Action
+end
+
 function Auth.require_role_for_action(msg, policy)
   if not policy then
     return true
   end
-  local roles = policy[msg.Action]
+  local action = resolve_action(msg)
+  if not action or action == "" then
+    return true
+  end
+  local roles = policy[action]
   if not roles then
     return true
   end

@@ -162,6 +162,44 @@ local bad_provider = write.route {
 }
 assert(expect_error(bad_provider), "provider webhook needs target ids")
 
+-- Regression: action role policy must apply for lowercase `action` envelopes too.
+local lowercase_forbidden = write.route(sign_cmd {
+  action = "CreateForm",
+  requestId = "v8",
+  ["Actor-Role"] = "viewer",
+  actor = "validator",
+  tenant = "tenant-1",
+  nonce = "n8",
+  ts = os.time(),
+  payload = {},
+})
+assert(expect_error(lowercase_forbidden), "lowercase action should still enforce role policy")
+
+-- Regression: idempotency must not bypass auth/validation across tenant boundaries.
+local idem_seed = write.route(sign_cmd {
+  Action = "PublishPageVersion",
+  ["Request-Id"] = "idem-1",
+  ["Actor-Role"] = "admin",
+  actor = "validator",
+  tenant = "tenant-1",
+  nonce = "n9",
+  ts = os.time(),
+  payload = { siteId = "s1", pageId = "p1", versionId = "v1", manifestTx = "tx123" },
+})
+assert(idem_seed.status == "OK", "idempotency seed write should succeed")
+
+local idem_cross_tenant = write.route {
+  Action = "PublishPageVersion",
+  ["Request-Id"] = "idem-1",
+  ["Actor-Role"] = "admin",
+  actor = "validator",
+  tenant = "tenant-2",
+  nonce = "n10",
+  ts = os.time(),
+  payload = { siteId = "s1" },
+}
+assert(expect_error(idem_cross_tenant), "idempotency should not short-circuit before auth/validation")
+
 print "action_validation: ok"
 -- luacheck: max_line_length 200
 -- luacheck: max_line_length 200

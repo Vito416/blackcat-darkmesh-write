@@ -3706,17 +3706,18 @@ function handlers.RunWebhookRetries(cmd)
   return ok(cmd.requestId, { retry_size = #state.webhook_retry })
 end
 
+local function idempotency_key(command)
+  local request_id = command.requestId or command["Request-Id"]
+  if not request_id or request_id == "" then
+    return nil
+  end
+  local action = command.action or command.Action or ""
+  local tenant = command.tenant or command.Tenant or command["Tenant-Id"] or ""
+  return table.concat({ request_id, tenant, action }, "|")
+end
+
 -- route(command) validates and dispatches.
 function M.route(command)
-  -- idempotency first: if we have it, return stored response.
-  local stored = idem.lookup(command.requestId or command["Request-Id"])
-  if stored then
-    counter("write.idempotency.collisions", 1)
-    counter("idempotency_collisions", 1)
-    counter("idempotency_collisions_total", 1)
-    return stored
-  end
-
   local ok_jwt, jwt_err = auth.consume_jwt(command)
   if not ok_jwt then
     return err(command.requestId, "UNAUTHORIZED", jwt_err or "jwt_failed")
@@ -3784,6 +3785,15 @@ function M.route(command)
     return err(command.requestId, "INVALID_INPUT", "Action payload invalid", act_errs)
   end
 
+  local idem_key = idempotency_key(command)
+  local stored = idem.lookup(idem_key)
+  if stored then
+    counter("write.idempotency.collisions", 1)
+    counter("idempotency_collisions", 1)
+    counter("idempotency_collisions_total", 1)
+    return stored
+  end
+
   local handler = handlers[command.action]
   if not handler then
     return err(command.requestId, "UNKNOWN_ACTION", "Handler not found")
@@ -3833,7 +3843,7 @@ function M.route(command)
       end
     end
   end
-  local ok_idem, idem_err = idem.record(command.requestId, response)
+  local ok_idem, idem_err = idem.record(idem_key, response)
   if not ok_idem then
     return err(command.requestId, "SERVER_ERROR", idem_err or "idempotency_persist_failed")
   end
