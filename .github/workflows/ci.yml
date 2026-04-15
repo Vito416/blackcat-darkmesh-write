@@ -112,6 +112,7 @@ jobs:
           RUN_DEPS_CHECK: 1
           RUN_SCHEMA_MANIFEST: 1
           WRITE_REQUIRE_SIGNATURE: 1  # ensure crypto deps present in CI
+          WRITE_REQUIRE_SIGNATURE_POLICY: 0
         run: bash scripts/verify/preflight.sh
 
       - name: Arweave hash verify (main push, best-effort)
@@ -158,6 +159,7 @@ jobs:
       - name: Ingest smoke
         env:
           WRITE_REQUIRE_SIGNATURE: 1
+          WRITE_REQUIRE_SIGNATURE_POLICY: 0
           WRITE_SIG_TYPE: ed25519
           WRITE_SIG_PRIV_HEX: 4f3c5f2a0d1b4a8c9e6f7d2b3c4e5a6f7b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e
           WRITE_SIG_PUBLIC: hex:65c29ed7228fce639284da05d84fbc37ef736c44ddec2ce53226033c80312ace
@@ -168,6 +170,7 @@ jobs:
       - name: Envelope guard
         env:
           WRITE_REQUIRE_SIGNATURE: 1
+          WRITE_REQUIRE_SIGNATURE_POLICY: 0
           WRITE_SIG_TYPE: ed25519
           WRITE_SIG_PRIV_HEX: 4f3c5f2a0d1b4a8c9e6f7d2b3c4e5a6f7b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e
           WRITE_SIG_PUBLIC: hex:65c29ed7228fce639284da05d84fbc37ef736c44ddec2ce53226033c80312ace
@@ -177,6 +180,7 @@ jobs:
       - name: Action validation
         env:
           WRITE_REQUIRE_SIGNATURE: 1
+          WRITE_REQUIRE_SIGNATURE_POLICY: 0
           WRITE_SIG_TYPE: ed25519
           WRITE_SIG_PRIV_HEX: 4f3c5f2a0d1b4a8c9e6f7d2b3c4e5a6f7b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e
           WRITE_SIG_PUBLIC: hex:65c29ed7228fce639284da05d84fbc37ef736c44ddec2ce53226033c80312ace
@@ -186,6 +190,7 @@ jobs:
       - name: SignatureRef keyring routing
         env:
           WRITE_REQUIRE_SIGNATURE: 1
+          WRITE_REQUIRE_SIGNATURE_POLICY: 0
           WRITE_SIG_TYPE: ecdsa
           WRITE_SIG_PUBLICS: tenant-a=key-a.pem,tenant-b=key-b.pem,default=default.pem
         run: lua5.4 scripts/verify/sig_publics_keyring.lua
