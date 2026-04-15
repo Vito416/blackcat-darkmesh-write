@@ -487,6 +487,22 @@ async function withTimeout(label, promiseFactory, ms) {
   return Promise.race([promiseFactory(), timeoutPromise(label, ms)])
 }
 
+async function fetchWithTimeout(url, init, ms, label) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(new Error(`timeout_${label}_${ms}ms`)), ms)
+  timer.unref?.()
+  try {
+    return await fetch(url, { ...(init || {}), signal: controller.signal })
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`timeout_${label}_${ms}ms`)
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 function writeMessageTags(traceId = '') {
   const tags = [
     { name: 'Action', value: 'Write-Command' },
@@ -547,7 +563,12 @@ async function sendWriteCommand(command, traceId = '', writePid = env.writePid) 
   const fallback = await withRetry(
     'compute_fetch',
     async () => {
-      const response = await fetch(computeEndpoint, { method: 'GET' })
+      const response = await fetchWithTimeout(
+        computeEndpoint,
+        { method: 'GET' },
+        env.timeoutMs,
+        'compute_fetch_http',
+      )
       const text = await response.text().catch(() => '')
       if (!response.ok) {
         throw new Error(`http_${response.status}:${text.slice(0, 180)}`)
