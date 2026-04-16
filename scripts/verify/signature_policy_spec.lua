@@ -75,3 +75,30 @@ assert_denied({
 }, "signature_policy_not_found")
 
 print "signature_policy_spec: ok"
+
+package.loaded["ao.shared.auth.getenv_override"] = function(key)
+  if key == "WRITE_SIGNATURE_POLICY_JSON" or key == "AUTH_SIGNATURE_POLICY_JSON" then
+    return policy_json
+  end
+  if key == "WRITE_SIG_PUBLICS" or key == "AUTH_SIG_PUBLICS" then
+    return "sig-editor=pub-shared,sig-ops=pub-shared"
+  end
+  return nil
+end
+
+package.loaded["ao.shared.auth"] = nil
+local auth_duplicate = require "ao.shared.auth"
+package.loaded["ao.shared.auth.getenv_override"] = nil
+
+local ok_duplicate, duplicate_err = auth_duplicate.check_policy {
+  action = "PublishPageVersion",
+  signatureRef = "sig-editor",
+  ["Actor-Role"] = "editor",
+}
+assert(not ok_duplicate, "duplicate policy public should fail closed")
+assert(
+  duplicate_err == "signature_policy_duplicate_sig_public",
+  "expected signature_policy_duplicate_sig_public, got " .. tostring(duplicate_err)
+)
+
+print "signature_policy_spec duplicate-public: ok"

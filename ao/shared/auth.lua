@@ -310,6 +310,42 @@ local function has_explicit_sig_public(sig_ref)
   return type(bound) == "string" and bound ~= ""
 end
 
+local function policy_sig_public(sig_ref)
+  if not SIG_PUBLICS or SIG_PUBLICS == "" then
+    return nil
+  end
+  if not SIG_PUBLICS_CACHE_OK then
+    resolve_sig_public(sig_ref)
+  end
+  if type(SIG_PUBLICS_CACHE) ~= "table" then
+    return nil
+  end
+  local value = SIG_PUBLICS_CACHE[tostring(sig_ref or "")]
+  if type(value) ~= "string" or value == "" then
+    return nil
+  end
+  return value
+end
+
+local function policy_has_unique_sig_publics(policy_map)
+  if type(policy_map) ~= "table" then
+    return true
+  end
+  local seen_by_pub = {}
+  for sig_ref in pairs(policy_map) do
+    local pub = policy_sig_public(sig_ref)
+    if not pub then
+      return false, "signature_policy_unbound_signature_ref"
+    end
+    local already = seen_by_pub[pub]
+    if already and already ~= sig_ref then
+      return false, "signature_policy_duplicate_sig_public"
+    end
+    seen_by_pub[pub] = sig_ref
+  end
+  return true
+end
+
 local function list_from_value(value)
   if value == nil then
     return nil
@@ -1117,6 +1153,13 @@ function Auth.check_policy(msg)
   if policy_ref_count > 1 and not has_explicit_sig_public(sig_ref) then
     m_counter "write_auth_signature_policy_unbound_ref_total"
     return false, "signature_policy_unbound_signature_ref"
+  end
+  if policy_ref_count > 1 then
+    local ok_unique_publics, unique_publics_err = policy_has_unique_sig_publics(policy_map)
+    if not ok_unique_publics then
+      m_counter "write_auth_signature_policy_shared_public_total"
+      return false, unique_publics_err or "signature_policy_duplicate_sig_public"
+    end
   end
 
   local action = msg.action or msg.Action
