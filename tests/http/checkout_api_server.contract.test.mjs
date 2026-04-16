@@ -170,6 +170,26 @@ test('target write PID override accepts mapped site route', () => {
   assert.equal(result.overridden, true)
 })
 
+test('target write PID override accepts canonical tenant keys in signed envelopes', () => {
+  const overridePid = 'B'.repeat(43)
+  const result = resolveTargetWritePid(
+    { headers: { authorization: 'Bearer secret-token', 'x-write-process-id': overridePid } },
+    {
+      Tenant: 'tenant-canon',
+      Payload: { orderId: 'ord-1' },
+    },
+    {
+      writePid: 'A'.repeat(43),
+      allowWritePidOverride: true,
+      apiToken: 'secret-token',
+      siteWritePidMap: { 'tenant-canon': overridePid },
+    },
+  )
+  assert.equal(result.ok, true)
+  assert.equal(result.pid, overridePid)
+  assert.equal(result.overridden, true)
+})
+
 test('target write PID override rejects mismatched site scope values', () => {
   const result = resolveTargetWritePid(
     { headers: { authorization: 'Bearer secret-token', 'x-write-process-id': 'B'.repeat(43) } },

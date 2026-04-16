@@ -259,6 +259,12 @@ function commandNonce(body, signedEnvelope = false) {
   return signedEnvelope ? '' : `nonce-${crypto.randomBytes(8).toString('hex')}`
 }
 
+function bodyPayloadObject(body = {}) {
+  if (body?.payload && typeof body.payload === 'object' && !Array.isArray(body.payload)) return body.payload
+  if (body?.Payload && typeof body.Payload === 'object' && !Array.isArray(body.Payload)) return body.Payload
+  return {}
+}
+
 function resolveSignatureEnvelope(body = {}) {
   const signatureRef = firstString(body.signatureRef, body['Signature-Ref'], body.signature_ref)
   const signature = firstString(body.signature, body.Signature)
@@ -280,7 +286,7 @@ function buildSignedPayload(body = {}) {
 }
 
 function resolveSiteScope(body = {}) {
-  const payload = body?.payload && typeof body.payload === 'object' && !Array.isArray(body.payload) ? body.payload : {}
+  const payload = bodyPayloadObject(body)
   const topLevelSiteId = firstString(body.siteId)
   const payloadSiteId = firstString(payload.siteId)
   if (topLevelSiteId && payloadSiteId && topLevelSiteId !== payloadSiteId) {
@@ -328,10 +334,15 @@ export function resolveTargetWritePid(req, body = {}, runtimeEnv = env) {
     if (!siteScope.ok) {
       return { ok: false, status: 400, error: 'write_pid_route_key_mismatch' }
     }
+    const payload = bodyPayloadObject(body)
     const routeKey = firstString(
       siteScope.siteId,
       body.tenant,
-      body?.payload?.tenant,
+      body.Tenant,
+      body['Tenant-Id'],
+      payload.tenant,
+      payload.Tenant,
+      payload['Tenant-Id'],
     )
     if (!routeKey) {
       return { ok: false, status: 400, error: 'write_pid_route_key_missing' }
