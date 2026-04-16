@@ -339,6 +339,30 @@ test('buildCommand preserves signed identity envelope fields', () => {
   assert.equal(built.command.signatureRef, 'signed-ref')
 })
 
+test('buildCommand accepts SignatureRef + Timestamp in signed envelopes', () => {
+  const iso = '2026-04-16T00:00:00Z'
+  const built = buildCommand(
+    { headers: {} },
+    {
+      Action: 'CreateOrder',
+      'Request-Id': 'signed-rid-2',
+      Actor: 'signed-actor-2',
+      Tenant: 'signed-tenant-2',
+      'Actor-Role': 'editor',
+      Timestamp: iso,
+      Nonce: 'signed-nonce-2',
+      payload: { siteId: 'site-2', items: [{ sku: 'sku-2', qty: 1 }] },
+      signature: 'signed-sig-2',
+      SignatureRef: 'signed-ref-2',
+    },
+    'CreateOrder',
+  )
+  assert.equal(built.ok, true)
+  assert.equal(built.command.timestamp, iso)
+  assert.equal(built.command.signature, 'signed-sig-2')
+  assert.equal(built.command.signatureRef, 'signed-ref-2')
+})
+
 test('buildCommand normalizes ISO timestamp to epoch seconds', () => {
   const iso = '2026-04-15T20:00:00Z'
   const built = buildCommand(

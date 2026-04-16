@@ -266,7 +266,12 @@ function bodyPayloadObject(body = {}) {
 }
 
 function resolveSignatureEnvelope(body = {}) {
-  const signatureRef = firstString(body.signatureRef, body['Signature-Ref'], body.signature_ref)
+  const signatureRef = firstString(
+    body.signatureRef,
+    body.SignatureRef,
+    body['Signature-Ref'],
+    body.signature_ref,
+  )
   const signature = firstString(body.signature, body.Signature)
   return {
     signatureRef,
@@ -445,7 +450,7 @@ export function buildCommand(req, body, expectedAction, runtimeEnv = env) {
       detail: 'tenant or payload.tenant or payload.siteId is required',
     }
   }
-  const rawTimestamp = firstString(body.timestamp, body.ts, body['X-Timestamp'])
+  const rawTimestamp = firstString(body.timestamp, body.Timestamp, body.ts, body['X-Timestamp'])
   const timestamp = signedEnvelope ? rawTimestamp : normalizeCommandTimestamp(rawTimestamp)
   if (!timestamp) {
     return {

@@ -2907,11 +2907,20 @@ function handlers.CreateOrder(cmd)
     if payload.cartId and payload.cartId ~= "" then
       existing_order_id = "ord_" .. tostring(payload.cartId)
     else
-      local tenant_scope = tostring(payload.siteId or payload.tenant or cmd.tenant or "")
+      -- Keep auto-generated IDs tenant-first to avoid cross-tenant collisions when
+      -- site IDs are shared or omitted across retries.
+      local tenant_scope = tostring(cmd.tenant or payload.tenant or "")
+      local site_scope = tostring(payload.siteId or "")
+      local scope_seed = tenant_scope
+      if scope_seed == "" then
+        scope_seed = site_scope
+      elseif site_scope ~= "" then
+        scope_seed = scope_seed .. "|" .. site_scope
+      end
       local base_seed = tostring(cmd.requestId or cmd.nonce or os.time())
       local hash_seed = base_seed
-      if tenant_scope ~= "" then
-        hash_seed = tenant_scope .. "|" .. base_seed
+      if scope_seed ~= "" then
+        hash_seed = scope_seed .. "|" .. base_seed
       end
       local hash = sha256_str(hash_seed)
       if not hash or hash == "" then

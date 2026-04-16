@@ -239,6 +239,43 @@ assert(
   "idempotency should not short-circuit before auth/validation"
 )
 
+-- Regression: same requestId across tenants must not collapse to the same generated orderId.
+local cross_order_t1 = write.route(sign_cmd {
+  Action = "CreateOrder",
+  ["Request-Id"] = "idem-order-cross-1",
+  ["Actor-Role"] = "admin",
+  actor = "validator",
+  tenant = "tenant-1",
+  nonce = "n11",
+  ts = os.time(),
+  payload = {
+    siteId = "shared-site",
+    currency = "USD",
+    items = { { sku = "sku-cross", qty = 1, price = 10 } },
+  },
+})
+assert(cross_order_t1.status == "OK", "cross-tenant order seed (t1) should succeed")
+
+local cross_order_t2 = write.route(sign_cmd {
+  Action = "CreateOrder",
+  ["Request-Id"] = "idem-order-cross-1",
+  ["Actor-Role"] = "admin",
+  actor = "validator",
+  tenant = "tenant-2",
+  nonce = "n12",
+  ts = os.time(),
+  payload = {
+    siteId = "shared-site",
+    currency = "USD",
+    items = { { sku = "sku-cross", qty = 1, price = 10 } },
+  },
+})
+assert(cross_order_t2.status == "OK", "cross-tenant order seed (t2) should succeed")
+assert(
+  cross_order_t1.payload.orderId ~= cross_order_t2.payload.orderId,
+  "generated orderId must stay tenant-scoped across shared site ids"
+)
+
 print "action_validation: ok"
 -- luacheck: max_line_length 200
 -- luacheck: max_line_length 200
