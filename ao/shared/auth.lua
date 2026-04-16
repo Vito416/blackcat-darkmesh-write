@@ -76,6 +76,8 @@ local REQUIRE_SIGNATURE_POLICY = getenv_multi(
 ) == "1"
 local REQUIRE_JWT = getenv_multi("WRITE_REQUIRE_JWT", "AUTH_REQUIRE_JWT") == "1"
 local JWT_SECRET = getenv_multi("WRITE_JWT_HS_SECRET", "AUTH_JWT_HS_SECRET")
+local ROLE_POLICY_STRICT = getenv_multi("WRITE_ROLE_POLICY_STRICT", "AUTH_ROLE_POLICY_STRICT")
+  == "1"
 local RATE_STORE_PATH = getenv_multi("WRITE_RATE_STORE_PATH", "AUTH_RATE_STORE_PATH")
 local NONCE_STORE_PATH = getenv_multi("WRITE_NONCE_STORE_PATH", "AUTH_NONCE_STORE_PATH")
 
@@ -1182,12 +1184,31 @@ function Auth.check_caller_scope(msg)
 end
 
 function Auth.check_role_for_action(msg, policy)
-  -- default: require a role to be present
+  if not policy then
+    return true
+  end
+  local action = resolve_action(msg)
+  if not action or action == "" then
+    return true
+  end
+  local allowed = policy[action]
+  if not allowed then
+    if ROLE_POLICY_STRICT then
+      return false, "role_policy_missing_action"
+    end
+    return true
+  end
+  if allowed == "*" then
+    return true
+  end
+  if type(allowed) == "table" and contains(allowed, "*") then
+    return true
+  end
   local role = msg["Actor-Role"] or msg.actorRole or msg.role
   if not role or role == "" then
     return false, "missing_role"
   end
-  return Auth.require_role_for_action(msg, policy)
+  return Auth.require_role(msg, allowed)
 end
 
 function Auth.check_rate_limit(msg)

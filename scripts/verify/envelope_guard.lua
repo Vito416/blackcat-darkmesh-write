@@ -96,6 +96,8 @@ local bad = write.route {
   Action = "GetOpsHealth",
   ["Request-Id"] = "r1",
   ["Actor-Role"] = "admin",
+  actor = "validator",
+  tenant = "tenant-1",
   signature = "deadbeef",
   ["Signature-Ref"] = "test",
 }
@@ -107,6 +109,8 @@ local ok = write.route(sign_cmd {
   Action = "GetOpsHealth",
   ["Request-Id"] = "r2",
   ["Actor-Role"] = "admin",
+  actor = "validator",
+  tenant = "tenant-1",
   nonce = "n123",
   ts = ts,
 })

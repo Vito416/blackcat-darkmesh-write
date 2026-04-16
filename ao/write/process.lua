@@ -1084,7 +1084,7 @@ local function handle_psp_webhook(cmd, schedule_retry)
   end
 
   if ok_schema then
-    local action_name = provider == "gopay" and "GoPayWebhook" or "ProviderPaymentWebhook"
+    local action_name = provider == "gopay" and "GoPayWebhook" or "ProviderWebhook"
     local ok_pay, perr = schema.validate_action(action_name, cmd.payload)
     if not ok_pay then
       webhook_counter(provider, "verify_fail")
@@ -1208,13 +1208,37 @@ end
 
 local handlers = {}
 local role_policy = {
+  Ping = { "admin", "ops", "support", "editor", "publisher", "viewer", "customer" },
+  RuntimeSignal = { "admin", "ops" },
+  SaveDraftPage = { "admin", "editor" },
   PublishPageVersion = { "admin", "editor" },
   UpsertRoute = { "admin", "editor" },
+  DeleteRoute = { "admin", "editor" },
+  UpsertProduct = { "admin", "catalog-admin", "editor" },
+  UpsertProfile = { "admin", "support" },
+  AssignRole = { "admin" },
+  GrantRole = { "admin" },
+  GrantEntitlement = { "admin", "access-admin" },
+  RevokeEntitlement = { "admin", "access-admin" },
+  UpsertInventory = { "admin", "catalog-admin", "inventory-admin" },
+  UpsertPriceRule = { "admin", "catalog-admin", "pricing-admin" },
+  UpsertCoupon = { "admin", "catalog-admin" },
   CreateWebhook = { "admin", "ops" },
   ProviderWebhook = { "ops", "admin" },
+  GoPayWebhook = { "ops", "admin" },
   CreateShipment = { "admin", "ops" },
+  CreateShippingLabel = { "admin", "ops" },
+  UpdateShipmentTracking = { "admin", "ops", "support" },
+  UpsertShipmentStatus = { "admin", "ops", "support" },
+  UpsertReturnStatus = { "admin", "support" },
   ProviderShippingWebhook = { "support", "admin", "catalog-admin" },
   AddDisputeEvidence = { "support", "admin" },
+  UpsertCustomer = { "admin", "support" },
+  CreateSubscription = { "admin", "support", "ops" },
+  UpdateSubscriptionStatus = { "admin", "support", "ops" },
+  UpsertOrderStatus = { "admin", "support", "ops" },
+  IssueRefund = { "admin", "support", "ops" },
+  RefundPayment = { "admin", "support", "ops" },
   SubmitForReview = { "editor", "admin", "publisher" },
   ApproveContent = { "publisher", "admin" },
   RequestChanges = { "publisher", "admin" },
@@ -1234,6 +1258,28 @@ local role_policy = {
   GetLocaleRoute = { "*", "viewer", "editor", "publisher", "admin" },
   RunFormWebhooks = { "admin", "publisher" },
   RetrySubmission = { "admin", "publisher" },
+  CartAddItem = { "customer", "viewer", "support", "admin" },
+  CartGet = { "customer", "viewer", "support", "admin" },
+  CartPrice = { "customer", "viewer", "support", "admin" },
+  CartRemoveItem = { "customer", "viewer", "support", "admin" },
+  CreateOrder = { "customer", "viewer", "support", "admin" },
+  ApplyCoupon = { "customer", "viewer", "support", "admin" },
+  RemoveCoupon = { "customer", "viewer", "support", "admin" },
+  IssueOtp = { "customer", "viewer", "support", "admin" },
+  ExchangeOtp = { "customer", "viewer", "support", "admin" },
+  IssueSession = { "customer", "viewer", "support", "admin" },
+  RevokeSession = { "customer", "viewer", "support", "admin" },
+  ValidateAddress = { "customer", "viewer", "support", "admin" },
+  GetShippingQuote = { "customer", "viewer", "support", "admin" },
+  AddShippingRate = { "admin", "ops", "catalog-admin" },
+  AddTaxRate = { "admin", "ops", "catalog-admin" },
+  CreatePaymentIntent = { "customer", "viewer", "support", "admin", "ops" },
+  CapturePayment = { "admin", "ops" },
+  ConfirmPayment = { "admin", "ops" },
+  PaymentReturn = { "customer", "viewer", "support", "admin", "ops" },
+  RefreshPaymentStatus = { "admin", "ops", "support" },
+  VoidPayment = { "admin", "ops" },
+  GetOpsHealth = { "admin", "ops", "support" },
   RunWebhookRetries = { "admin", "support" },
 }
 

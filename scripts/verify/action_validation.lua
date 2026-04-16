@@ -156,6 +156,8 @@ local ok_pay = write.route(sign_cmd {
   Action = "CreatePaymentIntent",
   ["Request-Id"] = "v6",
   ["Actor-Role"] = "admin",
+  actor = "validator",
+  tenant = "tenant-1",
   nonce = "n6",
   ts = os.time(),
   payload = { orderId = "o1", amount = 1000, currency = "USD" },
@@ -171,6 +173,30 @@ local bad_provider = write.route {
   payload = { provider = "stripe", eventType = "payment", orderId = nil },
 }
 assert(expect_error(bad_provider), "provider webhook needs target ids")
+
+local bad_assign_role = write.route(sign_cmd {
+  Action = "AssignRole",
+  ["Request-Id"] = "v7b",
+  ["Actor-Role"] = "admin",
+  actor = "validator",
+  tenant = "tenant-1",
+  nonce = "n7b",
+  ts = os.time(),
+  payload = {},
+})
+assert(expect_error(bad_assign_role), "assign role payload should be validated")
+
+local bad_product = write.route(sign_cmd {
+  Action = "UpsertProduct",
+  ["Request-Id"] = "v7c",
+  ["Actor-Role"] = "admin",
+  actor = "validator",
+  tenant = "tenant-1",
+  nonce = "n7c",
+  ts = os.time(),
+  payload = { siteId = "s1", sku = "sku-1" },
+})
+assert(expect_error(bad_product), "upsert product payload should require payload object")
 
 -- Regression: action role policy must apply for lowercase `action` envelopes too.
 local lowercase_forbidden = write.route(sign_cmd {

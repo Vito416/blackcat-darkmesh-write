@@ -205,6 +205,34 @@ jobs:
           WRITE_RL_CALLER_MAX: 100000
         run: lua5.4 scripts/verify/action_validation_shipping.lua
 
+      - name: Auth scope/role strict matrix
+        env:
+          WRITE_REQUIRE_SIGNATURE: 0
+          WRITE_REQUIRE_NONCE: 0
+          WRITE_REQUIRE_TIMESTAMP: 0
+          WRITE_REQUIRE_JWT: 0
+          WRITE_ROLE_POLICY_STRICT: 1
+          WRITE_RL_MAX_REQUESTS: 100000
+          WRITE_RL_CALLER_MAX: 100000
+        run: lua5.4 scripts/verify/auth_scope_matrix.lua
+
+      - name: Persistence failure-mode matrix (wal/idempotency)
+        env:
+          WRITE_REQUIRE_SIGNATURE: 0
+          WRITE_REQUIRE_NONCE: 0
+          WRITE_REQUIRE_TIMESTAMP: 0
+          WRITE_REQUIRE_JWT: 0
+          WRITE_ROLE_POLICY_STRICT: 1
+          WRITE_RL_MAX_REQUESTS: 100000
+          WRITE_RL_CALLER_MAX: 100000
+        run: |
+          WRITE_WAL_PATH=/proc/1/wal.ndjson \
+          PERSIST_FAIL_MODE=wal \
+          lua5.4 scripts/verify/persistence_failure_modes.lua
+          WRITE_IDEM_PATH=/proc/1/idem.json \
+          PERSIST_FAIL_MODE=idem \
+          lua5.4 scripts/verify/persistence_failure_modes.lua
+
       - name: Publish flow smoke
         env:
           WRITE_REQUIRE_SIGNATURE: 0

@@ -168,6 +168,101 @@
       ],
       "additionalProperties": true
     },
+    "UpsertRoute": {
+      "type": "object",
+      "properties": {
+        "siteId": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "siteId",
+        "path",
+        "target"
+      ],
+      "additionalProperties": true
+    },
+    "UpsertProduct": {
+      "type": "object",
+      "properties": {
+        "siteId": {
+          "type": "string"
+        },
+        "sku": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "siteId",
+        "sku",
+        "payload"
+      ],
+      "additionalProperties": true
+    },
+    "UpsertProfile": {
+      "type": "object",
+      "properties": {
+        "subject": {
+          "type": "string"
+        },
+        "profile": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "subject",
+        "profile"
+      ],
+      "additionalProperties": true
+    },
+    "AssignRole": {
+      "type": "object",
+      "properties": {
+        "tenant": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "subject",
+        "role"
+      ],
+      "additionalProperties": true
+    },
+    "GrantEntitlement": {
+      "type": "object",
+      "properties": {
+        "subject": {
+          "type": "string"
+        },
+        "asset": {
+          "type": "string"
+        },
+        "policy": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "asset"
+      ],
+      "additionalProperties": true
+    },
     "CreateOrder": {
       "type": "object",
       "properties": {
@@ -662,6 +757,18 @@
     },
     "RevokeEntitlement": {
       "type": "object",
+      "properties": {
+        "subject": {
+          "type": "string"
+        },
+        "asset": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "asset"
+      ],
       "additionalProperties": true
     },
     "UpsertInventory": {

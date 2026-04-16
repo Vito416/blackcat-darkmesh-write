@@ -208,6 +208,21 @@ function Validation.validate_envelope(cmd)
   if tostring(cmd.requestId):match "^%s*$" then
     return false, { "invalid_request_id" }
   end
+
+  local allow_anon = os.getenv "WRITE_ALLOW_ANON" == "1"
+  if not allow_anon then
+    local missing_identity = {}
+    if cmd.actor == nil or tostring(cmd.actor):match "^%s*$" then
+      table.insert(missing_identity, "missing:actor")
+    end
+    if cmd.tenant == nil or tostring(cmd.tenant):match "^%s*$" then
+      table.insert(missing_identity, "missing:tenant")
+    end
+    if #missing_identity > 0 then
+      return false, missing_identity
+    end
+  end
+
   return true
 end
 
@@ -360,6 +375,42 @@ local validators = {
     end
     return true
   end,
+  UpsertProduct = function(p)
+    if not p or not p.siteId or not p.sku then
+      return false, { "missing:siteId,sku" }
+    end
+    if type(p.payload) ~= "table" then
+      return false, { "missing:payload" }
+    end
+    return true
+  end,
+  AssignRole = function(p)
+    if not p or not p.tenant or not p.subject or not p.role then
+      return false, { "missing:tenant,subject,role" }
+    end
+    return true
+  end,
+  UpsertProfile = function(p)
+    if not p or not p.subject then
+      return false, { "missing:subject" }
+    end
+    if type(p.profile) ~= "table" then
+      return false, { "missing:profile" }
+    end
+    return true
+  end,
+  GrantEntitlement = function(p)
+    if not p or not p.subject or not p.asset then
+      return false, { "missing:subject,asset" }
+    end
+    return true
+  end,
+  RevokeEntitlement = function(p)
+    if not p or not p.subject or not p.asset then
+      return false, { "missing:subject,asset" }
+    end
+    return true
+  end,
   CreatePaymentIntent = function(p)
     if not p or not p.orderId then
       return false, { "missing:orderId" }
@@ -398,14 +449,19 @@ function Validation.validate_action(action, payload)
       return ok, errs
     end
   end
-  if ok_schema then
+  local schema_ready = ok_schema
+  local schema_err
+  if ok_schema and type(schema.is_ready) == "function" then
+    schema_ready, schema_err = schema.is_ready "actions"
+  end
+  if schema_ready then
     local ok_s, s_errs = schema.validate_action(action, payload)
     if not ok_s then
       return ok_s, s_errs
     end
   end
-  if not fn and not ok_schema then
-    return false, { "unsupported_action" }
+  if not fn and not schema_ready then
+    return false, { schema_err or "schema_unavailable" }
   end
   return true
 end
