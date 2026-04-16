@@ -94,4 +94,47 @@ if numeric_first ~= numeric_second then
   os.exit(1)
 end
 
+-- Regression: requestId/tenant containing "|" must not collide.
+local colliding_a = {
+  Action = "PublishPageVersion",
+  ["Request-Id"] = "rid|part",
+  ["Actor-Role"] = "admin",
+  actor = "idem-tester",
+  tenant = "tenant-a",
+  nonce = "nid-pipe-a",
+  ts = os.time(),
+  payload = {
+    siteId = "sidem",
+    pageId = "pipe-a",
+    versionId = "v-pipe-a",
+    manifestTx = "tx-pipe-a",
+  },
+}
+sign.maybe_sign(colliding_a)
+local colliding_a_first = write.route(colliding_a)
+expect_ok(colliding_a_first, "pipe-collision seed A failed")
+
+local colliding_b = {
+  Action = "PublishPageVersion",
+  ["Request-Id"] = "rid",
+  ["Actor-Role"] = "admin",
+  actor = "idem-tester",
+  tenant = "part|tenant-a",
+  nonce = "nid-pipe-b",
+  ts = os.time(),
+  payload = {
+    siteId = "sidem",
+    pageId = "pipe-b",
+    versionId = "v-pipe-b",
+    manifestTx = "tx-pipe-b",
+  },
+}
+sign.maybe_sign(colliding_b)
+local colliding_b_first = write.route(colliding_b)
+expect_ok(colliding_b_first, "pipe-collision seed B failed")
+if colliding_b_first == colliding_a_first then
+  io.stderr:write "pipe-delimited idempotency key collision should not replay across distinct requests"
+  os.exit(1)
+end
+
 print "idempotency_replay: ok"

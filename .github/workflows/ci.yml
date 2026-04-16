@@ -195,6 +195,11 @@ jobs:
           WRITE_SIG_REF: write-ed25519-test
         run: lua5.4 scripts/verify/action_validation.lua
 
+      - name: Schema fallback behavior
+        run: |
+          lua5.4 scripts/verify/schema_fallback.lua
+          WRITE_REQUIRE_ACTION_SCHEMA=1 lua5.4 scripts/verify/schema_fallback.lua
+
       - name: SignatureRef keyring routing
         env:
           WRITE_REQUIRE_SIGNATURE: 1

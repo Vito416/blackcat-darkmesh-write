@@ -3837,9 +3837,17 @@ local function idempotency_key(command)
   end
   local action = tostring(command.action or command.Action or "")
   local tenant = tostring(command.tenant or command.Tenant or command["Tenant-Id"] or "")
+  local function segment(value)
+    local encoded = tostring(value or "")
+    return tostring(#encoded) .. ":" .. encoded
+  end
   -- Keep key stable across gateway failover/retries; caller/gateway metadata
   -- can change between attempts for the same logical request.
-  return table.concat({ tostring(request_id), tenant, action }, "|")
+  return table.concat({
+    segment(request_id),
+    segment(tenant),
+    segment(action),
+  }, "|")
 end
 
 local function idempotency_legacy_key(command)
