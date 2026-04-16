@@ -121,19 +121,58 @@ end
 local function read_json(path)
   local f = io.open(path, "r")
   if not f then
-    return nil
+    return nil, "unreadable"
   end
   local content = f:read "*a"
   f:close()
-  return decode_json(content)
+  local decoded = decode_json(content)
+  if decoded == nil then
+    return nil, "decode_failed"
+  end
+  return decoded, nil
 end
 
-local ROOT = (... and (...):match "^(.*)%.schema$") or ""
-local envelope_path = "schemas/command-envelope.schema.json"
-local actions_path = "schemas/actions.schema.json"
+local function list_schema_candidates(relative_path)
+  local candidates = { relative_path }
+  local info = debug and debug.getinfo and debug.getinfo(1, "S")
+  if info and type(info.source) == "string" and info.source:sub(1, 1) == "@" then
+    local this_file = info.source:sub(2)
+    local this_dir = this_file:match "^(.*)/"
+    if this_dir and this_dir ~= "" then
+      table.insert(candidates, this_dir .. "/../../" .. relative_path)
+      table.insert(candidates, this_dir .. "/../../../" .. relative_path)
+    end
+  end
+  return candidates
+end
 
-local ENVELOPE = read_json(envelope_path) or {}
-local ACTIONS = read_json(actions_path) or {}
+local function load_schema(relative_path)
+  local errors = {}
+  for _, path in ipairs(list_schema_candidates(relative_path)) do
+    local decoded, err = read_json(path)
+    if decoded ~= nil then
+      return decoded, path, nil
+    end
+    if err then
+      table.insert(errors, path .. ":" .. err)
+    else
+      table.insert(errors, path .. ":unknown")
+    end
+  end
+  return nil, nil, table.concat(errors, ";")
+end
+
+local ENVELOPE, ENVELOPE_PATH, ENVELOPE_ERROR = load_schema "schemas/command-envelope.schema.json"
+local ACTIONS, ACTIONS_PATH, ACTIONS_ERROR = load_schema "schemas/actions.schema.json"
+local ENVELOPE_LOADED = type(ENVELOPE) == "table" and type(ENVELOPE.properties) == "table"
+local ACTIONS_LOADED = type(ACTIONS) == "table" and type(ACTIONS.properties) == "table"
+
+if not ENVELOPE_LOADED then
+  ENVELOPE = {}
+end
+if not ACTIONS_LOADED then
+  ACTIONS = {}
+end
 
 local function type_of(value)
   local t = type(value)
@@ -267,10 +306,16 @@ local function validate(value, schema)
 end
 
 function Schema.validate_envelope(envelope)
+  if not ENVELOPE_LOADED then
+    return false, { "schema_unavailable:envelope" }
+  end
   return validate(envelope, ENVELOPE)
 end
 
 function Schema.validate_action(action, payload)
+  if not ACTIONS_LOADED then
+    return false, { "schema_unavailable:actions" }
+  end
   local action_schema = ACTIONS.properties and ACTIONS.properties[action]
   if not action_schema then
     return true
@@ -278,9 +323,23 @@ function Schema.validate_action(action, payload)
   return validate(payload or {}, action_schema)
 end
 
+function Schema.is_ready(scope)
+  if scope == "envelope" then
+    return ENVELOPE_LOADED, ENVELOPE_ERROR
+  end
+  if scope == "actions" then
+    return ACTIONS_LOADED, ACTIONS_ERROR
+  end
+  return ENVELOPE_LOADED and ACTIONS_LOADED, ENVELOPE_ERROR or ACTIONS_ERROR
+end
+
 Schema._debug = {
   envelope = ENVELOPE,
   actions = ACTIONS,
+  envelope_path = ENVELOPE_PATH,
+  actions_path = ACTIONS_PATH,
+  envelope_error = ENVELOPE_ERROR,
+  actions_error = ACTIONS_ERROR,
 }
 
 return Schema

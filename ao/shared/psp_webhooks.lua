@@ -19,6 +19,10 @@ local gopay_ok, gopay = pcall(require, "ao.shared.gopay")
 
 local M = {}
 
+local function allow_skip_verify()
+  return os.getenv "WRITE_WEBHOOK_ALLOW_SKIP_VERIFY" == "1"
+end
+
 local function read_body(raw)
   if not raw or not raw.body then
     return nil
@@ -42,7 +46,7 @@ M.registry = {
         )
     end,
     verify = function(cmd)
-      if cmd.payload.raw and cmd.payload.raw.skip_verify then
+      if cmd.payload.raw and cmd.payload.raw.skip_verify and allow_skip_verify() then
         return true
       end
       local secret = os.getenv "GOPAY_WEBHOOK_SECRET"
@@ -107,7 +111,7 @@ M.registry = {
       return "stripe:" .. (cmd.payload.eventId or cmd.payload.paymentId or "")
     end,
     verify = function(cmd)
-      if cmd.payload.raw and cmd.payload.raw.skip_verify then
+      if cmd.payload.raw and cmd.payload.raw.skip_verify and allow_skip_verify() then
         return true
       end
       local secret = os.getenv "STRIPE_WEBHOOK_SECRET"
@@ -169,7 +173,7 @@ M.registry = {
       return "paypal:" .. (cmd.payload.eventId or cmd.payload.paymentId or "")
     end,
     verify = function(cmd)
-      if cmd.payload.raw and cmd.payload.raw.skip_verify then
+      if cmd.payload.raw and cmd.payload.raw.skip_verify and allow_skip_verify() then
         return true
       end
       local secret = os.getenv "PAYPAL_WEBHOOK_SECRET"

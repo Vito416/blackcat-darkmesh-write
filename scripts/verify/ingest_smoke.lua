@@ -117,9 +117,12 @@ assert_ok(resp)
 local ship = {
   requestId = "smoke-ship-" .. tostring(os.time()),
   action = "ProviderShippingWebhook",
+  tenant = "demo",
   actor = "smoke-admin",
   ["Actor-Role"] = "admin",
   payload = {
+    tenant = "demo",
+    siteId = "demo-site",
     provider = "demo",
     eventId = "evt-smoke",
     shipmentId = "ship-123",

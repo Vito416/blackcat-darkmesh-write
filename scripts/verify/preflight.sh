@@ -45,6 +45,18 @@ find "$ROOT_DIR/ao" -name '*.lua' -print -exec "${lua_runner[@]}" {} \;
 
 echo "[verify] done"
 
+if [ "${RUN_CHECKOUT_ADAPTER_CONTRACT:-1}" -eq 1 ]; then
+  echo "[verify] checkout adapter contract"
+  if command -v npm >/dev/null 2>&1; then
+    (cd "$ROOT_DIR" && npm run -s test:checkout-adapter-contract)
+  elif command -v node >/dev/null 2>&1; then
+    node --test --test-concurrency=1 "$ROOT_DIR/tests/http/checkout_api_server.contract.test.mjs"
+  else
+    echo "Node.js/npm not found. Cannot run checkout adapter contract test." >&2
+    exit 1
+  fi
+fi
+
 # optional contract smoke tests
 if command -v lua5.4 >/dev/null 2>&1; then
   # capture luarocks paths (Lua 5.4) so optional deps can be resolved

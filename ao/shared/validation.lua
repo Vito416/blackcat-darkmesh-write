@@ -205,11 +205,38 @@ function Validation.validate_envelope(cmd)
   if not ok_tags then
     return false, missing
   end
+  if tostring(cmd.requestId):match "^%s*$" then
+    return false, { "invalid_request_id" }
+  end
+
+  local allow_anon = os.getenv "WRITE_ALLOW_ANON" == "1"
+  if not allow_anon then
+    local missing_identity = {}
+    if cmd.actor == nil or tostring(cmd.actor):match "^%s*$" then
+      table.insert(missing_identity, "missing:actor")
+    end
+    if cmd.tenant == nil or tostring(cmd.tenant):match "^%s*$" then
+      table.insert(missing_identity, "missing:tenant")
+    end
+    if #missing_identity > 0 then
+      return false, missing_identity
+    end
+  end
+
   return true
 end
 
 -- Per-action payload validation stub (can be extended with schemas).
 local validators = {
+  Ping = function(_p)
+    return true
+  end,
+  GetOpsHealth = function(_p)
+    return true
+  end,
+  RunWebhookRetries = function(_p)
+    return true
+  end,
   PublishPageVersion = function(p)
     local missing = {}
     for _, f in ipairs { "siteId", "pageId", "versionId", "manifestTx" } do
@@ -235,8 +262,8 @@ local validators = {
     return true
   end,
   CreateWebhook = function(p)
-    if not p or not p.siteId or not p.url then
-      return false, { "missing:siteId,url" }
+    if not p or not p.tenant or not p.url then
+      return false, { "missing:tenant,url" }
     end
     if p.events and type(p.events) ~= "table" then
       return false, { "invalid:events" }
@@ -294,19 +321,13 @@ local validators = {
     if not p then
       return false, { "missing:payload" }
     end
-    -- permit cart-driven flow (cartId required) or direct order payload (items + totals)
+    -- permit cart-driven flow (cartId) or direct order payload (siteId + items)
     local missing = {}
-    if not p.orderId then
-      table.insert(missing, "orderId")
-    end
     if not p.siteId then
       table.insert(missing, "siteId")
     end
     if not p.cartId and not p.items then
       table.insert(missing, "cartId|items")
-    end
-    if not p.currency then
-      table.insert(missing, "currency")
     end
     if #missing > 0 then
       return false, { "missing:" .. table.concat(missing, ",") }
@@ -316,7 +337,8 @@ local validators = {
         return false, { "invalid:items" }
       end
       for _, it in ipairs(p.items) do
-        if not it.sku or not it.qty then
+        local qty = it and (it.qty or it.quantity)
+        if not it.sku or not qty then
           return false, { "invalid:items:sku/qty" }
         end
       end
@@ -362,9 +384,51 @@ local validators = {
     end
     return true
   end,
+  UpsertProduct = function(p)
+    if not p or not p.siteId or not p.sku then
+      return false, { "missing:siteId,sku" }
+    end
+    if type(p.payload) ~= "table" then
+      return false, { "missing:payload" }
+    end
+    return true
+  end,
+  AssignRole = function(p)
+    if not p or not p.tenant or not p.subject or not p.role then
+      return false, { "missing:tenant,subject,role" }
+    end
+    return true
+  end,
+  UpsertProfile = function(p)
+    if not p or not p.subject then
+      return false, { "missing:subject" }
+    end
+    if type(p.profile) ~= "table" then
+      return false, { "missing:profile" }
+    end
+    return true
+  end,
+  GrantEntitlement = function(p)
+    if not p or not p.subject or not p.asset then
+      return false, { "missing:subject,asset" }
+    end
+    return true
+  end,
+  RevokeEntitlement = function(p)
+    if not p or not p.subject or not p.asset then
+      return false, { "missing:subject,asset" }
+    end
+    return true
+  end,
   CreatePaymentIntent = function(p)
-    if not p or not p.orderId or not p.amount or not p.currency then
-      return false, { "missing:orderId,amount,currency" }
+    if not p or not p.orderId then
+      return false, { "missing:orderId" }
+    end
+    if p.amount ~= nil and type(p.amount) ~= "number" then
+      return false, { "invalid:amount" }
+    end
+    if p.currency ~= nil and type(p.currency) ~= "string" then
+      return false, { "invalid:currency" }
     end
     return true
   end,
@@ -383,6 +447,45 @@ local validators = {
     end
     return true
   end,
+  UpsertCoupon = function(p)
+    if not p or not p.code then
+      return false, { "missing:code" }
+    end
+    return true
+  end,
+  CreateShippingLabel = function(p)
+    if not p or not p.shipmentId then
+      return false, { "missing:shipmentId" }
+    end
+    return true
+  end,
+  CartAddItem = function(p)
+    if not p or not p.cartId or not p.sku then
+      return false, { "missing:cartId,sku" }
+    end
+    if p.qty == nil and p.quantity == nil then
+      return false, { "missing:qty" }
+    end
+    return true
+  end,
+  CartGet = function(p)
+    if not p or not p.cartId then
+      return false, { "missing:cartId" }
+    end
+    return true
+  end,
+  CartPrice = function(p)
+    if not p or not p.cartId then
+      return false, { "missing:cartId" }
+    end
+    return true
+  end,
+  CartRemoveItem = function(p)
+    if not p or not p.cartId or not p.sku then
+      return false, { "missing:cartId,sku" }
+    end
+    return true
+  end,
 }
 
 function Validation.validate_action(action, payload)
@@ -394,14 +497,21 @@ function Validation.validate_action(action, payload)
       return ok, errs
     end
   end
-  if ok_schema then
+  local schema_ready = ok_schema
+  local schema_err
+  if ok_schema and type(schema.is_ready) == "function" then
+    schema_ready, schema_err = schema.is_ready "actions"
+  end
+  if schema_ready then
     local ok_s, s_errs = schema.validate_action(action, payload)
     if not ok_s then
       return ok_s, s_errs
     end
+  elseif os.getenv "WRITE_REQUIRE_ACTION_SCHEMA" == "1" then
+    return false, { schema_err or "schema_unavailable" }
   end
-  if not fn and not ok_schema then
-    return false, { "unsupported_action" }
+  if not fn and not schema_ready then
+    return false, { schema_err or "schema_unavailable" }
   end
   return true
 end

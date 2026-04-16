@@ -1,13 +1,25 @@
 -- Minimal-but-stricter auth helpers for write process.
--- Intent: avoid accepting obvious replay/flood, enforce role policy, leave crypto ops to gateway/worker.
+-- Intent:
+--   avoid obvious replay/flood,
+--   enforce signatureRef policy + role policy,
+--   keep crypto ops at gateway/worker layer.
 
 local Auth = {}
 local os_time = os.time
+local os_date = os.date
+local os_difftime = os.difftime
 local START_EPOCH = os_time()
+local getenv_override = package.loaded["ao.shared.auth.getenv_override"]
 
 -- Allow WRITE_* aliases for ops/env parity
 local function getenv_multi(...)
   for _, key in ipairs { ... } do
+    if type(getenv_override) == "function" then
+      local override = getenv_override(key)
+      if override ~= nil then
+        return override
+      end
+    end
     local val = os.getenv(key)
     if val ~= nil then
       return val
@@ -19,7 +31,8 @@ end
 local NONCE_TTL =
   tonumber(getenv_multi("AUTH_NONCE_TTL_SECONDS", "WRITE_NONCE_TTL_SECONDS") or "300")
 local NONCE_MAX = tonumber(getenv_multi("AUTH_NONCE_MAX_ENTRIES", "WRITE_NONCE_MAX") or "2048")
-local REQUIRE_NONCE = getenv_multi("AUTH_REQUIRE_NONCE", "WRITE_REQUIRE_NONCE") ~= "0" -- default ON
+-- default ON
+local REQUIRE_NONCE = getenv_multi("AUTH_REQUIRE_NONCE", "WRITE_REQUIRE_NONCE") ~= "0"
 local REQUIRE_TS = getenv_multi("AUTH_REQUIRE_TIMESTAMP", "WRITE_REQUIRE_TIMESTAMP") ~= "0"
 local TS_DRIFT = tonumber(getenv_multi("AUTH_MAX_CLOCK_SKEW", "WRITE_MAX_CLOCK_SKEW") or "300")
 local RL_WINDOW =
@@ -28,6 +41,18 @@ local RL_MAX =
   tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_REQUESTS", "WRITE_RL_MAX_REQUESTS") or "200")
 local RL_CALLER_MAX =
   tonumber(getenv_multi("AUTH_RATE_LIMIT_MAX_PER_CALLER", "WRITE_RL_CALLER_MAX") or "120")
+local RL_SCOPE_WINDOW = tonumber(
+  getenv_multi("AUTH_SCOPED_RATE_LIMIT_WINDOW_SECONDS", "WRITE_SCOPED_RL_WINDOW_SECONDS")
+    or tostring(RL_WINDOW)
+)
+local RL_CALLER_ACTION_MAX = tonumber(
+  getenv_multi("AUTH_SCOPED_RATE_LIMIT_MAX_PER_CALLER_ACTION", "WRITE_SCOPED_RL_CALLER_ACTION_MAX")
+    or "80"
+)
+local RL_TENANT_ACTION_MAX = tonumber(
+  getenv_multi("AUTH_SCOPED_RATE_LIMIT_MAX_PER_TENANT_ACTION", "WRITE_SCOPED_RL_TENANT_ACTION_MAX")
+    or "120"
+)
 local UNIQUE_SUBJECT_MAX_PER_IP =
   tonumber(getenv_multi("WRITE_UNIQUE_SUBJECT_MAX_PER_IP", "AUTH_UNIQUE_SUBJECT_MAX_PER_IP") or "0")
 local RL_BUCKET_TTL = tonumber(
@@ -43,8 +68,16 @@ local SIG_TYPE = getenv_multi("WRITE_SIG_TYPE", "AUTH_SIG_TYPE") or "ed25519"
 local SIG_PUBLIC = getenv_multi("WRITE_SIG_PUBLIC", "AUTH_SIG_PUBLIC")
 local SIG_PUBLICS = getenv_multi("WRITE_SIG_PUBLICS", "AUTH_SIG_PUBLICS")
 local SIG_SECRET = getenv_multi("WRITE_SIG_SECRET", "AUTH_SIG_SECRET")
+local SIG_POLICY_JSON = getenv_multi("WRITE_SIGNATURE_POLICY_JSON", "AUTH_SIGNATURE_POLICY_JSON")
+local SIG_POLICY_PATH = getenv_multi("WRITE_SIGNATURE_POLICY_PATH", "AUTH_SIGNATURE_POLICY_PATH")
+local REQUIRE_SIGNATURE_POLICY = getenv_multi(
+  "WRITE_REQUIRE_SIGNATURE_POLICY",
+  "AUTH_REQUIRE_SIGNATURE_POLICY"
+) == "1"
 local REQUIRE_JWT = getenv_multi("WRITE_REQUIRE_JWT", "AUTH_REQUIRE_JWT") == "1"
 local JWT_SECRET = getenv_multi("WRITE_JWT_HS_SECRET", "AUTH_JWT_HS_SECRET")
+local ROLE_POLICY_STRICT = getenv_multi("WRITE_ROLE_POLICY_STRICT", "AUTH_ROLE_POLICY_STRICT")
+  == "1"
 local RATE_STORE_PATH = getenv_multi("WRITE_RATE_STORE_PATH", "AUTH_RATE_STORE_PATH")
 local NONCE_STORE_PATH = getenv_multi("WRITE_NONCE_STORE_PATH", "AUTH_NONCE_STORE_PATH")
 
@@ -176,7 +209,21 @@ local function parse_iso8601(ts)
   if not y then
     return nil
   end
-  return os_time { year = y, month = m, day = d, hour = H, min = M, sec = S, isdst = false }
+  local local_epoch = os_time {
+    year = tonumber(y),
+    month = tonumber(m),
+    day = tonumber(d),
+    hour = tonumber(H),
+    min = tonumber(M),
+    sec = tonumber(S),
+    isdst = false,
+  }
+  if not local_epoch then
+    return nil
+  end
+  local local_t = os_date("*t", local_epoch)
+  local utc_t = os_date("!*t", local_epoch)
+  return local_epoch + os_difftime(os_time(local_t), os_time(utc_t))
 end
 
 -- Accept all for now; upstream caller controls trust.
@@ -238,8 +285,213 @@ local function resolve_sig_public(sig_ref)
   return SIG_PUBLIC
 end
 
+local function table_size(map)
+  if type(map) ~= "table" then
+    return 0
+  end
+  local count = 0
+  for _ in pairs(map) do
+    count = count + 1
+  end
+  return count
+end
+
+local function has_explicit_sig_public(sig_ref)
+  if not SIG_PUBLICS or SIG_PUBLICS == "" then
+    return false
+  end
+  if not SIG_PUBLICS_CACHE_OK then
+    resolve_sig_public(sig_ref)
+  end
+  if type(SIG_PUBLICS_CACHE) ~= "table" then
+    return false
+  end
+  local bound = SIG_PUBLICS_CACHE[tostring(sig_ref or "")]
+  return type(bound) == "string" and bound ~= ""
+end
+
+local function policy_sig_public(sig_ref)
+  if not SIG_PUBLICS or SIG_PUBLICS == "" then
+    return nil
+  end
+  if not SIG_PUBLICS_CACHE_OK then
+    resolve_sig_public(sig_ref)
+  end
+  if type(SIG_PUBLICS_CACHE) ~= "table" then
+    return nil
+  end
+  local value = SIG_PUBLICS_CACHE[tostring(sig_ref or "")]
+  if type(value) ~= "string" or value == "" then
+    return nil
+  end
+  return value
+end
+
+local function policy_has_unique_sig_publics(policy_map)
+  if type(policy_map) ~= "table" then
+    return true
+  end
+  local seen_by_pub = {}
+  for sig_ref in pairs(policy_map) do
+    local pub = policy_sig_public(sig_ref)
+    if not pub then
+      return false, "signature_policy_unbound_signature_ref"
+    end
+    local already = seen_by_pub[pub]
+    if already and already ~= sig_ref then
+      return false, "signature_policy_duplicate_sig_public"
+    end
+    seen_by_pub[pub] = sig_ref
+  end
+  return true
+end
+
+local function list_from_value(value)
+  if value == nil then
+    return nil
+  end
+  if value == "*" then
+    return "*"
+  end
+  if type(value) == "string" then
+    if value == "" then
+      return nil
+    end
+    return { value }
+  end
+  if type(value) ~= "table" then
+    return nil
+  end
+  if value[1] == "*" and #value == 1 then
+    return "*"
+  end
+  local out = {}
+  for i = 1, #value do
+    local item = value[i]
+    if type(item) ~= "string" or item == "" then
+      return nil
+    end
+    out[#out + 1] = item
+  end
+  if #out == 0 then
+    return nil
+  end
+  return out
+end
+
+local function normalize_policy_entry(entry)
+  if type(entry) == "string" then
+    local actions = list_from_value(entry)
+    if not actions then
+      return nil
+    end
+    return { actions = actions }
+  end
+  if type(entry) ~= "table" then
+    return nil
+  end
+
+  local actions = entry.actions or entry.action or entry.allowedActions
+  local roles = entry.roles or entry.role or entry.allowedRoles
+  if actions == nil and roles == nil then
+    if #entry > 0 then
+      actions = entry
+    else
+      return nil
+    end
+  end
+
+  local normalized = {}
+  if actions ~= nil then
+    normalized.actions = list_from_value(actions)
+    if not normalized.actions then
+      return nil
+    end
+  end
+  if roles ~= nil then
+    normalized.roles = list_from_value(roles)
+    if not normalized.roles then
+      return nil
+    end
+  end
+  if not normalized.actions and not normalized.roles then
+    return nil
+  end
+  return normalized
+end
+
+local SIGNATURE_POLICY_CONFIGURED = (SIG_POLICY_JSON and SIG_POLICY_JSON ~= "")
+  or (SIG_POLICY_PATH and SIG_POLICY_PATH ~= "")
+local SIGNATURE_POLICY_CACHE = nil
+local SIGNATURE_POLICY_ERROR = nil
+local SIGNATURE_POLICY_LOADED = false
+
+local function load_signature_policy()
+  if not SIGNATURE_POLICY_CONFIGURED then
+    return nil, nil
+  end
+  if not cjson_ok or not cjson then
+    return nil, "signature_policy_json_unavailable"
+  end
+
+  local raw = SIG_POLICY_JSON
+  if (not raw or raw == "") and SIG_POLICY_PATH and SIG_POLICY_PATH ~= "" then
+    local f = io.open(SIG_POLICY_PATH, "r")
+    if not f then
+      return nil, "signature_policy_unreadable"
+    end
+    raw = f:read "*a"
+    f:close()
+  end
+
+  if not raw or raw == "" then
+    return nil, "signature_policy_missing_source"
+  end
+
+  local ok, decoded = pcall(cjson.decode, raw)
+  if not ok or type(decoded) ~= "table" then
+    return nil, "signature_policy_invalid"
+  end
+
+  local map = {}
+  for sig_ref, entry in pairs(decoded) do
+    if type(sig_ref) ~= "string" or sig_ref == "" then
+      return nil, "signature_policy_invalid"
+    end
+    local normalized = normalize_policy_entry(entry)
+    if not normalized then
+      return nil, "signature_policy_invalid"
+    end
+    map[sig_ref] = normalized
+  end
+
+  if not next(map) then
+    return nil, "signature_policy_invalid"
+  end
+
+  return map, nil
+end
+
+local function ensure_signature_policy()
+  if SIGNATURE_POLICY_LOADED then
+    return SIGNATURE_POLICY_CACHE, SIGNATURE_POLICY_ERROR, SIGNATURE_POLICY_CONFIGURED
+  end
+  SIGNATURE_POLICY_LOADED = true
+  SIGNATURE_POLICY_CACHE, SIGNATURE_POLICY_ERROR = load_signature_policy()
+  return SIGNATURE_POLICY_CACHE, SIGNATURE_POLICY_ERROR, SIGNATURE_POLICY_CONFIGURED
+end
+
 function Auth.require_role(msg, allowed_roles)
-  if not allowed_roles or #allowed_roles == 0 then
+  if not allowed_roles then
+    return true
+  end
+  if allowed_roles == "*" then
+    return true
+  end
+  if type(allowed_roles) ~= "table" then
+    allowed_roles = { tostring(allowed_roles) }
+  end
+  if #allowed_roles == 0 or contains(allowed_roles, "*") then
     return true
   end
   local role = msg["Actor-Role"] or msg.actorRole or msg.role
@@ -252,11 +504,19 @@ function Auth.require_role(msg, allowed_roles)
   return true
 end
 
+local function resolve_action(msg)
+  return msg.action or msg.Action
+end
+
 function Auth.require_role_for_action(msg, policy)
   if not policy then
     return true
   end
-  local roles = policy[msg.Action]
+  local action = resolve_action(msg)
+  if not action or action == "" then
+    return true
+  end
+  local roles = policy[action]
   if not roles then
     return true
   end
@@ -308,6 +568,14 @@ local function verify_jwt(msg)
 end
 
 function Auth.consume_jwt(msg)
+  if msg._signature_role == nil then
+    local detached_role = msg.role or msg.Role or msg["Actor-Role"] or msg.actorRole
+    if detached_role == nil then
+      msg._signature_role = false
+    else
+      msg._signature_role = tostring(detached_role)
+    end
+  end
   local ok, claims = verify_jwt(msg)
   if not ok then
     return ok, claims
@@ -552,12 +820,18 @@ end
 
 local function canonical_detached_message(msg)
   -- sign the important envelope parts + payload hash to prevent tampering
+  local detached_role = msg._signature_role
+  if detached_role == false then
+    detached_role = ""
+  end
   local parts = {
     msg.action or msg.Action or "",
     pick(msg.tenant, msg.Tenant, msg["Tenant-Id"]),
     pick(msg.actor, msg.Actor),
     pick(msg.ts, msg.timestamp, msg["X-Timestamp"]),
     pick(msg.nonce, msg.Nonce, msg["X-Nonce"]),
+    detached_role ~= nil and detached_role
+      or pick(msg.role, msg.Role, msg["Actor-Role"], msg.actorRole),
     canonical_payload(msg),
     msg.requestId or msg["Request-Id"] or "",
   }
@@ -860,24 +1134,172 @@ function Auth.require_role_or_capability(msg, roles, _caps)
   return Auth.require_role(msg, roles)
 end
 
-function Auth.check_policy(_msg)
+function Auth.check_policy(msg)
+  local policy_map, policy_err, configured = ensure_signature_policy()
+  if not configured then
+    if REQUIRE_SIGNATURE and REQUIRE_SIGNATURE_POLICY then
+      m_counter "write_auth_signature_policy_required_total"
+      return false, "signature_policy_required"
+    end
+    return true
+  end
+  if not policy_map then
+    return false, policy_err or "signature_policy_invalid"
+  end
+  local policy_ref_count = table_size(policy_map)
+  if policy_ref_count > 1 and (not SIG_PUBLICS or SIG_PUBLICS == "") then
+    m_counter "write_auth_signature_policy_keyring_required_total"
+    return false, "signature_policy_keyring_required"
+  end
+  msg = msg or {}
+  local sig_ref = msg.signatureRef or msg["Signature-Ref"] or msg.signature_ref
+  if not sig_ref or sig_ref == "" then
+    m_counter "write_auth_signature_policy_missing_ref_total"
+    return false, "signature_policy_missing_signature_ref"
+  end
+
+  local entry = policy_map[tostring(sig_ref)]
+  if not entry then
+    m_counter "write_auth_signature_policy_unknown_ref_total"
+    return false, "signature_policy_not_found"
+  end
+  if policy_ref_count > 1 and not has_explicit_sig_public(sig_ref) then
+    m_counter "write_auth_signature_policy_unbound_ref_total"
+    return false, "signature_policy_unbound_signature_ref"
+  end
+  if policy_ref_count > 1 then
+    local ok_unique_publics, unique_publics_err = policy_has_unique_sig_publics(policy_map)
+    if not ok_unique_publics then
+      m_counter "write_auth_signature_policy_shared_public_total"
+      return false, unique_publics_err or "signature_policy_duplicate_sig_public"
+    end
+  end
+
+  local action = msg.action or msg.Action
+  if not action or action == "" then
+    m_counter "write_auth_signature_policy_missing_action_total"
+    return false, "signature_policy_missing_action"
+  end
+  if entry.actions and entry.actions ~= "*" and not contains(entry.actions, action) then
+    m_counter "write_auth_signature_policy_action_forbidden_total"
+    return false, "signature_policy_action_forbidden"
+  end
+
+  if entry.roles then
+    local role = msg["Actor-Role"] or msg.actorRole or msg.role
+    if not role or role == "" then
+      m_counter "write_auth_signature_policy_missing_role_total"
+      return false, "signature_policy_missing_role"
+    end
+    if entry.roles ~= "*" and not contains(entry.roles, role) then
+      m_counter "write_auth_signature_policy_role_forbidden_total"
+      return false, "signature_policy_role_forbidden"
+    end
+  end
+
   return true
 end
 
-function Auth.check_caller_scope(_msg)
+local function normalize_scope_value(value)
+  if value == nil then
+    return nil
+  end
+  local normalized = tostring(value)
+  if normalized == "" then
+    return nil
+  end
+  return normalized
+end
+
+function Auth.check_caller_scope(msg)
+  msg = msg or {}
+  local payload = msg.payload or msg.Payload
+  if type(payload) ~= "table" then
+    payload = {}
+  end
+
+  local tenant_msg = normalize_scope_value(msg.tenant or msg.Tenant or msg["Tenant-Id"])
+  local tenant_payload =
+    normalize_scope_value(payload.tenant or payload.Tenant or payload["Tenant-Id"])
+  if tenant_msg and tenant_payload and tenant_msg ~= tenant_payload then
+    return false, "caller_scope_tenant_mismatch"
+  end
+
+  local site_msg = normalize_scope_value(msg.siteId or msg["Site-Id"] or msg.SiteId)
+  local site_payload = normalize_scope_value(payload.siteId or payload["Site-Id"] or payload.SiteId)
+  if site_msg and site_payload and site_msg ~= site_payload then
+    return false, "caller_scope_site_mismatch"
+  end
+
+  if os.getenv "WRITE_REQUIRE_CALLER_SCOPE" == "1" then
+    if not tenant_msg and not tenant_payload and not site_msg and not site_payload then
+      return false, "caller_scope_missing"
+    end
+  end
   return true
 end
 
 function Auth.check_role_for_action(msg, policy)
-  -- default: require a role to be present
+  if not policy then
+    return true
+  end
+  local action = resolve_action(msg)
+  if not action or action == "" then
+    return true
+  end
+  local allowed = policy[action]
+  if not allowed then
+    allowed = policy["*"]
+  end
+  if not allowed then
+    if ROLE_POLICY_STRICT then
+      return false, "role_policy_missing_action"
+    end
+    return true
+  end
+  if allowed == "*" then
+    return true
+  end
+  if type(allowed) == "table" and contains(allowed, "*") then
+    return true
+  end
   local role = msg["Actor-Role"] or msg.actorRole or msg.role
   if not role or role == "" then
     return false, "missing_role"
   end
-  return Auth.require_role_for_action(msg, policy)
+  return Auth.require_role(msg, allowed)
 end
 
-function Auth.check_rate_limit(_msg)
+function Auth.check_rate_limit(msg)
+  msg = msg or {}
+  local action = msg.action or msg.Action or "unknown"
+  local tenant = msg.tenant or msg.Tenant or msg["Tenant-Id"] or "global"
+  local caller = caller_identity(msg)
+
+  if RL_TENANT_ACTION_MAX and RL_TENANT_ACTION_MAX > 0 then
+    local ok_tenant, err_tenant = bump_rate(
+      string.format("scope:tenant:%s:action:%s", tostring(tenant), tostring(action)),
+      RL_SCOPE_WINDOW,
+      RL_TENANT_ACTION_MAX
+    )
+    if not ok_tenant then
+      metrics_counter("write_auth_rate_limited_tenant_action_total", 1)
+      return false, err_tenant or "rate_limited_tenant_action"
+    end
+  end
+
+  if RL_CALLER_ACTION_MAX and RL_CALLER_ACTION_MAX > 0 then
+    local ok_caller, err_caller = bump_rate(
+      string.format("scope:caller:%s:action:%s", tostring(caller), tostring(action)),
+      RL_SCOPE_WINDOW,
+      RL_CALLER_ACTION_MAX
+    )
+    if not ok_caller then
+      metrics_counter("write_auth_rate_limited_caller_action_total", 1)
+      return false, err_caller or "rate_limited_caller_action"
+    end
+  end
+
   return true
 end
 

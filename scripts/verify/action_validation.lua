@@ -142,10 +142,22 @@ local bad_pay = write.route {
 }
 assert(expect_error(bad_pay), "missing amount/currency should error")
 
+local bad_inline_order = write.route(sign_cmd {
+  Action = "CreateOrder",
+  ["Request-Id"] = "v5b",
+  ["Actor-Role"] = "admin",
+  nonce = "n5b",
+  ts = os.time(),
+  payload = { siteId = "s1", items = { { sku = "sku-inline", qty = 1, price = 10 } } },
+})
+assert(expect_error(bad_inline_order), "inline CreateOrder without currency should error")
+
 local ok_pay = write.route(sign_cmd {
   Action = "CreatePaymentIntent",
   ["Request-Id"] = "v6",
   ["Actor-Role"] = "admin",
+  actor = "validator",
+  tenant = "tenant-1",
   nonce = "n6",
   ts = os.time(),
   payload = { orderId = "o1", amount = 1000, currency = "USD" },
@@ -161,6 +173,108 @@ local bad_provider = write.route {
   payload = { provider = "stripe", eventType = "payment", orderId = nil },
 }
 assert(expect_error(bad_provider), "provider webhook needs target ids")
+
+local bad_assign_role = write.route(sign_cmd {
+  Action = "AssignRole",
+  ["Request-Id"] = "v7b",
+  ["Actor-Role"] = "admin",
+  actor = "validator",
+  tenant = "tenant-1",
+  nonce = "n7b",
+  ts = os.time(),
+  payload = {},
+})
+assert(expect_error(bad_assign_role), "assign role payload should be validated")
+
+local bad_product = write.route(sign_cmd {
+  Action = "UpsertProduct",
+  ["Request-Id"] = "v7c",
+  ["Actor-Role"] = "admin",
+  actor = "validator",
+  tenant = "tenant-1",
+  nonce = "n7c",
+  ts = os.time(),
+  payload = { siteId = "s1", sku = "sku-1" },
+})
+assert(expect_error(bad_product), "upsert product payload should require payload object")
+
+-- Regression: action role policy must apply for lowercase `action` envelopes too.
+local lowercase_forbidden = write.route(sign_cmd {
+  action = "CreateForm",
+  requestId = "v8",
+  ["Actor-Role"] = "viewer",
+  actor = "validator",
+  tenant = "tenant-1",
+  nonce = "n8",
+  ts = os.time(),
+  payload = {},
+})
+assert(expect_error(lowercase_forbidden), "lowercase action should still enforce role policy")
+
+-- Regression: idempotency must not bypass auth/validation across tenant boundaries.
+local idem_seed = write.route(sign_cmd {
+  Action = "PublishPageVersion",
+  ["Request-Id"] = "idem-1",
+  ["Actor-Role"] = "admin",
+  actor = "validator",
+  tenant = "tenant-1",
+  nonce = "n9",
+  ts = os.time(),
+  payload = { siteId = "s1", pageId = "p1", versionId = "v1", manifestTx = "tx123" },
+})
+assert(idem_seed.status == "OK", "idempotency seed write should succeed")
+
+local idem_cross_tenant = write.route {
+  Action = "PublishPageVersion",
+  ["Request-Id"] = "idem-1",
+  ["Actor-Role"] = "admin",
+  actor = "validator",
+  tenant = "tenant-2",
+  nonce = "n10",
+  ts = os.time(),
+  payload = { siteId = "s1" },
+}
+assert(
+  expect_error(idem_cross_tenant),
+  "idempotency should not short-circuit before auth/validation"
+)
+
+-- Regression: same requestId across tenants must not collapse to the same generated orderId.
+local cross_order_t1 = write.route(sign_cmd {
+  Action = "CreateOrder",
+  ["Request-Id"] = "idem-order-cross-1",
+  ["Actor-Role"] = "admin",
+  actor = "validator",
+  tenant = "tenant-1",
+  nonce = "n11",
+  ts = os.time(),
+  payload = {
+    siteId = "shared-site",
+    currency = "USD",
+    items = { { sku = "sku-cross", qty = 1, price = 10 } },
+  },
+})
+assert(cross_order_t1.status == "OK", "cross-tenant order seed (t1) should succeed")
+
+local cross_order_t2 = write.route(sign_cmd {
+  Action = "CreateOrder",
+  ["Request-Id"] = "idem-order-cross-1",
+  ["Actor-Role"] = "admin",
+  actor = "validator",
+  tenant = "tenant-2",
+  nonce = "n12",
+  ts = os.time(),
+  payload = {
+    siteId = "shared-site",
+    currency = "USD",
+    items = { { sku = "sku-cross", qty = 1, price = 10 } },
+  },
+})
+assert(cross_order_t2.status == "OK", "cross-tenant order seed (t2) should succeed")
+assert(
+  cross_order_t1.payload.orderId ~= cross_order_t2.payload.orderId,
+  "generated orderId must stay tenant-scoped across shared site ids"
+)
 
 print "action_validation: ok"
 -- luacheck: max_line_length 200

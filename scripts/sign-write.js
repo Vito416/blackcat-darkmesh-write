@@ -28,6 +28,7 @@ function canonicalDetachedMessage(cmd) {
     cmd.actor || cmd.Actor || '',
     cmd.ts || cmd.timestamp || cmd['X-Timestamp'] || '',
     cmd.nonce || cmd.Nonce || cmd['X-Nonce'] || '',
+    cmd.role || cmd.Role || cmd['Actor-Role'] || '',
     canonicalPayload(cmd.payload || cmd.Payload || {}),
     cmd.requestId || cmd['Request-Id'] || '',
   ].join('|');

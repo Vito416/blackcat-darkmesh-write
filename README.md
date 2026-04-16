@@ -35,6 +35,9 @@ AO-native command layer for Blackcat Darkmesh. This repository hosts the write-s
 - Identity & auth: signed commands or capability tokens; gateway is never an implicit authority.
 - Idempotence: `requestId` registry and optimistic `expectedVersion` guards to prevent duplicate writes.
 - Audit: append-only log with correlation to requestId and actor; deterministic status codes.
+- Gateway compatibility: `CreateOrder` supports both cart-driven payloads
+  (`cartId`) and direct template payloads (`siteId + items`) with safe
+  `orderId`/`currency` fallback generation.
 
 ```mermaid
 flowchart LR
@@ -138,6 +141,31 @@ node scripts/cli/send_write_command.js
 
 For worker-signed end-to-end tests, set `WORKER_SIGN_URL` + `WORKER_AUTH_TOKEN` (test values are kept locally in `tmp/test-secrets.json`).
 
+### HTTP checkout adapter (for PHP/bridge mode)
+
+Gateway template contract expects write endpoints:
+- `POST /api/checkout/order`
+- `POST /api/checkout/payment-intent`
+
+This repo now ships a lightweight adapter:
+
+```bash
+WRITE_PROCESS_ID=<write_pid> \
+WRITE_WALLET_PATH=wallet.json \
+WRITE_HB_URL=https://push.forward.computer \
+WRITE_HB_SCHEDULER=n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo \
+WRITE_SIGNER_URL=https://<worker-host>/sign \
+WRITE_SIGNER_TOKEN=<worker_bearer_token> \
+node scripts/http/checkout_api_server.mjs
+```
+
+Notes:
+- Adapter accepts already signed envelopes, or can call worker `/sign` when signature fields are missing.
+- It forwards envelope as `Write-Command` AO message and returns normalized write result.
+- Default listen address is `0.0.0.0:8789` (`PORT` can override).
+- Optional multi-site PID override is disabled by default. To enable safely, set both `WRITE_API_ALLOW_PID_OVERRIDE=1`
+  and `WRITE_API_TOKEN`, then pass `X-Write-Process-Id` (or body `writeProcessId`) per request.
+
 ### Release gate / deep test
 Run the v1.2.0 readiness gate in one command:
 ```bash
@@ -177,7 +205,7 @@ scripts/cli/       # local helpers (run command)
 
 ## Minimal Command Envelope
 - Required tags: `Action`, `Request-Id`, `Actor`, `Tenant`, `Expected-Version`, `Nonce`, `Signature-Ref`, `Timestamp`.
-- Core handlers (initial set): `SaveDraftPage`, `PublishPageVersion`, `UpsertRoute`, `UpsertProduct`, `UpsertProfile`, `AssignRole`, `GrantEntitlement`, `LinkDomain`, `RotateKey`, `CreateReceipt`.
+- Core handlers (initial set): `SaveDraftPage`, `PublishPageVersion`, `UpsertRoute`, `UpsertProduct`, `UpsertProfile`, `AssignRole`, `GrantEntitlement`, `CreateOrder`, `CreatePaymentIntent`, `ConfirmPayment`.
 - Conflict strategy: reject on missing/expired nonce, replayed `Request-Id`, or mismatched `Expected-Version`; return prior result when replayed.
 
 ## Development
@@ -221,6 +249,10 @@ scripts/cli/       # local helpers (run command)
   - `WRITE_SIG_PUBLIC` (single key; PEM path or `hex:<pubkey>` form),
   - `WRITE_SIG_PUBLICS` (rotation/keyring map keyed by `signatureRef`, supports `default`),
   - `WRITE_SIG_SECRET` (for `hmac` mode).
+- SignatureRef policy gate:
+  - `WRITE_SIGNATURE_POLICY_JSON` or `WRITE_SIGNATURE_POLICY_PATH` (JSON map keyed by `signatureRef` with per-key `actions` and optional `roles`; unknown or missing refs fail closed with deterministic `signature_policy_*` errors),
+  - policy is enforced after signature verification and before the existing role checks.
+- `WRITE_ROLE_POLICY_STRICT=1` — fail closed when an action has no role-policy entry (`role_policy_missing_action`).
 - Optional JWT gate: set `WRITE_JWT_HS_SECRET` (HS256) and optionally `WRITE_REQUIRE_JWT=1` to fail-closed; claims `sub/tenant/role/nonce` populate `actor/tenant/role/nonce` when missing.
 - `WRITE_WAL_PATH=/var/lib/ao/write-wal.ndjson` — append-only WAL with request/response hashes.
 - `WRITE_IDEM_PATH=/var/lib/ao/write-idem.json` — persist idempotent responses across restarts (optional).

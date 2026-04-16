@@ -18,6 +18,10 @@ local function forward_event(ev)
 end
 
 local outbox = write._storage_outbox()
+if #outbox == 0 then
+  local storage = require "ao.shared.storage"
+  outbox = storage.get "outbox_queue" or storage.get "outbox" or {}
+end
 for _, ev in ipairs(outbox) do
   forward_event(ev)
 end

@@ -112,6 +112,7 @@ jobs:
           RUN_DEPS_CHECK: 1
           RUN_SCHEMA_MANIFEST: 1
           WRITE_REQUIRE_SIGNATURE: 1  # ensure crypto deps present in CI
+          WRITE_REQUIRE_SIGNATURE_POLICY: 0
         run: bash scripts/verify/preflight.sh
 
       - name: Arweave hash verify (main push, best-effort)
@@ -122,7 +123,7 @@ jobs:
         run: bash scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
 
       - name: Arweave hash verify (policy enforced)
-        if: env.ENFORCE_ARWEAVE_HASH == '1'
+        if: env.ENFORCE_ARWEAVE_HASH == '1' && github.event_name != 'pull_request'
         env:
           ARWEAVE_VERIFY_FILE: ${{ env.ARWEAVE_VERIFY_FILE }}
           ARWEAVE_VERIFY_TX: ${{ env.ARWEAVE_VERIFY_TX }}
@@ -132,8 +133,16 @@ jobs:
           fi
           bash scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
 
+      - name: Arweave hash verify (optional PR best-effort)
+        if: github.event_name == 'pull_request' && env.ARWEAVE_VERIFY_FILE != '' && env.ARWEAVE_VERIFY_TX != ''
+        continue-on-error: true
+        env:
+          ARWEAVE_VERIFY_FILE: ${{ env.ARWEAVE_VERIFY_FILE }}
+          ARWEAVE_VERIFY_TX: ${{ env.ARWEAVE_VERIFY_TX }}
+        run: bash scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
+
       - name: Arweave hash verify (optional)
-        if: env.ARWEAVE_VERIFY_FILE != '' && env.ARWEAVE_VERIFY_TX != ''
+        if: github.event_name != 'pull_request' && env.ARWEAVE_VERIFY_FILE != '' && env.ARWEAVE_VERIFY_TX != ''
         env:
           ARWEAVE_VERIFY_FILE: ${{ env.ARWEAVE_VERIFY_FILE }}
           ARWEAVE_VERIFY_TX: ${{ env.ARWEAVE_VERIFY_TX }}
@@ -158,6 +167,7 @@ jobs:
       - name: Ingest smoke
         env:
           WRITE_REQUIRE_SIGNATURE: 1
+          WRITE_REQUIRE_SIGNATURE_POLICY: 0
           WRITE_SIG_TYPE: ed25519
           WRITE_SIG_PRIV_HEX: 4f3c5f2a0d1b4a8c9e6f7d2b3c4e5a6f7b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e
           WRITE_SIG_PUBLIC: hex:65c29ed7228fce639284da05d84fbc37ef736c44ddec2ce53226033c80312ace
@@ -168,27 +178,53 @@ jobs:
       - name: Envelope guard
         env:
           WRITE_REQUIRE_SIGNATURE: 1
+          WRITE_REQUIRE_SIGNATURE_POLICY: 0
           WRITE_SIG_TYPE: ed25519
           WRITE_SIG_PRIV_HEX: 4f3c5f2a0d1b4a8c9e6f7d2b3c4e5a6f7b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e
           WRITE_SIG_PUBLIC: hex:65c29ed7228fce639284da05d84fbc37ef736c44ddec2ce53226033c80312ace
           WRITE_SIG_REF: write-ed25519-test
         run: lua5.4 scripts/verify/envelope_guard.lua
 
+      - name: JWT + signature interop
+        env:
+          WRITE_REQUIRE_SIGNATURE: 1
+          WRITE_REQUIRE_SIGNATURE_POLICY: 0
+          WRITE_SIG_TYPE: ed25519
+          WRITE_SIG_PRIV_HEX: 4f3c5f2a0d1b4a8c9e6f7d2b3c4e5a6f7b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e
+          WRITE_SIG_PUBLIC: hex:65c29ed7228fce639284da05d84fbc37ef736c44ddec2ce53226033c80312ace
+          WRITE_SIG_REF: write-ed25519-test
+          WRITE_REQUIRE_JWT: 1
+          WRITE_JWT_HS_SECRET: 0123456789abcdef0123456789abcdef
+        run: lua5.4 scripts/verify/jwt_signature_interop_spec.lua
+
       - name: Action validation
         env:
           WRITE_REQUIRE_SIGNATURE: 1
+          WRITE_REQUIRE_SIGNATURE_POLICY: 0
           WRITE_SIG_TYPE: ed25519
           WRITE_SIG_PRIV_HEX: 4f3c5f2a0d1b4a8c9e6f7d2b3c4e5a6f7b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e
           WRITE_SIG_PUBLIC: hex:65c29ed7228fce639284da05d84fbc37ef736c44ddec2ce53226033c80312ace
           WRITE_SIG_REF: write-ed25519-test
         run: lua5.4 scripts/verify/action_validation.lua
 
+      - name: Schema fallback behavior
+        run: |
+          lua5.4 scripts/verify/schema_fallback.lua
+          WRITE_REQUIRE_ACTION_SCHEMA=1 lua5.4 scripts/verify/schema_fallback.lua
+
       - name: SignatureRef keyring routing
         env:
           WRITE_REQUIRE_SIGNATURE: 1
+          WRITE_REQUIRE_SIGNATURE_POLICY: 0
           WRITE_SIG_TYPE: ecdsa
           WRITE_SIG_PUBLICS: tenant-a=key-a.pem,tenant-b=key-b.pem,default=default.pem
         run: lua5.4 scripts/verify/sig_publics_keyring.lua
+
+      - name: Signature policy spec
+        env:
+          WRITE_REQUIRE_SIGNATURE: 1
+          WRITE_REQUIRE_SIGNATURE_POLICY: 1
+        run: lua5.4 scripts/verify/signature_policy_spec.lua
 
       - name: Action validation (shipping/returns)
         env:
@@ -199,6 +235,34 @@ jobs:
           WRITE_RL_MAX_REQUESTS: 100000
           WRITE_RL_CALLER_MAX: 100000
         run: lua5.4 scripts/verify/action_validation_shipping.lua
+
+      - name: Auth scope/role strict matrix
+        env:
+          WRITE_REQUIRE_SIGNATURE: 0
+          WRITE_REQUIRE_NONCE: 0
+          WRITE_REQUIRE_TIMESTAMP: 0
+          WRITE_REQUIRE_JWT: 0
+          WRITE_ROLE_POLICY_STRICT: 1
+          WRITE_RL_MAX_REQUESTS: 100000
+          WRITE_RL_CALLER_MAX: 100000
+        run: lua5.4 scripts/verify/auth_scope_matrix.lua
+
+      - name: Persistence failure-mode matrix (wal/idempotency)
+        env:
+          WRITE_REQUIRE_SIGNATURE: 0
+          WRITE_REQUIRE_NONCE: 0
+          WRITE_REQUIRE_TIMESTAMP: 0
+          WRITE_REQUIRE_JWT: 0
+          WRITE_ROLE_POLICY_STRICT: 1
+          WRITE_RL_MAX_REQUESTS: 100000
+          WRITE_RL_CALLER_MAX: 100000
+        run: |
+          WRITE_WAL_PATH=/proc/1/wal.ndjson \
+          PERSIST_FAIL_MODE=wal \
+          lua5.4 scripts/verify/persistence_failure_modes.lua
+          WRITE_IDEM_PATH=/proc/1/idem.json \
+          PERSIST_FAIL_MODE=idem \
+          lua5.4 scripts/verify/persistence_failure_modes.lua
 
       - name: Publish flow smoke
         env:
@@ -247,6 +311,9 @@ jobs:
           OUTBOX_SUPPRESS_HMAC_WARN: 1
         run: lua5.4 scripts/verify/publish_outbox_mock_ao.lua
 
+      - name: Export outbox unwrap spec
+        run: lua5.4 scripts/verify/export_outbox_wrap_spec.lua
+
       - name: JWT claim mapping spec (nightly)
         if: env.RUN_JWT_SPEC == '1'
         env:
@@ -287,7 +354,7 @@ jobs:
 
       - name: Upload bundle artifact
         if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: write-bundle
           path: artifacts/write-bundle.json

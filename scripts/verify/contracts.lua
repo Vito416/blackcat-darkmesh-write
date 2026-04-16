@@ -6,6 +6,10 @@ local function req(action, extra)
     action = action,
     ["Request-Id"] = action .. "-req",
     ["Actor-Role"] = "admin",
+    actor = "contracts-checker",
+    tenant = "tenant-contracts",
+    nonce = action .. "-nonce",
+    ts = os.time(),
     payload = {},
   }
   if extra then
@@ -34,16 +38,16 @@ local tests = {
   end,
   function()
     local resp = write.route(
-      req(
-        "UpsertRoute",
-        { payload = { siteId = "s1", path = "/", target = { type = "page", id = "home" } } }
-      )
+      req("UpsertRoute", { payload = { siteId = "s1", path = "/", target = "page:home" } })
     )
     assert(resp.status == "OK")
   end,
   function()
     local resp = write.route(
-      req("UpsertProduct", { payload = { siteId = "s1", sku = "sku1", name = "Prod" } })
+      req(
+        "UpsertProduct",
+        { payload = { siteId = "s1", sku = "sku1", payload = { name = "Prod" } } }
+      )
     )
     assert(resp.status == "OK")
   end,

@@ -55,17 +55,18 @@ end
 
 -- Ensure we have the latest outbox mirrored to storage
 local _ = write._outbox() -- triggers any pending updates
-local events = storage.all "outbox"
+local events = storage.get "outbox_queue" or storage.all "outbox"
 
 -- refresh from persisted store if configured
 if persistence then
   storage.load(persistence)
-  events = storage.all "outbox"
+  events = storage.get "outbox_queue" or storage.all "outbox"
 end
 
 ensure_dir(out)
 local f = assert(io.open(out, "w"))
-for _, ev in ipairs(events) do
+for _, item in ipairs(events) do
+  local ev = (type(item) == "table" and item.event) or item
   f:write(json_encode(ev))
   f:write "\n"
 end

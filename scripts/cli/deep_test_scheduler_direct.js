@@ -66,7 +66,8 @@ function writeCommandBase(action, index) {
     actor: 'worker-test',
     tenant: 'blackcat',
     role: 'admin',
-    timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    // Worker /sign validates epoch seconds (parseInt), not ISO timestamps.
+    timestamp: Math.floor(Date.now() / 1000),
     nonce: `nonce-${Math.random().toString(36).slice(2, 10)}`,
     signatureRef: 'worker-ed25519',
     payload: commandPayload(action)

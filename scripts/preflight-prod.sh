@@ -25,11 +25,15 @@ if [[ ${#OUTBOX_HMAC_SECRET} -lt 32 ]]; then
   echo "OUTBOX_HMAC_SECRET must be >=32 chars" >&2
   exit 1
 fi
-req WRITE_AUTH_TOKEN
-req WRITE_SIG_PUBLIC
-req REQUIRE_SECRETS
-if [[ "${REQUIRE_SECRETS}" != "1" ]]; then
-  echo "REQUIRE_SECRETS must be 1 for prod" >&2
+
+if [[ "${WRITE_SIG_TYPE:-ed25519}" == "hmac" ]]; then
+  req WRITE_SIG_SECRET
+else
+  req WRITE_SIG_PUBLIC
+fi
+
+if [[ "${WRITE_ALLOW_ANON:-0}" != "0" ]]; then
+  echo "WRITE_ALLOW_ANON must be 0 for prod" >&2
   exit 1
 fi
 
