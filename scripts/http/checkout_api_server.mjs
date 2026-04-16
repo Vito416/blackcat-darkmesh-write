@@ -641,7 +641,7 @@ async function sendWriteCommand(command, traceId = '', writePid = env.writePid) 
     env.retries,
   ).catch(() => null)
 
-  if (primary) {
+  if (primary && (hasWriteEnvelopeCandidate(primary) || hasWriteRuntimeErrorPayload(primary))) {
     return {
       transport: 'aoconnect.result',
       slotOrMessage: String(slotOrMessage),
@@ -682,6 +682,27 @@ async function sendWriteCommand(command, traceId = '', writePid = env.writePid) 
   }
 }
 
+function normalizedWriteResultRoot(rawResult) {
+  return rawResult?.results?.raw || rawResult?.raw || rawResult || {}
+}
+
+export function hasWriteRuntimeErrorPayload(rawResult) {
+  const normalized = normalizedWriteResultRoot(rawResult)
+  const maybeError = normalized?.Error
+  return Boolean(maybeError && typeof maybeError === 'object' && Object.keys(maybeError).length > 0)
+}
+
+export function hasWriteEnvelopeCandidate(rawResult) {
+  const normalized = normalizedWriteResultRoot(rawResult)
+  if (normalized && typeof normalized === 'object' && typeof normalized.status === 'string') {
+    return normalized.status.trim() !== ''
+  }
+  const output = normalized?.Output ?? normalized?.output ?? null
+  if (typeof output === 'string') return output.trim() !== ''
+  if (output && typeof output === 'object' && !Array.isArray(output)) return true
+  return false
+}
+
 export function normalizeWriteResult(rawResult, context = {}, runtimeEnv = env) {
   const cfg = runtimeEnv || { acceptEmptyResult: false, debug: false }
   const failResult = (error, code, message, details) => ({
@@ -698,7 +719,7 @@ export function normalizeWriteResult(rawResult, context = {}, runtimeEnv = env) 
     },
   })
 
-  const normalized = rawResult?.results?.raw || rawResult?.raw || rawResult || {}
+  const normalized = normalizedWriteResultRoot(rawResult)
   const output = normalized?.Output ?? normalized?.output ?? null
 
   let envelope = null

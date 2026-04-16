@@ -5,6 +5,8 @@ import {
   WRITE_API_CORS_ALLOW_HEADERS,
   buildCommand,
   buildEnv,
+  hasWriteEnvelopeCandidate,
+  hasWriteRuntimeErrorPayload,
   normalizeWriteResult,
   resolveTargetWritePid,
   resolveTraceId,
@@ -318,6 +320,24 @@ test('normalizeWriteResult returns clear contract for AO runtime error payload',
   assert.equal(result.body.requestId, 'rid-4')
   assert.equal(result.body.action, 'CreateOrder')
   assert.equal(result.body.details.runtimeError.message, 'runtime boom')
+})
+
+test('write result candidate probe rejects empty/partial transport objects', () => {
+  assert.equal(hasWriteEnvelopeCandidate({}), false)
+  assert.equal(hasWriteEnvelopeCandidate({ raw: {} }), false)
+  assert.equal(hasWriteEnvelopeCandidate({ results: { raw: {} } }), false)
+})
+
+test('write result candidate probe accepts envelope carriers', () => {
+  assert.equal(hasWriteEnvelopeCandidate({ status: 'OK' }), true)
+  assert.equal(hasWriteEnvelopeCandidate({ Output: '{"status":"OK"}' }), true)
+  assert.equal(hasWriteEnvelopeCandidate({ output: { status: 'OK' } }), true)
+})
+
+test('write runtime error probe detects structured runtime errors', () => {
+  assert.equal(hasWriteRuntimeErrorPayload({}), false)
+  assert.equal(hasWriteRuntimeErrorPayload({ Error: {} }), false)
+  assert.equal(hasWriteRuntimeErrorPayload({ Error: { message: 'boom' } }), true)
 })
 
 test('trace id sanitizer accepts safe IDs and rejects invalid values', () => {
