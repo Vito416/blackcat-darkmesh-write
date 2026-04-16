@@ -2027,3 +2027,17 @@ CU/readback diagnostic on passing run:
   - compute 200 for all tested actions on both push nodes
   - scheduler message probes 200 on both push nodes
   - `ao.result` available on `push.forward`, `na` on `push-1` (known endpoint behavior difference)
+
+## 2026-04-17 — gateway/write live path closeout (production-like VPS drill)
+
+Cross-system closeout notes for live gateway path (`gateway -> worker sign -> write`):
+
+- worker sign policy was tightened live and now explicitly allows gateway write roles only via scoped policy (`shop_admin` for checkout actions under `site-alpha`).
+- gateway write mutation mode was enabled with explicit token map and upstream token map alignment for template calls.
+- public write probe to gateway now returns stable async accept:
+  - `POST https://gateway.blgateway.fun/template/call` (`checkout.create-order`) -> `202 ACCEPTED_ASYNC`
+- worker sign probe now returns expected success with scoped token and role policy, while bad token paths remain `401`.
+
+Operational interpretation:
+- write-side command contract is healthy under real public ingress path.
+- remaining intermittency is read-side first-hit edge timeout (`504`) on public resolve-route path, not a write command integrity failure.
