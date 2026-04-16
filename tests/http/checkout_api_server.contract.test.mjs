@@ -190,6 +190,30 @@ test('target write PID override accepts canonical tenant keys in signed envelope
   assert.equal(result.overridden, true)
 })
 
+test('target write PID override ignores unsigned top-level siteId for signed envelopes', () => {
+  const tenantPid = 'B'.repeat(43)
+  const sitePid = 'C'.repeat(43)
+  const result = resolveTargetWritePid(
+    { headers: { authorization: 'Bearer secret-token', 'x-write-process-id': sitePid } },
+    {
+      Tenant: 'tenant-canon',
+      siteId: 'unsigned-site-top',
+      Payload: { orderId: 'ord-1' },
+      signature: 'sig',
+      SignatureRef: 'sig-ref',
+    },
+    {
+      writePid: 'A'.repeat(43),
+      allowWritePidOverride: true,
+      apiToken: 'secret-token',
+      siteWritePidMap: { 'tenant-canon': tenantPid, 'unsigned-site-top': sitePid },
+    },
+  )
+  assert.equal(result.ok, false)
+  assert.equal(result.status, 403)
+  assert.equal(result.error, 'write_pid_route_mismatch')
+})
+
 test('target write PID override rejects mismatched site scope values', () => {
   const result = resolveTargetWritePid(
     { headers: { authorization: 'Bearer secret-token', 'x-write-process-id': 'B'.repeat(43) } },
@@ -204,6 +228,38 @@ test('target write PID override rejects mismatched site scope values', () => {
   assert.equal(result.ok, false)
   assert.equal(result.status, 400)
   assert.equal(result.error, 'write_pid_route_key_mismatch')
+})
+
+test('target write PID override requires a route key when map is enabled', () => {
+  const result = resolveTargetWritePid(
+    { headers: { authorization: 'Bearer secret-token', 'x-write-process-id': 'B'.repeat(43) } },
+    { payload: { orderId: 'ord-no-route-key' } },
+    {
+      writePid: 'A'.repeat(43),
+      allowWritePidOverride: true,
+      apiToken: 'secret-token',
+      siteWritePidMap: { 'site-1': 'B'.repeat(43) },
+    },
+  )
+  assert.equal(result.ok, false)
+  assert.equal(result.status, 400)
+  assert.equal(result.error, 'write_pid_route_key_missing')
+})
+
+test('target write PID override denies unmapped route keys', () => {
+  const result = resolveTargetWritePid(
+    { headers: { authorization: 'Bearer secret-token', 'x-write-process-id': 'B'.repeat(43) } },
+    { siteId: 'site-unmapped' },
+    {
+      writePid: 'A'.repeat(43),
+      allowWritePidOverride: true,
+      apiToken: 'secret-token',
+      siteWritePidMap: { 'site-1': 'B'.repeat(43) },
+    },
+  )
+  assert.equal(result.ok, false)
+  assert.equal(result.status, 403)
+  assert.equal(result.error, 'write_pid_route_not_allowed')
 })
 
 test('normalizeWriteResult returns clear contract for empty AO result payload', () => {

@@ -220,6 +220,12 @@ jobs:
           WRITE_SIG_PUBLICS: tenant-a=key-a.pem,tenant-b=key-b.pem,default=default.pem
         run: lua5.4 scripts/verify/sig_publics_keyring.lua
 
+      - name: Signature policy spec
+        env:
+          WRITE_REQUIRE_SIGNATURE: 1
+          WRITE_REQUIRE_SIGNATURE_POLICY: 1
+        run: lua5.4 scripts/verify/signature_policy_spec.lua
+
       - name: Action validation (shipping/returns)
         env:
           WRITE_REQUIRE_SIGNATURE: 0

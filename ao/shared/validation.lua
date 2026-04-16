@@ -459,14 +459,13 @@ function Validation.validate_action(action, payload)
     if not ok_s then
       return ok_s, s_errs
     end
+  elseif os.getenv "WRITE_REQUIRE_ACTION_SCHEMA" == "1" then
+    return false, { schema_err or "schema_unavailable" }
   end
   if not fn and not schema_ready then
     -- Runtime bundles can intentionally omit JSON schema artifacts.
     -- In that case, defer to handler-level validation unless strict schema
     -- mode is explicitly requested.
-    if os.getenv "WRITE_REQUIRE_ACTION_SCHEMA" == "1" then
-      return false, { schema_err or "schema_unavailable" }
-    end
     return true
   end
   return true

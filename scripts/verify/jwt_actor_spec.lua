@@ -14,12 +14,6 @@ if not secret or secret == "" then
   os.exit(0)
 end
 
-local ok_mime, _ = pcall(require, "mime")
-if not ok_mime then
-  print "jwt_actor_spec: skipped (mime module missing)"
-  os.exit(0)
-end
-
 local auth = require "ao.shared.auth"
 local ok_cjson, cjson = pcall(require, "cjson.safe")
 if not ok_cjson then

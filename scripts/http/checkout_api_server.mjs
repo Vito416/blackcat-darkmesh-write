@@ -316,6 +316,8 @@ export function resolveTargetWritePid(req, body = {}, runtimeEnv = env) {
   const cfg = runtimeEnv || {}
   const basePid = firstString(cfg.writePid)
   const requested = requestedWritePid(req, body)
+  const signatureEnvelope = resolveSignatureEnvelope(body)
+  const signedEnvelope = signatureEnvelope.signed
   if (!requested.pid) {
     if (cfg.allowWritePidOverride && cfg.requireWritePidOverride) {
       return { ok: false, status: 400, error: 'missing_write_process_id_override' }
@@ -340,15 +342,25 @@ export function resolveTargetWritePid(req, body = {}, runtimeEnv = env) {
       return { ok: false, status: 400, error: 'write_pid_route_key_mismatch' }
     }
     const payload = bodyPayloadObject(body)
-    const routeKey = firstString(
-      siteScope.siteId,
-      body.tenant,
-      body.Tenant,
-      body['Tenant-Id'],
-      payload.tenant,
-      payload.Tenant,
-      payload['Tenant-Id'],
-    )
+    const routeKey = signedEnvelope
+      ? firstString(
+          // For signed envelopes, route keys must come from signed fields only.
+          payload.siteId,
+          payload.SiteId,
+          payload['Site-Id'],
+          body.tenant,
+          body.Tenant,
+          body['Tenant-Id'],
+        )
+      : firstString(
+          siteScope.siteId,
+          body.tenant,
+          body.Tenant,
+          body['Tenant-Id'],
+          payload.tenant,
+          payload.Tenant,
+          payload['Tenant-Id'],
+        )
     if (!routeKey) {
       return { ok: false, status: 400, error: 'write_pid_route_key_missing' }
     }
