@@ -31,8 +31,12 @@ if first ~= second then
   os.exit(1)
 end
 local legacy_alias = idem.lookup "idem-1"
-if legacy_alias ~= first then
+if type(legacy_alias) ~= "table" or legacy_alias.status ~= "OK" then
   io.stderr:write "legacy requestId alias should be recorded for new idempotency entries"
+  os.exit(1)
+end
+if legacy_alias._idem_scope == nil then
+  io.stderr:write "legacy requestId alias should carry scope metadata"
   os.exit(1)
 end
 

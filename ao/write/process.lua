@@ -3858,6 +3858,31 @@ local function idempotency_legacy_key(command)
   return tostring(request_id)
 end
 
+local function legacy_alias_response(response, idem_key)
+  if type(response) ~= "table" then
+    return response
+  end
+  local alias = {}
+  for k, v in pairs(response) do
+    alias[k] = v
+  end
+  alias._idem_alias = true
+  alias._idem_scope = idem_key
+  return alias
+end
+
+local function accept_legacy_lookup(stored, idem_key)
+  if type(stored) ~= "table" then
+    return stored, true
+  end
+  local scoped = stored._idem_scope
+  if scoped ~= nil and idem_key and tostring(scoped) ~= tostring(idem_key) then
+    -- Ignore requestId aliases created by a different tenant/action scope.
+    return nil, false
+  end
+  return stored, true
+end
+
 -- route(command) validates and dispatches.
 function M.route(command)
   local ok_jwt, jwt_err = auth.consume_jwt(command)
@@ -3917,9 +3942,14 @@ function M.route(command)
   local legacy_idem_key = idempotency_legacy_key(command)
   local stored = idem.lookup(idem_key)
   if not stored and legacy_idem_key and legacy_idem_key ~= idem_key then
-    stored = idem.lookup(legacy_idem_key)
-    if stored then
-      counter("write.idempotency.legacy_hits", 1)
+    local legacy_stored = idem.lookup(legacy_idem_key)
+    if legacy_stored then
+      stored, _ = accept_legacy_lookup(legacy_stored, idem_key)
+      if stored then
+        counter("write.idempotency.legacy_hits", 1)
+      else
+        counter("write.idempotency.legacy_rejected", 1)
+      end
     end
   end
   if stored then
@@ -3998,7 +4028,8 @@ function M.route(command)
     return err(command.requestId, "SERVER_ERROR", idem_err or "idempotency_persist_failed")
   end
   if legacy_idem_key and legacy_idem_key ~= idem_key then
-    local ok_legacy_idem, legacy_idem_err = idem.record(legacy_idem_key, response)
+    local ok_legacy_idem, legacy_idem_err =
+      idem.record(legacy_idem_key, legacy_alias_response(response, idem_key))
     if not ok_legacy_idem then
       return err(command.requestId, "SERVER_ERROR", legacy_idem_err or "idempotency_persist_failed")
     end
