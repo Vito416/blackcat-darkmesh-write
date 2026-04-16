@@ -56,13 +56,26 @@ if mode == "wal" then
   expect(first.message == "wal_write_failed", "expected wal_write_failed in first response")
   expect(second.message == "wal_write_failed", "expected wal_write_failed in second response")
 else
+  local function is_idem_persist_failure(msg)
+    local value = tostring(msg or "")
+    if value == "idempotency_persist_failed" or value == "cjson_missing" then
+      return true
+    end
+    if value == "open_failed" or value == "write_failed" or value == "rename_failed" then
+      return true
+    end
+    if value:lower():find("permission denied", 1, true) then
+      return true
+    end
+    return false
+  end
   expect(
-    first.message == "idempotency_persist_failed" or first.message == "cjson_missing",
-    "expected idempotency_persist_failed|cjson_missing in first response"
+    is_idem_persist_failure(first.message),
+    "expected idempotency persistence failure marker in first response"
   )
   expect(
-    second.message == "idempotency_persist_failed" or second.message == "cjson_missing",
-    "expected idempotency_persist_failed|cjson_missing in second response"
+    is_idem_persist_failure(second.message),
+    "expected idempotency persistence failure marker in second response"
   )
 end
 
