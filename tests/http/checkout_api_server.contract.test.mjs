@@ -419,6 +419,31 @@ test('buildCommand accepts SignatureRef + Timestamp in signed envelopes', () => 
   assert.equal(built.command.signatureRef, 'signed-ref-2')
 })
 
+test('buildCommand extracts canonical Payload for unsigned envelopes', () => {
+  const built = buildCommand(
+    { headers: {} },
+    {
+      Action: 'CreateOrder',
+      'Request-Id': 'unsigned-canonical-rid',
+      Actor: 'unsigned-canonical-actor',
+      Tenant: 'unsigned-canonical-tenant',
+      Timestamp: '2026-04-16T00:00:00Z',
+      Nonce: 'unsigned-canonical-nonce',
+      Payload: {
+        siteId: 'site-canonical',
+        items: [{ sku: 'sku-canonical', qty: 1 }],
+      },
+    },
+    'CreateOrder',
+  )
+  assert.equal(built.ok, true)
+  assert.equal(built.command.payload.siteId, 'site-canonical')
+  assert.equal(Array.isArray(built.command.payload.items), true)
+  assert.equal(built.command.payload.Action, undefined)
+  assert.equal(built.command.payload.Payload, undefined)
+  assert.equal(built.command.payload.Tenant, undefined)
+})
+
 test('buildCommand normalizes ISO timestamp to epoch seconds', () => {
   const iso = '2026-04-15T20:00:00Z'
   const built = buildCommand(

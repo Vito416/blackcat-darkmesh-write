@@ -379,20 +379,41 @@ function buildPayload(body) {
   let payload = null
   if (body.payload && typeof body.payload === 'object' && !Array.isArray(body.payload)) {
     payload = { ...body.payload }
+  } else if (body.Payload && typeof body.Payload === 'object' && !Array.isArray(body.Payload)) {
+    payload = { ...body.Payload }
   } else {
     payload = { ...body }
     delete payload.action
+    delete payload.Action
     delete payload.requestId
     delete payload['request-id']
+    delete payload['Request-Id']
     delete payload.actor
+    delete payload.Actor
     delete payload.tenant
+    delete payload.Tenant
+    delete payload['Tenant-Id']
     delete payload.role
+    delete payload.Role
+    delete payload['Actor-Role']
+    delete payload.actorRole
     delete payload.timestamp
+    delete payload.Timestamp
+    delete payload.ts
+    delete payload['X-Timestamp']
     delete payload.nonce
+    delete payload.Nonce
+    delete payload['X-Nonce']
     delete payload.signatureRef
+    delete payload.SignatureRef
+    delete payload['Signature-Ref']
     delete payload.signature
+    delete payload.Signature
     delete payload.siteId
+    delete payload.SiteId
+    delete payload['Site-Id']
     delete payload.templateAction
+    delete payload.Payload
   }
   delete payload[WRITE_PID_OVERRIDE_BODY_FIELD]
   return payload
