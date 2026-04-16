@@ -68,4 +68,30 @@ if legacy_hit ~= legacy_response then
   os.exit(1)
 end
 
+-- Regression: non-string requestId values must not crash idempotency key creation.
+local numeric_req = {
+  Action = "PublishPageVersion",
+  ["Request-Id"] = 987654,
+  ["Actor-Role"] = "admin",
+  actor = "idem-tester",
+  tenant = "tenant-idem",
+  nonce = "nid-num",
+  ts = os.time(),
+  payload = {
+    siteId = "sidem",
+    pageId = "numeric",
+    versionId = "v-numeric",
+    manifestTx = "tx-numeric",
+  },
+}
+sign.maybe_sign(numeric_req)
+local numeric_first = write.route(numeric_req)
+expect_ok(numeric_first, "numeric requestId first call failed")
+local numeric_second = write.route(numeric_req)
+expect_ok(numeric_second, "numeric requestId replay failed")
+if numeric_first ~= numeric_second then
+  io.stderr:write "numeric requestId replay should hit idempotency cache"
+  os.exit(1)
+end
+
 print "idempotency_replay: ok"

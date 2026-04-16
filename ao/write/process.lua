@@ -3832,19 +3832,19 @@ end
 
 local function idempotency_key(command)
   local request_id = command.requestId or command["Request-Id"]
-  if not request_id or request_id == "" then
+  if request_id == nil or tostring(request_id) == "" then
     return nil
   end
-  local action = command.action or command.Action or ""
-  local tenant = command.tenant or command.Tenant or command["Tenant-Id"] or ""
+  local action = tostring(command.action or command.Action or "")
+  local tenant = tostring(command.tenant or command.Tenant or command["Tenant-Id"] or "")
   -- Keep key stable across gateway failover/retries; caller/gateway metadata
   -- can change between attempts for the same logical request.
-  return table.concat({ request_id, tenant, action }, "|")
+  return table.concat({ tostring(request_id), tenant, action }, "|")
 end
 
 local function idempotency_legacy_key(command)
   local request_id = command.requestId or command["Request-Id"]
-  if not request_id or request_id == "" then
+  if request_id == nil or tostring(request_id) == "" then
     return nil
   end
   return tostring(request_id)
