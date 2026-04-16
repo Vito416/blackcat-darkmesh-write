@@ -84,4 +84,12 @@ else
   expect(missing_action_ok == true, "non-strict mode should allow missing role-policy action")
 end
 
+-- 4) Wildcard policy should allow action without requiring actor role.
+local wildcard_ok, wildcard_err = auth.check_role_for_action(
+  { action = "AnyAction", ["Actor-Role"] = "" },
+  { ["*"] = { "*" } }
+)
+expect(wildcard_ok == true, "wildcard policy should allow missing actor role")
+expect(wildcard_err == nil, "wildcard policy should not return an error")
+
 print "auth_scope_matrix: ok"

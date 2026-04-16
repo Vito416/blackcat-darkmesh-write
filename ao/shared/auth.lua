@@ -1193,6 +1193,9 @@ function Auth.check_role_for_action(msg, policy)
   end
   local allowed = policy[action]
   if not allowed then
+    allowed = policy["*"]
+  end
+  if not allowed then
     if ROLE_POLICY_STRICT then
       return false, "role_policy_missing_action"
     end
