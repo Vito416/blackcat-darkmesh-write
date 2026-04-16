@@ -65,7 +65,8 @@ end
 
 ensure_dir(out)
 local f = assert(io.open(out, "w"))
-for _, ev in ipairs(events) do
+for _, item in ipairs(events) do
+  local ev = (type(item) == "table" and item.event) or item
   f:write(json_encode(ev))
   f:write "\n"
 end

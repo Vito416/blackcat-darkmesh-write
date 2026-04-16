@@ -311,6 +311,9 @@ jobs:
           OUTBOX_SUPPRESS_HMAC_WARN: 1
         run: lua5.4 scripts/verify/publish_outbox_mock_ao.lua
 
+      - name: Export outbox unwrap spec
+        run: lua5.4 scripts/verify/export_outbox_wrap_spec.lua
+
       - name: JWT claim mapping spec (nightly)
         if: env.RUN_JWT_SPEC == '1'
         env:

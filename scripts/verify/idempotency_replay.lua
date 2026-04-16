@@ -30,6 +30,11 @@ if first ~= second then
   io.stderr:write "idempotent replay returned different table reference"
   os.exit(1)
 end
+local legacy_alias = idem.lookup "idem-1"
+if legacy_alias ~= first then
+  io.stderr:write "legacy requestId alias should be recorded for new idempotency entries"
+  os.exit(1)
+end
 
 -- Backward-compatibility: pre-existing requestId-only idempotency entries
 -- should still be replayed after composite key rollout.

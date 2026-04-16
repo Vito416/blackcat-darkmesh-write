@@ -3997,6 +3997,12 @@ function M.route(command)
   if not ok_idem then
     return err(command.requestId, "SERVER_ERROR", idem_err or "idempotency_persist_failed")
   end
+  if legacy_idem_key and legacy_idem_key ~= idem_key then
+    local ok_legacy_idem, legacy_idem_err = idem.record(legacy_idem_key, response)
+    if not ok_legacy_idem then
+      return err(command.requestId, "SERVER_ERROR", legacy_idem_err or "idempotency_persist_failed")
+    end
+  end
   audit.append {
     action = command.action,
     requestId = command.requestId,
