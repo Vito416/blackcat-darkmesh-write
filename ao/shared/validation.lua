@@ -228,6 +228,15 @@ end
 
 -- Per-action payload validation stub (can be extended with schemas).
 local validators = {
+  Ping = function(_p)
+    return true
+  end,
+  GetOpsHealth = function(_p)
+    return true
+  end,
+  RunWebhookRetries = function(_p)
+    return true
+  end,
   PublishPageVersion = function(p)
     local missing = {}
     for _, f in ipairs { "siteId", "pageId", "versionId", "manifestTx" } do
@@ -438,6 +447,45 @@ local validators = {
     end
     return true
   end,
+  UpsertCoupon = function(p)
+    if not p or not p.code then
+      return false, { "missing:code" }
+    end
+    return true
+  end,
+  CreateShippingLabel = function(p)
+    if not p or not p.shipmentId then
+      return false, { "missing:shipmentId" }
+    end
+    return true
+  end,
+  CartAddItem = function(p)
+    if not p or not p.cartId or not p.sku then
+      return false, { "missing:cartId,sku" }
+    end
+    if p.qty == nil and p.quantity == nil then
+      return false, { "missing:qty" }
+    end
+    return true
+  end,
+  CartGet = function(p)
+    if not p or not p.cartId then
+      return false, { "missing:cartId" }
+    end
+    return true
+  end,
+  CartPrice = function(p)
+    if not p or not p.cartId then
+      return false, { "missing:cartId" }
+    end
+    return true
+  end,
+  CartRemoveItem = function(p)
+    if not p or not p.cartId or not p.sku then
+      return false, { "missing:cartId,sku" }
+    end
+    return true
+  end,
 }
 
 function Validation.validate_action(action, payload)
@@ -463,10 +511,7 @@ function Validation.validate_action(action, payload)
     return false, { schema_err or "schema_unavailable" }
   end
   if not fn and not schema_ready then
-    -- Runtime bundles can intentionally omit JSON schema artifacts.
-    -- In that case, defer to handler-level validation unless strict schema
-    -- mode is explicitly requested.
-    return true
+    return false, { schema_err or "schema_unavailable" }
   end
   return true
 end
