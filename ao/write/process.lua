@@ -3944,7 +3944,7 @@ function M.route(command)
   if not stored and legacy_idem_key and legacy_idem_key ~= idem_key then
     local legacy_stored = idem.lookup(legacy_idem_key)
     if legacy_stored then
-      stored, _ = accept_legacy_lookup(legacy_stored, idem_key)
+      stored = select(1, accept_legacy_lookup(legacy_stored, idem_key))
       if stored then
         counter("write.idempotency.legacy_hits", 1)
       else
