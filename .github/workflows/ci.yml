@@ -185,6 +185,18 @@ jobs:
           WRITE_SIG_REF: write-ed25519-test
         run: lua5.4 scripts/verify/envelope_guard.lua
 
+      - name: JWT + signature interop
+        env:
+          WRITE_REQUIRE_SIGNATURE: 1
+          WRITE_REQUIRE_SIGNATURE_POLICY: 0
+          WRITE_SIG_TYPE: ed25519
+          WRITE_SIG_PRIV_HEX: 4f3c5f2a0d1b4a8c9e6f7d2b3c4e5a6f7b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e
+          WRITE_SIG_PUBLIC: hex:65c29ed7228fce639284da05d84fbc37ef736c44ddec2ce53226033c80312ace
+          WRITE_SIG_REF: write-ed25519-test
+          WRITE_REQUIRE_JWT: 1
+          WRITE_JWT_HS_SECRET: 0123456789abcdef0123456789abcdef
+        run: lua5.4 scripts/verify/jwt_signature_interop_spec.lua
+
       - name: Action validation
         env:
           WRITE_REQUIRE_SIGNATURE: 1

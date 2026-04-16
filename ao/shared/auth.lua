@@ -568,6 +568,14 @@ local function verify_jwt(msg)
 end
 
 function Auth.consume_jwt(msg)
+  if msg._signature_role == nil then
+    local detached_role = msg.role or msg.Role or msg["Actor-Role"] or msg.actorRole
+    if detached_role == nil then
+      msg._signature_role = false
+    else
+      msg._signature_role = tostring(detached_role)
+    end
+  end
   local ok, claims = verify_jwt(msg)
   if not ok then
     return ok, claims
@@ -812,13 +820,18 @@ end
 
 local function canonical_detached_message(msg)
   -- sign the important envelope parts + payload hash to prevent tampering
+  local detached_role = msg._signature_role
+  if detached_role == false then
+    detached_role = ""
+  end
   local parts = {
     msg.action or msg.Action or "",
     pick(msg.tenant, msg.Tenant, msg["Tenant-Id"]),
     pick(msg.actor, msg.Actor),
     pick(msg.ts, msg.timestamp, msg["X-Timestamp"]),
     pick(msg.nonce, msg.Nonce, msg["X-Nonce"]),
-    pick(msg.role, msg.Role, msg["Actor-Role"], msg.actorRole),
+    detached_role ~= nil and detached_role
+      or pick(msg.role, msg.Role, msg["Actor-Role"], msg.actorRole),
     canonical_payload(msg),
     msg.requestId or msg["Request-Id"] or "",
   }
