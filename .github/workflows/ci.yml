@@ -123,22 +123,26 @@ jobs:
         run: bash scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
 
       - name: Arweave hash verify (policy enforced)
-        if: env.ENFORCE_ARWEAVE_HASH == '1'
+        if: env.ENFORCE_ARWEAVE_HASH == '1' && github.event_name != 'pull_request'
         env:
           ARWEAVE_VERIFY_FILE: ${{ env.ARWEAVE_VERIFY_FILE }}
           ARWEAVE_VERIFY_TX: ${{ env.ARWEAVE_VERIFY_TX }}
         run: |
           if [ -z "${ARWEAVE_VERIFY_FILE:-}" ] || [ -z "${ARWEAVE_VERIFY_TX:-}" ]; then
-            if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-              echo "::warning::ENFORCE_ARWEAVE_HASH=1 but ARWEAVE_VERIFY_* missing in pull_request context; skipping enforced verify"
-              exit 0
-            fi
             echo "::error::ENFORCE_ARWEAVE_HASH=1 but ARWEAVE_VERIFY_* missing" && exit 1
           fi
           bash scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
 
+      - name: Arweave hash verify (optional PR best-effort)
+        if: github.event_name == 'pull_request' && env.ARWEAVE_VERIFY_FILE != '' && env.ARWEAVE_VERIFY_TX != ''
+        continue-on-error: true
+        env:
+          ARWEAVE_VERIFY_FILE: ${{ env.ARWEAVE_VERIFY_FILE }}
+          ARWEAVE_VERIFY_TX: ${{ env.ARWEAVE_VERIFY_TX }}
+        run: bash scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
+
       - name: Arweave hash verify (optional)
-        if: env.ARWEAVE_VERIFY_FILE != '' && env.ARWEAVE_VERIFY_TX != ''
+        if: github.event_name != 'pull_request' && env.ARWEAVE_VERIFY_FILE != '' && env.ARWEAVE_VERIFY_TX != ''
         env:
           ARWEAVE_VERIFY_FILE: ${{ env.ARWEAVE_VERIFY_FILE }}
           ARWEAVE_VERIFY_TX: ${{ env.ARWEAVE_VERIFY_TX }}
