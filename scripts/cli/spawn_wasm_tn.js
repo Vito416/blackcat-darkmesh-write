@@ -1,6 +1,6 @@
 // Spawn a WASM process with Variant=ao.TN.1 (bypasses aoconnect's hardcoded ao.N.1)
 // Usage:
-//   AO_MODULE=<txid> AO_URL=https://push-1.forward.computer AO_SCHEDULER=n_XZ... node scripts/cli/spawn_wasm_tn.js
+//   AO_MODULE=<txid> AO_URL=http://127.0.0.1:8734 AO_SCHEDULER=n_XZ... node scripts/cli/spawn_wasm_tn.js
 // Requires wallet.json funded and dist/write/process.wasm already uploaded.
 
 import fs from 'fs'
@@ -18,7 +18,7 @@ const URL =
   cleanEnv(process.env.HB_URL) ||
   cleanEnv(process.env.HYPERBEAM_URL) ||
   cleanEnv(process.env.AO_URL) ||
-  'https://push-1.forward.computer'
+  'http://127.0.0.1:8734'
 const SCHED =
   cleanEnv(process.env.HB_SCHEDULER) ||
   cleanEnv(process.env.HYPERBEAM_SCHEDULER) ||

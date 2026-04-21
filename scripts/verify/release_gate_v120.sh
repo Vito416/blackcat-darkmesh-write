@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-DEFAULT_URLS="https://push.forward.computer"
+DEFAULT_URLS="http://127.0.0.1:8734"
 PID="${AO_PID:-}"
 URLS="${AO_URLS:-${HB_URLS:-$DEFAULT_URLS}}"
 SECRETS_PATH="${AO_SECRETS_PATH:-${SECRETS_PATH:-tmp/test-secrets.json}}"
@@ -21,7 +21,7 @@ Env mirrors the flags:
 
 Notes:
   - URL lists are comma-separated.
-  - Default URL is https://push.forward.computer.
+  - Default URL is http://127.0.0.1:8734.
   - --strict expands the AO readback assertions to every URL you pass.
 EOF
 }

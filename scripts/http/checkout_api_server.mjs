@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
-const DEFAULT_HB_URL = 'https://push.forward.computer'
+const DEFAULT_HB_URL = 'http://127.0.0.1:8734'
 const DEFAULT_SCHEDULER = 'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo'
 const DEFAULT_PORT = 8789
 const DEFAULT_TIMEOUT_MS = 45000

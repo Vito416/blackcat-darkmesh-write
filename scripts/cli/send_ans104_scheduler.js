@@ -15,7 +15,7 @@ function must(v, name) {
 
 async function main() {
   const pid = must(arg('pid'), 'pid')
-  const urlBase = arg('url', 'https://push.forward.computer').replace(/\/$/, '')
+  const urlBase = arg('url', 'http://127.0.0.1:8734').replace(/\/$/, '')
   const walletPath = arg('wallet', 'wallet.json')
   const action = arg('action', 'Ping')
   const variant = arg('variant', 'ao.TN.1')

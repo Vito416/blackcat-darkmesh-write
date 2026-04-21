@@ -20,7 +20,7 @@ const HYPERBEAM_URL =
   cleanEnv(process.env.HB_URL) ||
   cleanEnv(process.env.HYPERBEAM_URL) ||
   cleanEnv(process.env.AO_URL) ||
-  'https://push-1.forward.computer'
+  'http://127.0.0.1:8734'
 const HYPERBEAM_SCHEDULER =
   cleanEnv(process.env.HB_SCHEDULER) ||
   cleanEnv(process.env.HYPERBEAM_SCHEDULER) ||

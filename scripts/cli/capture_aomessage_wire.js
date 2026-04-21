@@ -54,7 +54,7 @@ async function readBody(body) {
 
 async function main() {
   const pid = must(arg('pid'), 'pid')
-  const url = arg('url', 'https://push.forward.computer')
+  const url = arg('url', 'http://127.0.0.1:8734')
   const scheduler = arg('scheduler', 'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo')
   const walletPath = arg('wallet', 'wallet.json')
   const action = arg('action', 'Ping')

@@ -255,7 +255,7 @@ async function main() {
   const pid = must(arg('pid'), 'pid')
   const walletPath = arg('wallet', 'wallet.json')
   const secretsPath = arg('secrets', 'tmp/test-secrets.json')
-  const urls = String(arg('urls', 'https://push.forward.computer,https://push-1.forward.computer'))
+  const urls = String(arg('urls', 'http://127.0.0.1:8734'))
     .split(',')
     .map((s) => s.trim().replace(/\/$/, ''))
     .filter(Boolean)

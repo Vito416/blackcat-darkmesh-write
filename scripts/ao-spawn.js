@@ -5,7 +5,7 @@ import { connect, createSigner } from '@permaweb/aoconnect';
 const walletPath = resolve(process.env.WALLET || process.env.WALLET_PATH || 'wallet.json');
 const moduleTx = process.env.MODULE_TX;
 const scheduler = process.env.SCHEDULER || 'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo';
-const url = process.env.URL || 'https://push.forward.computer';
+const url = process.env.URL || 'http://127.0.0.1:8734';
 const authority = process.env.AUTHORITY || scheduler;
 
 if (!moduleTx) {

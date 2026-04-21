@@ -1,6 +1,6 @@
 // Spawn WASM process with full tag set (Variant=ao.TN.1) using ao.request directly.
 // Usage:
-//   AO_MODULE=<txid> AO_URL=https://push-1.forward.computer AO_SCHEDULER=n_XZ... node scripts/cli/spawn_wasm_raw.js
+//   AO_MODULE=<txid> AO_URL=http://127.0.0.1:8734 AO_SCHEDULER=n_XZ... node scripts/cli/spawn_wasm_raw.js
 // Requires wallet.json (funded) and published wasm module.
 
 import fs from 'fs'
@@ -11,7 +11,7 @@ const URL =
   process.env.HB_URL ||
   process.env.HYPERBEAM_URL ||
   process.env.AO_URL ||
-  'https://push-1.forward.computer'
+  'http://127.0.0.1:8734'
 const SCHED =
   process.env.HB_SCHEDULER ||
   process.env.HYPERBEAM_SCHEDULER ||

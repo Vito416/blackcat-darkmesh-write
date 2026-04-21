@@ -381,7 +381,7 @@
 - No alternative public HyperBEAM host has been found; curl/ping fail from here.
 
 ### Extra diagnostics
-- DNS for `tee-6.forward.computer` → `45.63.87.141`; ping 100% loss; curl with 5s timeout hangs (same for tee-1..10, scheduler.forward.computer).
+- DNS for `tee-6.forward.computer` → `<LEGACY_PUSH_IPV4>`; ping 100% loss; curl with 5s timeout hangs (same for tee-1..10, scheduler.forward.computer).
 - Curl HEAD sweep across tee-1..10.forward.computer → all connection timeouts.
 - Direct DataItem POSTs with `arbundles@0.11.2` to MU: always 500 when scheduler URL redirects or is unreachable.
 - Module and scheduler TX tags verified via GraphQL (tags are correct); failures are strictly due to scheduler URL reachability.
@@ -493,7 +493,7 @@ Response: 500 `/push`, HTML body with `unsupported_tx_format` (ar_bundles:deseri
 - Response: `200 OK`, body `1984`; HB response headers show `accept-codec=httpsig@1.0`, `signing-format=ans104`.
 - Key finding: push expects structured/HTTPSIG JSON at `/PID`; the aoconnect mainnet path that wrapped ANS104 and ended up as `[object Object]` caused 400/500. For mainnet use the same shape (URL `https://push-1.forward.computer/<PID>`) with HTTPSIG.
 
-### Praktické příklady (mainnet push-1)
+### Practical examples (mainnet push-1)
 - curl Ping:
 ```
 curl -X POST https://push-1.forward.computer/26hrLuQBsVFcsqHMLhP1LjifRh8WYMerYyd71A2ofjo \
@@ -939,8 +939,8 @@ console.log(res);
 - If you hit `Rate limit exceeded`, add AO or use your own HB/Scheduler.
 
 ### Why WASM (vs. Eval/chunking)
-- Module loads directly by TXID; žádné chunk uploady, žádný Eval limit.
-- Payload/size limity u zpráv odpadají, kód je celý v modulu.
+- Module loads directly by TXID; no chunk uploads, no Eval limit.
+- Message payload/size limits are no longer a concern because the full code is in the module.
 
 ### Useful repos / references
 - ao dev-cli (builder, install scripts): https://github.com/permaweb/ao/tree/main/dev-cli
@@ -960,28 +960,28 @@ console.log(res);
 - Reminder: every module/process tx must fully finalize before judging errors. Expect ~5–10 min of 404, then ~30+ min pending→success. Use Viewblock (e.g., https://viewblock.io/arweave/tx/DHRy_YjzUY8f_1bBRi1-hCRdrbuKFLFmdc5e7ZA-3y4) to confirm Status=Success before messaging.
 
 ## 2026-04-04 — Local HB ans104 POST diagnostics
-- HyperBEAM (hyperbeam-edge-ephemeral) router: jediná cesta `/_` → AO pipeline, `/push` neexistuje. Root `/` bez body dává 302 na UI, jakýkoli POST (mimo preflight) jde do `hb_http:req_to_tabm_singleton`.
-- Přímý DataItem (Type=Process, žádné AO tagy) jako `application/octet-stream` na `/` → **200 OK** (vrací HyperBEAM UI), tj. request není zpracován jako AO msg, ale nezpůsobí chybu.
-- DataItem s plnými AO tagy (Type=Process, Data-Protocol=ao, Variant=ao.TN.1, Module=F47cEUL…, Scheduler/Authority=ZqkuoH…) + `Content-Type: application/ans104`, `codec-device: ans104@1.0`, `accept-bundle: true` → **500**; HB log: `binary:part/[<<>>,0,2] -> ar_bundles:decode_signature -> deserialize_item -> req_to_tabm_singleton`, tj. parser vidí prázdnou signature.
-- Stejný DataItem s AO tagy, ale hlavička pouze `application/octet-stream` (bez codec-device) → **200 OK** (UI), žádná chyba → HB neaktivuje ans104 decoder.
-- Z toho plyne: ans104 cesta je správná (POST `/`), ale náš ans104 payload není ve formátu, který HB očekává; `ar_bundles:deserialize_item/1` považuje podpis za prázdný.
-- Další krok: inspekce `/app/src/ar_bundles.erl` v kontejneru pro přesný layout a zkusit jiný serializer (např. @irys/arbundles nebo toBuffer) / ověřit, že body obsahuje kompletní ANS104 bundle tak, jak jej chce HB.
+- HyperBEAM (hyperbeam-edge-ephemeral) router: only one route `/_` → AO pipeline; `/push` does not exist. Root `/` without a body returns 302 to UI, and any POST (except preflight) goes to `hb_http:req_to_tabm_singleton`.
+- Direct DataItem (Type=Process, no AO tags) as `application/octet-stream` to `/` → **200 OK** (returns HyperBEAM UI), i.e., the request is not processed as an AO message, but it does not fail.
+- DataItem with full AO tags (Type=Process, Data-Protocol=ao, Variant=ao.TN.1, Module=F47cEUL…, Scheduler/Authority=ZqkuoH…) + `Content-Type: application/ans104`, `codec-device: ans104@1.0`, `accept-bundle: true` → **500**; HB log: `binary:part/[<<>>,0,2] -> ar_bundles:decode_signature -> deserialize_item -> req_to_tabm_singleton`, i.e., the parser sees an empty signature.
+- The same DataItem with AO tags, but header only `application/octet-stream` (without codec-device) → **200 OK** (UI), no error → HB does not activate the ans104 decoder.
+- This implies the ans104 route is correct (POST `/`), but our ans104 payload is not in the format HB expects; `ar_bundles:deserialize_item/1` treats the signature as empty.
+- Next step: inspect `/app/src/ar_bundles.erl` inside the container for exact layout and try another serializer (e.g., @irys/arbundles or toBuffer), and verify the body contains a complete ANS104 bundle in the exact format HB expects.
 
 ### 2026-04-04 — Ans104 parsing state (local HB)
-- POST na `/` s ans104 hlavičkami + query `/?x=1` nyní prochází až do ans104 decode, ale končí **500 "Attempted to resolve an empty message sequence."**
-- Dřívější chyba `decode_signature` je pryč → signature se načte, ale výsledný TABM je prázdný.
-- Inspekce `dev_codec_ans104_from` a `dev_codec_structured`: Base message se skládá z dat/tagů/fields podle `committed` keys; structured pak filtruje a dekóduje typy. Pokud committed/base je prázdný, vyletí "empty message sequence".
-- Podezření: DataItem nemá dost klíčů v datech/tagách, takže committed keys jsou prázdné → žádná message.
-- Další krok: poslat DataItem s data mapou obsahující `target` a `action` (lowercase, hb_ao normalize) a AO tagy (Type=Process, Data-Protocol=ao, Variant=ao.TN.1, Module, Scheduler, Authority, Name), na `/?x=1` s ans104 hlavičkami. Cíl: aby committed obsahovalo target/action a structured nevygenerovalo prázdnou sekvenci.
+- POST to `/` with ans104 headers + query `/?x=1` now reaches ans104 decode, but ends with **500 "Attempted to resolve an empty message sequence."**
+- The previous `decode_signature` error is gone → signature is read, but resulting TABM is empty.
+- Inspection of `dev_codec_ans104_from` and `dev_codec_structured`: the base message is composed from data/tags/fields based on `committed` keys; structured then filters and decodes types. If committed/base is empty, it throws "empty message sequence".
+- Suspicion: DataItem does not have enough keys in data/tags, so committed keys are empty → no message.
+- Next step: send a DataItem with a data map containing `target` and `action` (lowercase, hb_ao normalize) and AO tags (Type=Process, Data-Protocol=ao, Variant=ao.TN.1, Module, Scheduler, Authority, Name), to `/?x=1` with ans104 headers. Goal: committed should contain target/action and structured should not generate an empty sequence.
 
 ### 2026-04-04 — Empty message sequence root-cause
-- HB router: jediná trasa `/_`; `/push` neexistuje. Aby se obešel 302 na UI, používáme query `/?x=1`.
-- Ans104 request (POST `/` s hlavičkami `content-type: application/ans104`, `codec-device: ans104@1.0`, `accept-bundle: true`) se nyní deserializuje bez chyby podpisu, ale AO končí 500: **"Attempted to resolve an empty message sequence."**
-- `hb_ao:resolve_many` dostává prázdný seznam, protože `hb_util:message_to_ordered_list` vytváří list pouze z **očíslovaných klíčů** (1,2,…) v TABM. Naše TABM po ans104 decode žádné numerické klíče nemá ⇒ prázdný list ⇒ empty sequence.
-- Pokusy: target/action v TAGS, ao-data-key, data jako JSON map, jako list, jako map s klíčem "1" → stále empty sequence. Structured@1.0 (application/json + codec-device structured@1.0) končí `badmap` (body bráno jako binární řetězec).
-- Z `dev_codec_ans104_from` a `hb_message` plyne: committed/base message jsou prázdné, resp. nejsou očíslované ⇒ `message_to_ordered_list` vrací [].
-- Pro AO je potřeba TABM s numerickými klíči ("1", "2", …) nebo list. Ans104 data pole je binární, takže se numerické klíče nevytvoří automaticky; ans104 bundle zjevně nepřekládá JSON string do mapy.
-- Další směr: buď použít codec httpsig@1.0 (podepsaný request) nebo ans104 bundle ve formátu, který obsahuje očíslované zprávy (nenalezeno), případně postavit TABM ručně (mimo ans104) tak, aby měl číselné klíče.
+- HB router: only route `/_`; `/push` does not exist. To bypass the UI 302, we use query `/?x=1`.
+- Ans104 request (POST `/` with headers `content-type: application/ans104`, `codec-device: ans104@1.0`, `accept-bundle: true`) now deserializes without signature errors, but AO still ends with 500: **"Attempted to resolve an empty message sequence."**
+- `hb_ao:resolve_many` receives an empty list because `hb_util:message_to_ordered_list` builds a list only from **numbered keys** (1,2,…) in TABM. Our TABM after ans104 decode has no numeric keys ⇒ empty list ⇒ empty sequence.
+- Attempts: target/action in TAGS, ao-data-key, data as JSON map, as list, as map with key "1" → still empty sequence. Structured@1.0 (application/json + codec-device structured@1.0) ends with `badmap` (body treated as a binary string).
+- From `dev_codec_ans104_from` and `hb_message`: committed/base messages are empty, i.e., not numbered ⇒ `message_to_ordered_list` returns [].
+- AO needs TABM with numeric keys ("1", "2", …) or a list. Ans104 data field is binary, so numeric keys are not created automatically; ans104 bundle apparently does not translate JSON string into a map.
+- Next direction: either use codec httpsig@1.0 (signed request), or ans104 bundle format that contains numbered messages (not found), or build TABM manually (outside ans104) so it has numeric keys.
 
 ## 2026-04-05 — Mainnet WASM publish + spawn (push-1)
 - WASM module publish TX: `O1gXFuy3-8UA2wvLgIpqOQNCYzziDnuC6q0gaSEcwS4` (tags: ao.TN.1, wasm64-unknown-emscripten-draft_2024_02_15, signing-format=ans104, accept-bundle=true, accept-codec=httpsig@1.0, Name=blackcat-write).

@@ -154,7 +154,7 @@ async function main() {
   const pid = must(arg('pid'), 'pid')
   const scheduler = arg('scheduler', 'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo')
   const moduleId = arg('module', null)
-  const urls = String(arg('urls', 'https://push.forward.computer'))
+  const urls = String(arg('urls', 'http://127.0.0.1:8734'))
     .split(',')
     .map((x) => x.trim())
     .filter(Boolean)
