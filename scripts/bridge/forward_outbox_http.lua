@@ -24,9 +24,9 @@ local function shell_escape(s)
 end
 
 local function http_post(json_body)
-  local headers = '-H "Content-Type: application/json"'
+  local headers = "-H " .. shell_escape "Content-Type: application/json"
   if api_key and api_key ~= "" then
-    headers = headers .. ' -H "Authorization: Bearer ' .. api_key .. '"'
+    headers = headers .. " -H " .. shell_escape("Authorization: Bearer " .. api_key)
   end
   local cmd = string.format(
     'printf %%s %s | curl -s -o /tmp/ao-forward.log -w "%%{http_code}" %s -X POST %s --data-binary @-',

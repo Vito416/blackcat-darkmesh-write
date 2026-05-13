@@ -26,6 +26,10 @@ if [[ ${#OUTBOX_HMAC_SECRET} -lt 32 ]]; then
   exit 1
 fi
 
+if [[ "${AO_BRIDGE_MODE:-http}" == "http" ]]; then
+  req AO_ENDPOINT
+fi
+
 if [[ "${WRITE_SIG_TYPE:-ed25519}" == "hmac" ]]; then
   req WRITE_SIG_SECRET
 else

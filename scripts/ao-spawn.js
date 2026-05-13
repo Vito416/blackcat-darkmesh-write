@@ -1,33 +1,33 @@
-import { readFile } from 'fs/promises';
-import { resolve } from 'path';
-import { connect, createSigner } from '@permaweb/aoconnect';
+// Legacy wrapper kept for backward compatibility.
+// Prefer: scripts/cli/spawn_wasm_tn.js
+//
+// Supported legacy env mapping:
+// - MODULE_TX -> AO_MODULE
+// - URL -> HB_URL
+// - SCHEDULER -> HB_SCHEDULER
+// - WALLET/WALLET_PATH pass through
 
-const walletPath = resolve(process.env.WALLET || process.env.WALLET_PATH || 'wallet.json');
-const moduleTx = process.env.MODULE_TX;
-const scheduler = process.env.SCHEDULER || 'n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo';
-const url = process.env.URL || 'http://127.0.0.1:8734';
-const authority = process.env.AUTHORITY || scheduler;
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
+const moduleTx = process.env.MODULE_TX || process.env.AO_MODULE
 if (!moduleTx) {
-  console.error('MODULE_TX env is required (Arweave TX of write-bundle.lua).');
-  process.exit(1);
+  console.error('MODULE_TX (or AO_MODULE) env is required.')
+  process.exit(1)
 }
 
-async function main() {
-  const wallet = JSON.parse(await readFile(walletPath, 'utf8'));
-
-  const ao = connect({ MODE: 'mainnet', URL: url, SCHEDULER: scheduler, signer: createSigner(wallet) });
-
-  const pid = await ao.spawn({
-    module: moduleTx,
-    tags: [ { name: 'Authority', value: authority } ],
-    data: '-- boot: noop for write bundle'
-  });
-
-  console.log('Spawned process ID:', pid);
+const env = {
+  ...process.env,
+  AO_MODULE: moduleTx
 }
+if (!env.HB_URL && process.env.URL) env.HB_URL = process.env.URL
+if (!env.HB_SCHEDULER && process.env.SCHEDULER) env.HB_SCHEDULER = process.env.SCHEDULER
+if (!env.AO_NAME) env.AO_NAME = 'blackcat-write'
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+const targetPath = fileURLToPath(new URL('./cli/spawn_wasm_tn.js', import.meta.url))
+const child = spawnSync(process.execPath, [targetPath, ...process.argv.slice(2)], {
+  stdio: 'inherit',
+  env
+})
+
+process.exit(child.status ?? 1)

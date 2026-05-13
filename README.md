@@ -19,7 +19,7 @@ AO-native command layer for Blackcat Darkmesh. This repository hosts the write-s
 - [CLI helpers](#cli-helpers)
 - [Prod hardening checklist](#prod-hardening-checklist)
 - [Monitoring](#monitoring)
-- [Bridge (stub)](#bridge-stub)
+- [Bridge / outbox forwarding](#bridge--outbox-forwarding)
 - [Security Guard Rails](#security-guard-rails)
 - [License](#license)
 - [CI notes](#ci-notes)
@@ -98,8 +98,9 @@ Legend: teal = queues/events, gray = WAL/audit paths.
 
 ### Publish module (WASM)
 ```bash
-node scripts/build-write-bundle.js
-ao-dev build
+npm run build:ao
+# generate/refresh dist/write/process.lua + dist/write/config.yml with the pinned AO runtime pipeline
+npm run build:ao-wasm
 node scripts/publish-wasm.js
 ```
 
@@ -110,6 +111,10 @@ node scripts/publish-wasm.js
 - `signing-format=ans104`
 - `accept-bundle=true`
 - `accept-codec=httpsig@1.0`
+
+Notes:
+- `scripts/deploy/rebuild_wasm_from_runtime.sh` rebuilds `dist/write/process.wasm` from the generated runtime using the pinned `p3rmaw3b/ao:0.1.5` Docker image.
+- On WSL + Docker Desktop, the script automatically translates bind-mount paths so the same rebuild flow keeps working after a Docker reset.
 
 ### Spawn process
 ```bash
@@ -198,7 +203,7 @@ schemas/           # JSON schemas for command envelopes and actions
 scripts/           # deploy | verify
 fixtures/          # sample command envelopes and expected outcomes
 tests/             # contract, conflict, and security tests
-scripts/bridge/    # stub forwarder from write outbox to -ao
+scripts/bridge/    # outbox export/replay/HTTP forwarder tools
 scripts/cli/       # local helpers (run command)
 .github/workflows/ # CI entrypoint
 ```
@@ -206,6 +211,7 @@ scripts/cli/       # local helpers (run command)
 ## Minimal Command Envelope
 - Required tags: `Action`, `Request-Id`, `Actor`, `Tenant`, `Expected-Version`, `Nonce`, `Signature-Ref`, `Timestamp`.
 - Core handlers (initial set): `SaveDraftPage`, `PublishPageVersion`, `UpsertRoute`, `UpsertProduct`, `UpsertProfile`, `AssignRole`, `GrantEntitlement`, `CreateOrder`, `CreatePaymentIntent`, `ConfirmPayment`.
+- Policy/resolver actions are not handled by the write process. Generate templates here, then send them explicitly with `scripts/cli/send_control_command.js` to `AO_REGISTRY_PID` or `AO_RESOLVER_PID`: `RegisterHBNode`, `UpdateHBNodeStatus`, `SetSiteServingPolicy`, `SetSiteFundingState`, `SetPolicyMode`, `PublishPolicySnapshot`, `RevokePolicySnapshot`, `SetDnsProofState`, `GetTemplateActionContract`, `GetSiteRuntimeBundle`, `ResolveRouteForHost`, `GetSiteServingPolicy`, `GetPolicySnapshot`, `GetDnsProofState`, `ResolveHostPolicyBundle`, `GetDomainLifecycleState`, `SetDomainLifecycleState`, `CreateSessionLifecycle`, `ReadSessionLifecycle`, `GetSessionLifecycle`, `RotateSessionLifecycle`, `RevokeSessionLifecycle`, `ListSessionsBySubject`, `CheckPaymentWebhookIdempotency`, `GetPaymentWebhookIdempotencyState`, `ResetPaymentWebhookIdempotencyState`, `InvalidateResolverCache`, `GetResolverCacheStats`.
 - Conflict strategy: reject on missing/expired nonce, replayed `Request-Id`, or mismatched `Expected-Version`; return prior result when replayed.
 
 ## Development
@@ -218,7 +224,7 @@ scripts/cli/       # local helpers (run command)
 - Message contracts and schemas are public API; prefer additive changes over breaking ones.
 
 ### Quickstart (local dev)
-1) Install deps: `sudo apt-get install lua5.4 lua5.4-dev luarocks libsodium-dev`  
+1) Install deps: `sudo apt-get install lua5.4 lua5.4-dev luarocks libsodium-dev`
    then install rocks from the lockfile:
    ```bash
    while read -r name ver; do
@@ -227,16 +233,16 @@ scripts/cli/       # local helpers (run command)
      luarocks --lua-version=5.4 install --local "$name" "$ver"
    done < ops/rocks.lock
    ```
-2) Copy env template: `cp ops/env.prod.example ops/.env.local` and fill secrets:  
-   - `OUTBOX_HMAC_SECRET` (required)  
-   - signature verifier (`WRITE_SIG_PUBLIC` or `WRITE_SIG_SECRET` when `WRITE_SIG_TYPE=hmac`)  
+2) Copy env template: `cp ops/env.prod.example ops/.env.local` and fill secrets:
+   - `OUTBOX_HMAC_SECRET` (required)
+   - signature verifier (`WRITE_SIG_PUBLIC` or `WRITE_SIG_SECRET` when `WRITE_SIG_TYPE=hmac`)
    - optional `WRITE_JWT_HS_SECRET` if you turn on `WRITE_REQUIRE_JWT=1`.
 3) Run checks: `RUN_DEPS_CHECK=1 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" LUA_CPATH="$HOME/.luarocks/lib/lua/5.4/?.so" scripts/verify/preflight.sh` (or `make preflight RUN_DEPS_CHECK=1`).
 4) Fixtures: `RUN_BATCH=1 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/cli/batch_run.lua` (uses the env from step 2; hashes/nonce/signature checks can be relaxed via `WRITE_REQUIRE_*` env).
 5) Outbox/queue paths in the template default to `/var/lib/ao/...`; for dev you can override to `dev/*` paths next to the repo.
-6) Optional specs:  
-   - JWT: `RUN_JWT_SPEC=1 lua5.4 scripts/verify/jwt_actor_spec.lua` + `scripts/verify/jwt_expiry_spec.lua`  
-   - Rate/nonce: `RUN_RATE_SPEC=1 WRITE_RATE_STORE_PATH=dev/write-rate-store.json lua5.4 scripts/verify/rate_store_spec.lua`; `RUN_RATE_SPEC=1 lua5.4 scripts/verify/rate_tenant_scope_spec.lua`  
+6) Optional specs:
+   - JWT: `RUN_JWT_SPEC=1 lua5.4 scripts/verify/jwt_actor_spec.lua` + `scripts/verify/jwt_expiry_spec.lua`
+   - Rate/nonce: `RUN_RATE_SPEC=1 WRITE_RATE_STORE_PATH=dev/write-rate-store.json lua5.4 scripts/verify/rate_store_spec.lua`; `RUN_RATE_SPEC=1 lua5.4 scripts/verify/rate_tenant_scope_spec.lua`
    - Outbox HMAC: `RUN_OUTBOX_SPEC=1 lua5.4 scripts/verify/outbox_hmac_spec.lua`
 
 ## Env toggles (write process)
@@ -265,7 +271,7 @@ scripts/cli/       # local helpers (run command)
 - `WRITE_RL_BUCKET_TTL_SECONDS` / `WRITE_RL_MAX_BUCKETS` — trim idle buckets (default 4× window, 4096 buckets).
 - `WRITE_RATE_STORE_PATH` — persist rate-limit buckets across restarts (optional; JSON file written atomically).
 - `WRITE_NONCE_STORE_PATH` — persist nonce cache (tenant+actor namespaced) to survive restarts.
-- Bridge/env for queue/HTTP: `AO_ENDPOINT=https://...` (optional); `AO_API_KEY`; `DRY_RUN=1` or `AO_BRIDGE_MODE=mock|off|http`; `AO_BRIDGE_RETRIES`/`AO_BRIDGE_BACKOFF_MS`; `AO_QUEUE_PATH` (persisted queue), `AO_QUEUE_LOG_PATH=/var/lib/ao/queue-log.ndjson`, `AO_QUEUE_MAX_RETRIES=5`, `AO_EXPECT_RESPONSE_HASH` to enforce downstream body hash.
+- Bridge/env for queue/HTTP: `AO_ENDPOINT=https://...` is required when `AO_BRIDGE_MODE=http`; `AO_API_KEY`; `DRY_RUN=1` or `AO_BRIDGE_MODE=mock|off|http`; `AO_BRIDGE_RETRIES`/`AO_BRIDGE_BACKOFF_MS`; `AO_QUEUE_PATH` (persisted queue), `AO_QUEUE_LOG_PATH=/var/lib/ao/queue-log.ndjson`, `AO_QUEUE_MAX_RETRIES=5`, `AO_EXPECT_RESPONSE_HASH` to enforce downstream body hash.
 - PSP webhook hardening: set `STRIPE_WEBHOOK_SECRET` (32-byte secret from Stripe), `PAYPAL_WEBHOOK_STRICT=1` to require PayPal signatures, tune replay cache with `WRITE_WEBHOOK_REPLAY_WINDOW` / `WRITE_WEBHOOK_SEEN_TTL` (and optional `WRITE_WEBHOOK_SEEN_MAX`), and cap backlog with `WRITE_WEBHOOK_RETRY_MAX_QUEUE` alongside the existing `WRITE_WEBHOOK_RETRY_*` knobs.
 - Outbox HMAC enforcement: `WRITE_STRICT_OUTBOX_HMAC=1` rejects outbox events without `hmac` when `OUTBOX_HMAC_SECRET` is set (default off; forwarder still checks mismatches when `hmac` is present). HMAC input defaults to full canonical JSON of the event; set `WRITE_OUTBOX_HMAC_MODE=legacy` to use the older limited field hash.
 - Trust manifest signing (resolvers): set `TRUST_MANIFEST_HMAC` and run `lua scripts/cli/trust_manifest_sign.lua manifest.json > manifest.signed.json`; optionally set `TRUST_MANIFEST_SIGNER`.
@@ -281,15 +287,17 @@ docker compose run --rm write bash    # drop into shell with deps preinstalled
 Notes: the image ships with Lua openssl + luasodium so PSP/webhook specs run with crypto enabled. `outbox replay smoke` will print `hmac failures: missing=1` if `OUTBOX_HMAC_SECRET` is unset; set it to silence that warning.
 
 ## CLI helpers
-- `lua scripts/cli/run_command.lua ./fixtures/sample-save-draft.json` — route a JSON command locally and print the response (uses in-memory state). A publish sample is at `fixtures/sample-publish.json`.
+- `lua scripts/cli/run_command.lua ./fixtures/sample-save-draft.json` — route a write-command JSON locally and print the response (uses in-memory state). A publish sample is at `fixtures/sample-publish.json`.
 - `RUN_BATCH=1 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/cli/batch_run.lua` — run all fixtures and enforce matches to `*.expected.json` (CI uses this).
-- Queue forwarder (persisted outbox → HTTP):  
+- `lua scripts/cli/run_command.lua --template SetPolicyMode > /tmp/SetPolicyMode.json` — generate a registry/resolver control template. `run_command.lua /tmp/SetPolicyMode.json` intentionally refuses it with `WRONG_TARGET` because write is only write-command authority.
+- `AO_REGISTRY_PID=<pid> node scripts/cli/send_control_command.js /tmp/SetPolicyMode.json --target registry --hmac-secret "$AUTH_SIGNATURE_SECRET" --send` — send a control-plane command explicitly to the registry AO process. Use `AO_RESOLVER_PID` + `--target resolver` for resolver actions.
+- Queue forwarder (persisted outbox → HTTP):
   `AO_QUEUE_PATH=dev/outbox-queue.ndjson AO_QUEUE_LOG_PATH=dev/queue-log.ndjson AO_QUEUE_MAX_RETRIES=5 LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/bridge/queue_forward.lua`
-- Outbox replay into a fresh queue (with HMAC verify):  
+- Outbox replay into a fresh queue (with HMAC verify):
   `OUTBOX_HMAC_SECRET=dev-secret WRITE_OUTBOX_PATH=dev/outbox.json AO_QUEUE_PATH=dev/outbox-queue.ndjson lua scripts/worker/outbox_replay.lua`
-- Health snapshot (write-side files & deps):  
+- Health snapshot (write-side files & deps):
   `WRITE_WAL_PATH=... WRITE_OUTBOX_PATH=... AO_QUEUE_PATH=... LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/verify/health.lua`
-- Export verifier (PII scrub check):  
+- Export verifier (PII scrub check):
   `WRITE_OUTBOX_EXPORT_PATH=dev/outbox.ndjson lua scripts/verify/export_verify.lua`
 
 ## Prod hardening checklist
@@ -330,10 +338,12 @@ Notes: the image ships with Lua openssl + luasodium so PSP/webhook specs run wit
 - Add alerts on rising trends; log/Prom output controlled by `METRICS_*` envs in `ao/shared/metrics.lua`.
 - More alert examples: `docs/ALERTS.md`.
 
-## Bridge (stub)
-- `scripts/bridge/forward_outbox.lua` reads the in-memory outbox (`write._storage_outbox()`) and logs events you would forward to `blackcat-darkmesh-ao`. Replace `forward_event` with signed POST to AO endpoint (registry/site process) in production.
-- `scripts/bridge/export_outbox.lua [outfile]` dumps outbox to NDJSON (default `dev/outbox.ndjson`) for offline inspection or manual upload.
-- `scripts/bridge/forward_outbox_http.lua` posts outbox events to `AO_ENDPOINT` (set `DRY_RUN=1` to log only; optional `AO_API_KEY`, `AO_SITE_ID` tag).
+## Bridge / outbox forwarding
+- Write emits HMACed outbox events; `blackcat-darkmesh-ao` remains the state/read source of truth.
+- `ao.shared.bridge` and the queue daemon fail closed in HTTP mode when `AO_ENDPOINT` is missing, so events are not silently dropped.
+- `scripts/worker/outbox_replay.lua` seeds `AO_QUEUE_PATH` from persisted `WRITE_OUTBOX_PATH`; `scripts/worker/outbox_daemon.lua` forwards with retry/backoff/DLQ.
+- `scripts/bridge/forward_outbox_http.lua` is a manual HTTP forwarder; use `DRY_RUN=1` for inspection only.
+- `scripts/bridge/export_outbox.lua [outfile]` dumps outbox to NDJSON for offline audit or manual upload.
 
 ## Security Guard Rails
 - No secrets or raw keys in AO state, manifests, or adapters.

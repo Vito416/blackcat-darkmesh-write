@@ -14,6 +14,7 @@ Audience: ops/infra teams deploying the write AO process to production-like host
 ## Prepare host
 - Copy `ops/env.prod.example` to `/etc/blackcat/write.env` and fill secrets/paths:
   - Set `WRITE_WAL_PATH=/var/lib/ao/write-wal.ndjson` (matches logrotate) and `WRITE_OUTBOX_PATH=/var/lib/ao/write-outbox.json`.
+  - Set `AO_BRIDGE_MODE=http` only when `AO_ENDPOINT` points at the downstream AO bridge/registry endpoint; HTTP mode fails closed when `AO_ENDPOINT` is missing.
   - Tune retry knobs exposed for the worker: `OUTBOX_RETRY_LIMIT`, `OUTBOX_BACKOFF_MS`, `WRITE_WEBHOOK_RETRY_MAX`, `WRITE_WEBHOOK_RETRY_BASE_SECONDS`.
   - Point metric outputs: `METRICS_PROM_PATH=/var/lib/ao/metrics.prom` (exporter/sidecar reads this), set `METRICS_FLUSH_INTERVAL_SEC`.
   - Secrets: `OUTBOX_HMAC_SECRET` (32b hex, must match AO), `WRITE_SIG_PUBLIC`, `WRITE_REQUIRE_SIGNATURE=1`; optional `WRITE_JWT_HS_SECRET` if JWT enforced.
@@ -39,18 +40,23 @@ Audience: ops/infra teams deploying the write AO process to production-like host
 ## Post-deploy checks
 - Health probe: `WRITE_WAL_PATH=/var/lib/ao/write-wal.ndjson WRITE_OUTBOX_PATH=/var/lib/ao/write-outbox.json LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/verify/health.lua`.
 - Metrics spot-check: ensure `METRICS_PROM_PATH` contains `write_wal_bytes`, `write_webhook_retry_queue`, `write_webhook_retry_lag_seconds`, `write_wal_apply_duration_seconds`, `write_idempotency_collisions_total`.
-- Smoke commands: `lua scripts/cli/run_command.lua fixtures/sample-save-draft.json` then `lua scripts/cli/run_command.lua fixtures/sample-publish.json`; confirm WAL grows and outbox queue drains.
+- Smoke write commands: `lua scripts/cli/run_command.lua fixtures/sample-save-draft.json` then `lua scripts/cli/run_command.lua fixtures/sample-publish.json`; confirm WAL grows and outbox queue drains. For policy/resolver actions, generate templates with `run_command.lua --template` and send via `scripts/cli/send_control_command.js` to `AO_REGISTRY_PID`/`AO_RESOLVER_PID`.
 - Optional: force a logrotate dry run `logrotate -f /etc/logrotate.d/write-wal` on a canary host to verify permissions.
 - Arweave publish (arkb, optional): use workflow `Arweave Deploy (arkb)` (`.github/workflows/arkb-deploy.yml`) with inputs `artifact_path` (default `dev/write-export.ndjson`), `content_type` (default `application/json`). Requires secret `ARKB_WALLET_JSON_B64` (base64 wallet JSON). Workflow summary prints TXID + SHA256.
 
 ## AO push.forward.computer deploy flow (module + PID)
 - Build/publish:
-  - `node scripts/build-write-bundle.js`
-  - `ao-dev build`
+  - `npm run build:ao` (builds `dist/write-bundle.lua` from the Lua write process)
+  - generate the AO runtime package so `dist/write/process.lua` and `dist/write/config.yml` exist (current local flow uses the pinned HyperBEAM/AOS runtime pipeline recorded in `hyperengine.config.ts`)
+  - `npm run build:ao-wasm` (rebuilds `dist/write/process.wasm` from that runtime package with the pinned AO Docker image)
   - `node scripts/publish-wasm.js` (capture module TX)
 - Spawn:
   - `AO_MODULE=<module_tx> HB_URL=https://push.forward.computer HB_SCHEDULER=n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo node scripts/cli/spawn_wasm_tn.js`
   - capture PID from script output.
+  - script behavior:
+    - waits for `<module_tx>~module@1.0` readiness by default (`AO_WAIT_MODULE=1`),
+    - normalizes probe base when URL contains `~process@1.0` suffix,
+    - falls back spawn path `/push -> /~process@1.0/push` if needed.
 - Required finalization gate before production cutover:
   - `curl -s -o /dev/null -w '%{http_code}\n' https://arweave.net/raw/<module_tx>`
   - `curl -s -o /dev/null -w '%{http_code}\n' https://arweave.net/raw/<pid>`

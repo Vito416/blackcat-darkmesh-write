@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 WorkingDirectory=/opt/blackcat-darkmesh-write
 EnvironmentFile=/etc/blackcat/write.env
-# Expect WRITE_OUTBOX_PATH, OUTBOX_RETRY_LIMIT, OUTBOX_BACKOFF_MS, PROM_FORMAT
+# Expect WRITE_OUTBOX_PATH, AO_ENDPOINT, AO_QUEUE_PATH, OUTBOX_RETRY_LIMIT, OUTBOX_BACKOFF_MS
 ExecStart=/usr/bin/env LUA_PATH='?/init.lua;?.lua;./?/init.lua;./?.lua' LUA_CPATH='?.so;./?.so' lua scripts/worker/outbox_daemon.lua
 Restart=on-failure
 RestartSec=2

@@ -8,8 +8,9 @@
 
 ## Deploy new module + PID
 1) Build + publish WASM:
-   - `node scripts/build-write-bundle.js`
-   - `ao-dev build`
+   - `npm run build:ao`
+   - generate/refresh `dist/write/process.lua` + `dist/write/config.yml` with the pinned AO runtime pipeline
+   - `npm run build:ao-wasm`
    - `node scripts/publish-wasm.js` (capture `<new module tx>`)
 2) Spawn a new process:
    - `AO_MODULE=<new module tx> HB_URL=https://push.forward.computer HB_SCHEDULER=n_XZJhUnmldNFo4dhajoPZWhBXuJk-OcQr5JQ49c4Zo node scripts/cli/spawn_wasm_tn.js`

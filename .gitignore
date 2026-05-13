@@ -27,8 +27,8 @@ dev/*.log
 dev/outbox-queue.ndjson
 dev/write-export.ndjson
 dev/write-rate-store.json
-wallet.json
-.wallet.json
+wallet*.json
+.wallet*.json
 **/wallet.json
 arweave-second.json
 

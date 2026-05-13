@@ -8,7 +8,7 @@
   publish/apply events to AO.
 
 ## Health Checks
-- Command health:  
+- Command health:
   `WRITE_WAL_PATH=... WRITE_OUTBOX_PATH=... LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua scripts/verify/health.lua`
   (checks WAL/outbox size/hash, deps, rate-limit state).
 - Contract/conflict smoke tests: `RUN_CONTRACTS=1 RUN_CONFLICTS=1 scripts/verify/preflight.sh`.
@@ -23,8 +23,7 @@
 - WAL: `WRITE_WAL_PATH` (append-only audit of handled commands).
 - Outbox: `WRITE_OUTBOX_PATH` (events to deliver to AO). Guard size with
   `WRITE_WAL_MAX_BYTES` and monitor via health script.
-- Bridge to AO: use `scripts/bridge/forward_outbox_http.lua` or queue forwarder
-  with `AO_ENDPOINT`, `AO_API_KEY`, `AO_QUEUE_PATH`, `AO_QUEUE_LOG_PATH`.
+- Bridge to AO: prefer `scripts/worker/outbox_daemon.lua` via `ops/outbox-daemon.service`; use `scripts/bridge/forward_outbox_http.lua` only for manual forwarding. HTTP mode requires `AO_ENDPOINT`; missing endpoints fail closed instead of dropping events silently. Configure `AO_API_KEY`, `AO_QUEUE_PATH`, `AO_QUEUE_LOG_PATH`.
 - Enable HMAC on emitted events with `OUTBOX_HMAC_SECRET`; AO should verify
   before applying.
 

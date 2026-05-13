@@ -6,7 +6,8 @@ After=network.target
 Type=simple
 WorkingDirectory=/opt/blackcat-darkmesh-write
 Environment=WRITE_WAL_PATH=/var/lib/ao/write-wal.ndjson
-Environment=WRITE_OUTBOX_PATH=/var/lib/ao/outbox-queue.ndjson
+Environment=WRITE_OUTBOX_PATH=/var/lib/ao/write-outbox.json
+Environment=AO_QUEUE_PATH=/var/lib/ao/outbox-queue.ndjson
 Environment=WRITE_WAL_MAX_BYTES=5242880
 Environment=WRITE_OUTBOX_MAX_BYTES=2097152
 Environment=CHECKSUM_INTERVAL_SEC=60

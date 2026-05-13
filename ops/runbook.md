@@ -33,9 +33,7 @@ secrets live upstream (gateway/web).
   `WRITE_WAL_MAX_BYTES` and queue metrics.
 - Monitor via `scripts/verify/checksum_alert.sh`; run
   `ops/checksum-daemon.service` (see unit file).
-- Forwarder/worker: `ops/outbox-daemon.service` can drive
-  `scripts/bridge/forward_outbox_http.lua` (configure `AO_ENDPOINT`,
-  `AO_API_KEY`, `AO_QUEUE_PATH`, `AO_QUEUE_LOG_PATH`).
+- Forwarder/worker: `ops/outbox-daemon.service` drives `scripts/worker/outbox_daemon.lua`; use `scripts/bridge/forward_outbox_http.lua` only for manual one-shot forwarding. Configure `AO_ENDPOINT`, `AO_API_KEY`, `AO_QUEUE_PATH`, `AO_QUEUE_LOG_PATH`, and retry limits.
 - Rotation: if `write.wal.bytes` > threshold (see alert), archive/move WAL and
   restart forwarder. Prefer logrotate-style: copytruncate the WAL file after
   pausing forwarder, keep immutable bundle export as audit trail.

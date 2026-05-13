@@ -32,7 +32,7 @@ local function read_file(path)
 end
 
 local function sha256_file(path)
-  local pipe = io.popen("sha256sum " .. path .. " 2>/dev/null")
+  local pipe = io.popen("sha256sum " .. shell_escape(path) .. " 2>/dev/null")
   if not pipe then
     return nil
   end
@@ -55,12 +55,15 @@ local function sha256_str(str)
 end
 
 local function post(body)
-  if dry_run or not endpoint then
+  if dry_run then
     return true, 200, body
   end
-  local headers = '-H "Content-Type: application/json"'
+  if not endpoint or endpoint == "" then
+    return false, "missing_ao_endpoint"
+  end
+  local headers = "-H " .. shell_escape "Content-Type: application/json"
   if api_key and api_key ~= "" then
-    headers = headers .. ' -H "Authorization: Bearer ' .. api_key .. '"'
+    headers = headers .. " -H " .. shell_escape("Authorization: Bearer " .. api_key)
   end
   local tmp = os.tmpname()
   local cmd = string.format(

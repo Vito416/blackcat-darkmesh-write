@@ -4,16 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:ao": "esbuild ao/handler.ts --bundle --platform=node --format=esm --outfile=dist/ao-write.js",
+    "build:ao": "npm run bundle:write",
     "bundle:write": "node scripts/build-write-bundle.js",
     "api:checkout": "node scripts/http/checkout_api_server.mjs",
     "test:checkout-adapter-contract": "node --test --test-concurrency=1 tests/http/checkout_api_server.contract.test.mjs",
     "ao:upload": "node scripts/ao-upload.js",
     "ao:spawn": "node scripts/ao-spawn.js",
     "build:bundle": "node scripts/build-write-bundle.js",
-    "build:ao-wasm": "hyperengine build",
-    "smoke:wasm": "hyperengine smoke",
-    "preflight:prod": "bash scripts/preflight-prod.sh"
+    "build:ao-wasm": "bash scripts/deploy/rebuild_wasm_from_runtime.sh",
+    "smoke:wasm": "test -s dist/write/process.wasm && strings dist/write/process.wasm | grep -Fq 'function process.handle'",
+    "preflight:prod": "bash scripts/preflight-prod.sh",
+    "demo:publish-domain-tx": "node scripts/cli/publish_domain_demo_tx.js"
   },
   "devDependencies": {
     "@memetic-block/hyperengine": "github:memetic-block/hyperengine",

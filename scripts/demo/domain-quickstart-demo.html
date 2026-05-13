@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Darkmesh Domain Demo</title>
+  <style>
+    :root {
+      --bg: #05070d;
+      --ink: #f0f6ff;
+      --muted: #9ab0d9;
+      --panel: #0a1321;
+      --line: #2b3b59;
+      --cyan: #2fe7cf;
+      --blue: #66adff;
+      --gold: #ffd369;
+      --pink: #e07bff;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+
+    body {
+      color: var(--ink);
+      font: 16px/1.45 "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+      background:
+        radial-gradient(900px 560px at -10% -8%, rgba(224, 123, 255, 0.26), transparent 62%),
+        radial-gradient(840px 560px at 100% -4%, rgba(102, 173, 255, 0.25), transparent 62%),
+        radial-gradient(900px 600px at 50% 105%, rgba(47, 231, 207, 0.2), transparent 70%),
+        var(--bg);
+      overflow-x: hidden;
+    }
+
+    .scanlines {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.08;
+      background:
+        linear-gradient(to bottom, transparent, transparent 2px, rgba(255,255,255,0.1) 3px, transparent 4px);
+      background-size: 100% 4px;
+    }
+
+    main {
+      width: min(1040px, 94vw);
+      margin: 4vh auto 6vh;
+    }
+
+    .hero {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 26px;
+      background: linear-gradient(180deg, rgba(12, 20, 34, 0.95), rgba(7, 13, 22, 0.94));
+      box-shadow: 0 16px 60px rgba(0, 0, 0, 0.45);
+    }
+
+    .glow {
+      position: absolute;
+      inset: -1px;
+      border-radius: 24px;
+      pointer-events: none;
+      box-shadow: inset 0 0 0 1px rgba(102, 173, 255, 0.2), 0 0 42px rgba(102, 173, 255, 0.2);
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: clamp(1.55rem, 1.1rem + 1.6vw, 2.6rem);
+      line-height: 1.12;
+    }
+
+    .accent { color: var(--cyan); }
+    .sub {
+      margin: 0;
+      max-width: 78ch;
+      color: var(--muted);
+    }
+
+    .chips {
+      margin-top: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      padding: 6px 10px;
+      border: 1px solid #354764;
+      border-radius: 999px;
+      background: rgba(16, 28, 44, 0.9);
+      color: #d7e6ff;
+      font-size: 0.8rem;
+    }
+
+    .grid {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+      gap: 10px;
+    }
+
+    .card {
+      border: 1px solid #2a3c5a;
+      border-radius: 14px;
+      background: var(--panel);
+      padding: 11px 12px;
+    }
+
+    .k {
+      margin-bottom: 4px;
+      color: #9eb7de;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    code {
+      color: var(--blue);
+      font-size: 0.93em;
+      word-break: break-word;
+    }
+
+    .stats {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+    }
+
+    .stat {
+      border: 1px solid #314360;
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: rgba(16, 26, 40, 0.9);
+    }
+
+    .num {
+      display: block;
+      margin-top: 3px;
+      color: var(--gold);
+      font-weight: 700;
+      font-size: 1.12rem;
+    }
+
+    .cta {
+      margin-top: 14px;
+      border-left: 3px solid var(--cyan);
+      padding-left: 10px;
+      color: #cbe2ff;
+      font-size: 0.94rem;
+    }
+
+    .foot {
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="scanlines"></div>
+  <main>
+    <section class="hero">
+      <div class="glow"></div>
+      <h1><span class="accent">Darkmesh Resolver 1.0</span> Domain Gateway is online</h1>
+      <p class="sub">
+        Your custom domain is now served from Web3 routing via HyperBEAM. This is the default quickstart landing page users see right after onboarding.
+      </p>
+
+      <div class="chips">
+        <span class="chip">darkmesh-resolver@1.0</span>
+        <span class="chip">dm1 config + dns txt</span>
+        <span class="chip">arweave hosted content</span>
+        <span class="chip">hyperbeam delivery</span>
+      </div>
+
+      <div class="grid">
+        <div class="card"><div class="k">Active Host</div><code id="host"></code></div>
+        <div class="card"><div class="k">Request Path</div><code id="path"></code></div>
+        <div class="card"><div class="k">Resolved At</div><code id="renderedAt"></code></div>
+        <div class="card"><div class="k">Resolver Mode</div><code>host projection / tx target</code></div>
+        <div class="card"><div class="k">Build Stamp</div><code>__DM_BUILD_TIME__</code></div>
+        <div class="card"><div class="k">Backend</div><code>HyperBEAM + Arweave + AO ecosystem</code></div>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          Domain
+          <span class="num" id="domainLabel">-</span>
+        </div>
+        <div class="stat">
+          Protocol
+          <span class="num">DM1</span>
+        </div>
+        <div class="stat">
+          Integrity
+          <span class="num">Signature Verified</span>
+        </div>
+      </div>
+
+      <p class="cta">
+        Next step: replace this demo TX or switch to your own site process. Domain plumbing stays the same.
+      </p>
+      <p class="foot">
+        Darkmesh quickstart onboarding demo v2.
+      </p>
+    </section>
+  </main>
+  <script>
+    const host = location.host;
+    const path = location.pathname + location.search;
+    const now = new Date().toISOString();
+
+    document.getElementById("host").textContent = host;
+    document.getElementById("path").textContent = path;
+    document.getElementById("renderedAt").textContent = now;
+    document.getElementById("domainLabel").textContent = host.split(":")[0] || host;
+  </script>
+</body>
+</html>
